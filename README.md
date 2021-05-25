@@ -34,7 +34,7 @@ Now that you have created your TaxCloud account, there are a few important matte
 
 #### Manual Installation
 
-Download the extension as a ZIP file from the [releases page](/releases/latest). Unzip the archive and place at `app/code/Taxcloud/Magento2` on your webserver. Then run the following commands from your Magento 2 root directory.
+Download the extension as a ZIP file from the [releases page](https://github.com/FedTax/Magento2/releases/latest). Unzip the archive and place at `app/code/Taxcloud/Magento2` on your webserver. Then run the following commands from your Magento 2 root directory.
 
 ```
 bin/magento setup:upgrade
