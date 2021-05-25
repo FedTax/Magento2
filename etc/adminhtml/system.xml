@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2021 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+  <system>
+    <section id="tax" translate="label">
+      <group id="taxcloud" translate="label" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1" extends="">
+        <label>TaxCloud Settings</label>
+        <attribute type="expanded">1</attribute>
+        <group id="info" translate="label" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Worry-Free Sales Tax</label>
+          <frontend_model>Magento\Config\Block\System\Config\Form\Fieldset</frontend_model>
+          <attribute type="expanded">1</attribute>
+          <comment><![CDATA[
+          <div style="padding-left: 2.8rem">
+          <h2 style="font-weight: bold; margin: 1rem 0 0">How It Works</h2>
+          <p>TaxCloud is the Internet's most affordable sales tax compliance service with a state-paid option from 25 member states - because the states paying us lets us give back to you. Working closely with states allows TaxCloud to offer industry leading tax data, automated filing options, the lowest prices and best value for your business's transactions in the USA.</p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0">Calculate</h2>
+          <p>We determine the applicable sales tax rate based on product and service taxability.</p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0">Collect</h2>
+          <p>Sales tax is collected at the time of transaction on your site when your customers checkout.</p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0">File</h2>
+          <p>We can file returns and remit your collected sales tax proceeds to the appropriate state and local jurisdictions.</p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0">Audit-Ready</h2>
+          <p>We can support you with any state-issued notices or audit inquiries.</p>
+          <p><a href="https://taxcloud.net" target="_blank">Learn more</a></p>
+          </div>
+          ]]></comment>
+        </group>
+
+        <field id="enabled" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Enabled</label>
+          <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+          <config_path>tax/taxcloud_settings/enabled</config_path>
+        </field>
+
+        <field id="logging" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Logging Enabled</label>
+          <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+          <config_path>tax/taxcloud_settings/logging</config_path>
+          <tooltip>Enable TaxCloud API logging at /var/log/taxcloud.log (Ensure logrotation is enabled)</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="verify_address" translate="label" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Verify Address</label>
+          <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+          <config_path>tax/taxcloud_settings/verify_address</config_path>
+          <tooltip>Use TaxCloud's VerifyAddress API call (Disable if your shipping module handles this)</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="api_id" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>API ID</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/api_id</config_path>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="api_key" translate="label" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>API Key</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/api_key</config_path>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="guest_customer_id" translate="label" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
+          <label>Guest Customer ID</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/guest_customer_id</config_path>
+          <tooltip>Customer ID to use for guests (Default -1)</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="default_tic" translate="label" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
+          <label>Default TIC</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/default_tic</config_path>
+          <tooltip>Default TIC if not specified per product (Default 00000)</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="shipping_tic" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
+          <label>Shipping TIC</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/shipping_tic</config_path>
+          <tooltip>Shipping TIC (Use 11010 if you charge only postage, and 11000 for shipping &amp; handling)</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="cache_lifetime" translate="label" type="text" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
+          <label>Cache Lifetime</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/cache_lifetime</config_path>
+          <tooltip>API cache lifetime (Default 86400 = 24h, use 0 to disable)</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+      </group>
+    </section>
+  </system>
+</config>

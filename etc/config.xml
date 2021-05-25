@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2021 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+  <default>
+    <tax>
+      <taxcloud_settings>
+        <enabled>0</enabled>
+        <logging>1</logging>
+        <verify_address>1</verify_address>
+        <guest_customer_id>-1</guest_customer_id>
+        <default_tic>00000</default_tic>
+        <shipping_tic>11010</shipping_tic>
+       <cache_lifetime>86400</cache_lifetime>
+      </taxcloud_settings>
+    </tax>
+  </default>
+</config>
