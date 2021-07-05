@@ -19,7 +19,7 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
   <system>
     <section id="tax" translate="label">
-      <group id="taxcloud" translate="label" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1" extends="">
+      <group id="taxcloud" translate="label" sortOrder="0" showInDefault="1" showInWebsite="1" showInStore="1" extends="">
         <label>TaxCloud Settings</label>
         <attribute type="expanded">1</attribute>
         <group id="info" translate="label" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
