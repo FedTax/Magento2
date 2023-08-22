@@ -128,14 +128,7 @@ class Api
         $this->_objectFactory = $objectFactory;
         $this->_productFactory = $productFactory;
         $this->_regionFactory = $regionFactory;
-
-        if($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->_tclogger = $tclogger;
-        } else {
-            $this->_tclogger = new class {
-                public function info() {}
-            };
-        }
+        $this->_tclogger = $tclogger;
     }
 
     /**

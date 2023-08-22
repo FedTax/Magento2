@@ -78,14 +78,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
     ) {
         $this->_scopeConfig = $scopeConfig;
         $this->_tcapi = $tcapi;
-
-        if($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->_tclogger = $tclogger;
-        } else {
-            $this->_tclogger = new class {
-                public function info() {}
-            };
-        }
+        $this->_tclogger = $tclogger;
 
         parent::__construct(
             $taxConfig,
