@@ -205,8 +205,8 @@ class Api
             'Address2' => $this->_scopeConfig->getValue('shipping/origin/street_line2', $scope),
             'City' => $this->_scopeConfig->getValue('shipping/origin/city', $scope),
             'State' => $this->_regionFactory->create()->load($this->_scopeConfig->getValue('shipping/origin/region_id', $scope))->getCode(),
-            'Zip5' => explode('-', $this->_scopeConfig->getValue('shipping/origin/postcode', $scope))[0] ?? null,
-            'Zip4' => explode('-', $this->_scopeConfig->getValue('shipping/origin/postcode', $scope))[1] ?? null,
+            'Zip5' => explode('-', $this->_scopeConfig->getValue('shipping/origin/postcode', $scope) ?? '')[0] ?? null,
+            'Zip4' => explode('-', $this->_scopeConfig->getValue('shipping/origin/postcode', $scope) ?? '')[1] ?? null,
         );
     }
 
@@ -251,8 +251,8 @@ class Api
             'Address2' => $address->getStreet()[1] ?? '',
             'City' => $address->getCity(),
             'State' => $this->_regionFactory->create()->load($address->getRegionId())->getCode(),
-            'Zip5' => explode('-', $address->getPostcode())[0] ?? '',
-            'Zip4' => explode('-', $address->getPostcode())[1] ?? '',
+            'Zip5' => explode('-', $address->getPostcode() ?? '')[0] ?? '',
+            'Zip4' => explode('-', $address->getPostcode() ?? '')[1] ?? '',
         );
 
         if(!$address) {
