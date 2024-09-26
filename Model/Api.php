@@ -358,8 +358,10 @@ class Api
 
         // hash, check cache
         $cacheKeyApi = 'taxcloud_rates_' . hash('sha256', json_encode($params));
-
-        $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
+        $cacheResult = null;
+        if($this->_cacheType->load($cacheKeyApi)){
+            $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
+        }
 
         if($this->_getCacheLifetime() && $cacheResult) {
             $this->_tclogger->info('Using Cache');
@@ -681,8 +683,10 @@ class Api
 
         // hash, check cache
         $cacheKeyApi = 'taxcloud_address_' . hash('sha256', json_encode($params));
-
-        $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
+        $cacheResult = null;
+        if( $this->_cacheType->load($cacheKeyApi) ){
+            $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
+        }
 
         if($this->_getCacheLifetime() && $cacheResult) {
             $this->_tclogger->info('Using Cache');
