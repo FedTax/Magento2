@@ -1,6 +1,6 @@
 <img src="docs/images/tax-cloud-logo.png" align="right" />
 
-# TaxCloud Magento 2 Module
+# TaxCloud for Magento 2
 > Sales Tax at the Speed of Commerce
 
 ##### How It Works
