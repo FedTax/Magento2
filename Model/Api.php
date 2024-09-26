@@ -16,7 +16,7 @@
  */
 
 namespace Taxcloud\Magento2\Model;
-
+use Magento\Framework\Serialize\SerializerInterface;
 /**
  * Tax Calculation Model
  * @SuppressWarnings(PHPMD.TooManyFields)
@@ -100,6 +100,13 @@ class Api
     protected $_tclogger;
 
     /**
+     * TaxCloud Logger
+     *
+     * @var \Magento\Framework\Serialize\SerializerInterface
+     */
+    private $serializer;
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Magento\Framework\App\CacheInterface $cacheType
      * @param \Magento\Framework\Event\ManagerInterface $eventManager
@@ -118,7 +125,8 @@ class Api
         \Magento\Framework\DataObjectFactory $objectFactory,
         \Magento\Catalog\Model\ProductFactory $productFactory,
         \Magento\Directory\Model\RegionFactory $regionFactory,
-        \Taxcloud\Magento2\Logger\Logger $tclogger
+        \Taxcloud\Magento2\Logger\Logger $tclogger,
+        SerializerInterface $serializer
     )
     {
         $this->_scopeConfig = $scopeConfig;
@@ -128,7 +136,7 @@ class Api
         $this->_objectFactory = $objectFactory;
         $this->_productFactory = $productFactory;
         $this->_regionFactory = $regionFactory;
-
+        $this->serializer = $serializer;
         if($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->_tclogger = $tclogger;
         } else {
@@ -245,7 +253,10 @@ class Api
         $customer = $quote->getCustomer();
 
         $address = $shippingAssignment->getShipping()->getAddress();
-
+        if(!$address || !$address->getPostcode()) {
+            $this->_tclogger->info('No address, returning 0');
+            return $result;
+        }
         $destination = array(
             'Address1' => $address->getStreet()[0] ?? '',
             'Address2' => $address->getStreet()[1] ?? '',
@@ -255,10 +266,6 @@ class Api
             'Zip4' => explode('-', $address->getPostcode())[1] ?? '',
         );
 
-        if(!$address) {
-            $this->_tclogger->info('No address, returning 0');
-            return $result;
-        }
 
         if($address->getCountryId() !== 'US') {
             $this->_tclogger->info('Not US, returning 0');
@@ -350,9 +357,11 @@ class Api
         );
 
         // hash, check cache
-        $cacheKeyApi = 'taxcloud_rates_' . md5(json_encode($params));
-
-        $cacheResult = unserialize($this->_cacheType->load($cacheKeyApi));
+        $cacheKeyApi = 'taxcloud_rates_' . hash('sha256', json_encode($params));
+        $cacheResult = null;
+        if($this->_cacheType->load($cacheKeyApi)){
+            $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
+        }
 
         if($this->_getCacheLifetime() && $cacheResult) {
             $this->_tclogger->info('Using Cache');
@@ -437,7 +446,7 @@ class Api
             }
 
             $this->_tclogger->info('Caching lookupTaxes result for ' . $this->_getCacheLifetime());
-            $this->_cacheType->save(serialize($result), $cacheKeyApi, array('taxcloud_rates'), $this->_getCacheLifetime());
+            $this->_cacheType->save($this->serializer->serialize($result), $cacheKeyApi, array('taxcloud_rates'), $this->_getCacheLifetime());
 
             return $result;
 
@@ -673,9 +682,11 @@ class Api
         );
 
         // hash, check cache
-        $cacheKeyApi = 'taxcloud_address_' . md5(json_encode($params));
-
-        $cacheResult = unserialize($this->_cacheType->load($cacheKeyApi));
+        $cacheKeyApi = 'taxcloud_address_' . hash('sha256', json_encode($params));
+        $cacheResult = null;
+        if( $this->_cacheType->load($cacheKeyApi) ){
+            $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
+        }
 
         if($this->_getCacheLifetime() && $cacheResult) {
             $this->_tclogger->info('Using Cache');
@@ -748,7 +759,7 @@ class Api
             );
 
             $this->_tclogger->info('Caching verifyAddress result for ' . $this->_getCacheLifetime());
-            $this->_cacheType->save(serialize($result), $cacheKeyApi, array('taxcloud_address'), $this->_getCacheLifetime());
+            $this->_cacheType->save($this->serializer->serialize($result), $cacheKeyApi, array('taxcloud_address'), $this->_getCacheLifetime());
 
             return $result;
 
