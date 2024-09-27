@@ -23,22 +23,24 @@
         <label>TaxCloud Settings</label>
         <attribute type="expanded">1</attribute>
         <group id="info" translate="label" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-          <label>Worry-Free Sales Tax</label>
+          <label>Simplify Magento sales tax with TaxCloud integration</label>
           <frontend_model>Magento\Config\Block\System\Config\Form\Fieldset</frontend_model>
           <attribute type="expanded">1</attribute>
           <comment><![CDATA[
           <div style="padding-left: 2.8rem">
-          <h2 style="font-weight: bold; margin: 1rem 0 0">How It Works</h2>
-          <p>TaxCloud is the Internet's most affordable sales tax compliance service with a state-paid option from 25 member states - because the states paying us lets us give back to you. Working closely with states allows TaxCloud to offer industry leading tax data, automated filing options, the lowest prices and best value for your business's transactions in the USA.</p>
-          <h2 style="font-weight: bold; margin: 1rem 0 0">Calculate</h2>
-          <p>We determine the applicable sales tax rate based on product and service taxability.</p>
-          <h2 style="font-weight: bold; margin: 1rem 0 0">Collect</h2>
-          <p>Sales tax is collected at the time of transaction on your site when your customers checkout.</p>
-          <h2 style="font-weight: bold; margin: 1rem 0 0">File</h2>
-          <p>We can file returns and remit your collected sales tax proceeds to the appropriate state and local jurisdictions.</p>
-          <h2 style="font-weight: bold; margin: 1rem 0 0">Audit-Ready</h2>
-          <p>We can support you with any state-issued notices or audit inquiries.</p>
-          <p><a href="https://taxcloud.net" target="_blank">Learn more</a></p>
+          <p style="font-size:medium">
+            TaxCloud’s integration with Magento (now Adobe Commerce) makes sales tax automation easy, covering everything from calculation to collection and filing. Automate the entire process from calculation to filing, removing the need for manual data entry.
+          </p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0; color:#000000">Easy setup</h2>
+          <p style="padding-top:6px;">You can get started with TaxCloud without having to code or make customizations. Just configure your products with the proper tax codes and TaxCloud will charge the right amount of tax on every transaction.</p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0; color:#000000">Filing and remittance on your behalf</h2>
+          <p style="padding-top:6px;">Send us your sales tax data at the end of the month and we’ll file your sales tax returns for you. You can do this manually by uploading your Orders Report to our secure platform – or through an automatic upload via our Integration.</p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0; color:#000000">Simplify economic nexus</h2>
+          <p style="padding-top:6px;">Economic nexus is the point where your sales have exceeded revenue or transaction threshold determined by a state. After reaching economic nexus in a state, you’re required to charge and remit sales tax in that state. Send us your sales report and we’ll tell you exactly where you’ve reached nexus and where you’re getting close.</p>
+          <h2 style="font-weight: bold; margin: 1rem 0 0; color:#000000">Support with setting up sales tax collection</h2>
+          <p style="padding-top:6px;">You can ask our customer support team (powered by actual human beings – not bots) anything. Industry leading US-based support is what makes TaxCloud stand out among sales tax compliance software providers.</p>
+          <p style="font-size:medium">TaxCloud simplifies sales tax compliance for businesses of all sizes. With over 15 years of experience and trusted by 2,000+ customers, TaxCloud ensures you can calculate, collect, and file your sales taxes accurately across all 13,000+ US jurisdictions. Say goodbye to manual reporting and let TaxCloud handle your sales tax filing, saving you hours.</p>
+          <p><a href="https://taxcloud.com/talk-to-sales/" target="_blank">Book Demo</a></p>
           </div>
           ]]></comment>
         </group>
