@@ -3,6 +3,7 @@
 # TaxCloud for Magento 2
 > Sales Tax at the Speed of Commerce
 
+
 ##### How It Works
 TaxCloud is the Internet's most affordable sales tax compliance service with a state-paid option from 25 member states - because the states paying us lets us give back to you. Working closely with states allows TaxCloud to offer industry leading tax data, automated filing options, the lowest prices and best value for your business's transactions in the USA.
 
