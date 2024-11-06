@@ -451,7 +451,8 @@ class Api
             return $result;
 
         } else {
-            $this->_tclogger->info('Error encountered during lookupTaxes ' . $lookupResult['Messages']['ResponseMessage']['Message']);
+            $this->_tclogger->info('Error encountered during lookupTaxes: ' );
+            $this->_tclogger->info(print_r($lookupResult, true));
             return $result;
         }
     }
