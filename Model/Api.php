@@ -229,7 +229,7 @@ class Api
                 $wsdl = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
                 // $this->_client = $this->_soapClientFactory->create($wsdl);
                 $this->_client = new \SoapClient($wsdl);
-            } catch(Throwable $e) {
+            } catch(\Throwable $e) {
                 $this->_tclogger->info('Cannot get SoapClient:');
                 $this->_tclogger->info($e->getMessage());
             }
@@ -398,11 +398,11 @@ class Api
 
         try {
             $lookupResponse = $client->lookup($params);
-        } catch(Throwable $e) {
+        } catch(\Throwable $e) {
             // Retry
             try {
                 $lookupResponse = $client->lookup($params);
-            } catch(Throwable $e) {
+            } catch(\Throwable $e) {
                 $this->_tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
                 return $result;
             }
@@ -503,11 +503,11 @@ class Api
 
         try {
             $authorizedResponse = $client->authorizedWithCapture($params);
-        } catch(Throwable $e) {
+        } catch(\Throwable $e) {
             // Retry
             try {
                 $authorizedResponse = $client->authorizedWithCapture($params);
-            } catch(Throwable $e) {
+            } catch(\Throwable $e) {
                 $this->_tclogger->info('Error encountered during authorizeCapture: ' . $e->getMessage());
                 return false;
             }
@@ -623,11 +623,11 @@ class Api
 
         try {
             $returnResponse = $client->Returned($params);
-        } catch(Throwable $e) {
+        } catch(\Throwable $e) {
             // Retry
             try {
                 $returnResponse = $client->Returned($params);
-            } catch(Throwable $e) {
+            } catch(\Throwable $e) {
                 $this->_tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
                 return false;
             }
@@ -720,11 +720,11 @@ class Api
 
         try {
             $verifyResponse = $client->verifyAddress($params);
-        } catch(Throwable $e) {
+        } catch(\Exception $e) {
             // Retry
             try {
                 $verifyResponse = $client->verifyAddress($params);
-            } catch(Throwable $e) {
+            } catch(\Throwable $e) {
                 $this->_tclogger->info('Error encountered during verifyAddress: ' . $e->getMessage());
                 return $result;
             }
