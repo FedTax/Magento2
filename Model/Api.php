@@ -603,6 +603,7 @@ class Api
             'orderID' => $order->getIncrementId(),
             'cartItems' => $cartItems,
             'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00';
+            'returnCoDeliveryFeeWhenNoCartItems' => false
         );
 
         // Call before event
