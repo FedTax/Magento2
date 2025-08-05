@@ -192,6 +192,16 @@ class Api
     }
 
     /**
+     * Get return co-delivery fee when no cart items setting
+     *
+     * @return bool
+     */
+    protected function _getReturnCoDeliveryFeeWhenNoCartItems()
+    {
+        return (bool) $this->_scopeConfig->getValue('tax/taxcloud_settings/return_co_delivery_fee_when_no_cart_items', \Magento\Store\Model\ScopeInterface::SCOPE_STORE);
+    }
+
+    /**
      * Get TaxCloud Cache Lifetime
      * @return string
      */
@@ -603,7 +613,7 @@ class Api
             'orderID' => $order->getIncrementId(),
             'cartItems' => $cartItems,
             'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00';
-            'returnCoDeliveryFeeWhenNoCartItems' => false
+            'returnCoDeliveryFeeWhenNoCartItems' => $this->_getReturnCoDeliveryFeeWhenNoCartItems()
         );
 
         // Call before event
@@ -618,18 +628,38 @@ class Api
         ));
 
         $params = $obj->getParams();
+        
+        // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
+        if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
+            $params['returnCoDeliveryFeeWhenNoCartItems'] = $this->_getReturnCoDeliveryFeeWhenNoCartItems();
+        }
 
         $this->_tclogger->info('returnOrder PARAMS:');
         $this->_tclogger->info(print_r($params, true));
 
+        // Ensure all required parameters are properly set for SOAP call
+        $soapParams = array(
+            'apiLoginID' => $params['apiLoginID'],
+            'apiKey' => $params['apiKey'],
+            'orderID' => $params['orderID'],
+            'cartItems' => $params['cartItems'],
+            'returnedDate' => $params['returnedDate'],
+            'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
+        );
+
+        $this->_tclogger->info('returnOrder SOAP PARAMS:');
+        $this->_tclogger->info(print_r($soapParams, true));
+
         try {
-            $returnResponse = $client->Returned($params);
+            $returnResponse = $client->Returned($soapParams);
         } catch(Throwable $e) {
-            // Retry
+            $this->_tclogger->info('First attempt failed: ' . $e->getMessage());
+            // Retry with explicit parameter mapping
             try {
-                $returnResponse = $client->Returned($params);
+                $returnResponse = $client->Returned($soapParams);
             } catch(Throwable $e) {
                 $this->_tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
+                $this->_tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
                 return false;
             }
         }
