@@ -191,15 +191,7 @@ class Api
         return $this->_scopeConfig->getValue('tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE) ?? '11010';
     }
 
-    /**
-     * Get return co-delivery fee when no cart items setting
-     *
-     * @return bool
-     */
-    protected function _getReturnCoDeliveryFeeWhenNoCartItems()
-    {
-        return (bool) $this->_scopeConfig->getValue('tax/taxcloud_settings/return_co_delivery_fee_when_no_cart_items', \Magento\Store\Model\ScopeInterface::SCOPE_STORE);
-    }
+
 
     /**
      * Get TaxCloud Cache Lifetime
@@ -613,7 +605,7 @@ class Api
             'orderID' => $order->getIncrementId(),
             'cartItems' => $cartItems,
             'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00';
-            'returnCoDeliveryFeeWhenNoCartItems' => $this->_getReturnCoDeliveryFeeWhenNoCartItems()
+            'returnCoDeliveryFeeWhenNoCartItems' => false
         );
 
         // Call before event
@@ -631,7 +623,7 @@ class Api
         
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
-            $params['returnCoDeliveryFeeWhenNoCartItems'] = $this->_getReturnCoDeliveryFeeWhenNoCartItems();
+            $params['returnCoDeliveryFeeWhenNoCartItems'] = false;
         }
 
         $this->_tclogger->info('returnOrder PARAMS:');

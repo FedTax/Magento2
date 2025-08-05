@@ -129,15 +129,7 @@
           </depends>
         </field>
 
-        <field id="return_co_delivery_fee_when_no_cart_items" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
-          <label>Return Co-Delivery Fee When No Cart Items</label>
-          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-          <config_path>tax/taxcloud_settings/return_co_delivery_fee_when_no_cart_items</config_path>
-          <tooltip>Whether to return co-delivery fees when no cart items are present during refund (Default: No)</tooltip>
-          <depends>
-            <field id="enabled">1</field>
-          </depends>
-        </field>
+
 
       </group>
     </section>
