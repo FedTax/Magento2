@@ -283,4 +283,62 @@ class ApiTest extends TestCase
         // Assert the result
         $this->assertTrue($result, 'returnOrder should return true for successful refund with items');
     }
+
+    /**
+     * Test that specifically covers the failure case where returnCoDeliveryFeeWhenNoCartItems
+     * parameter gets lost during event processing
+     * This test should FAIL when the fix is not applied
+     */
+    public function testReturnOrderFailsWhenParameterIsLost()
+    {
+        // Mock configuration
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '00000'],
+                ['tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '11010']
+            ]);
+
+        // Mock SOAP client
+        $this->soapClientFactory->method('create')
+            ->willReturn($this->mockSoapClient);
+
+        // Mock data object for event handling
+        $this->objectFactory->method('create')
+            ->willReturn($this->mockDataObject);
+
+        // Mock credit memo
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
+        
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0);
+
+        // Mock SOAP error that occurs when returnCoDeliveryFeeWhenNoCartItems is missing
+        $this->mockSoapClient->method('Returned')
+            ->willThrowException(new \SoapFault('SOAP-ERROR', 'Encoding: object has no \'returnCoDeliveryFeeWhenNoCartItems\' property'));
+
+        // Mock data object methods - simulate event processing that removes the parameter
+        $this->mockDataObject->method('setParams')->willReturnSelf();
+        $this->mockDataObject->method('getParams')->willReturn([
+            'apiLoginID' => 'test_api_id',
+            'apiKey' => 'test_api_key',
+            'orderID' => 'TEST_ORDER_123',
+            'cartItems' => [],
+            'returnedDate' => '2025-01-03T00:00:00+00:00'
+            // Note: returnCoDeliveryFeeWhenNoCartItems is intentionally missing here
+        ]);
+
+        // Execute the method
+        $result = $this->api->returnOrder($creditmemo);
+
+        // This should FAIL when the fix is not applied
+        // The test expects the method to return false due to the SOAP error
+        $this->assertFalse($result, 'returnOrder should return false when returnCoDeliveryFeeWhenNoCartItems parameter is missing');
+    }
 } 

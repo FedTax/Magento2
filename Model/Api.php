@@ -191,8 +191,6 @@ class Api
         return $this->_scopeConfig->getValue('tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE) ?? '11010';
     }
 
-
-
     /**
      * Get TaxCloud Cache Lifetime
      * @return string
