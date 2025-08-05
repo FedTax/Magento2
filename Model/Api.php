@@ -618,7 +618,7 @@ class Api
         ));
 
         $params = $obj->getParams();
-        
+
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
             $params['returnCoDeliveryFeeWhenNoCartItems'] = false;
