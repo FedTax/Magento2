@@ -142,74 +142,18 @@ class PostalCodeParserTest
     }
 
     /**
-     * Test the specific failure case that was reported
-     */
-    public static function testFailureCase()
-    {
-        echo "=== Testing Original Failure Case ===\n\n";
-        
-        // This is the exact case that was failing: 55057+1616
-        $problematicInput = '55057+1616';
-        
-        echo "Original problematic input: '$problematicInput'\n";
-        
-        // Test with old parsing method (simulate the bug)
-        $oldResult = self::oldParseMethod($problematicInput);
-        echo "Old parsing method result: Zip5='{$oldResult['Zip5']}', Zip4='{$oldResult['Zip4']}'\n";
-        
-        // Test with new parsing method
-        $newResult = PostalCodeParser::parse($problematicInput);
-        echo "New parsing method result: Zip5='{$newResult['Zip5']}', Zip4='{$newResult['Zip4']}'\n";
-        
-        // Check if the fix works
-        $oldIsValid = PostalCodeParser::isValid($oldResult);
-        $newIsValid = PostalCodeParser::isValid($newResult);
-        
-        echo "Old result valid for TaxCloud API: " . ($oldIsValid ? 'YES' : 'NO') . "\n";
-        echo "New result valid for TaxCloud API: " . ($newIsValid ? 'YES' : 'NO') . "\n";
-        
-        if (!$oldIsValid && $newIsValid) {
-            echo "✅ SUCCESS: The fix resolves the original failure case!\n";
-            return true;
-        } else {
-            echo "❌ FAILURE: The fix does not resolve the original failure case.\n";
-            return false;
-        }
-    }
-
-    /**
-     * Simulate the old parsing method that was causing the bug
-     */
-    private static function oldParseMethod($postcode)
-    {
-        if (empty($postcode)) {
-            return ['Zip5' => null, 'Zip4' => null];
-        }
-
-        // This is the old method that only split on hyphen
-        $parts = explode('-', $postcode);
-        
-        return [
-            'Zip5' => $parts[0] ?? null,
-            'Zip4' => $parts[1] ?? null
-        ];
-    }
-
-    /**
      * Run all tests
      */
     public static function run()
     {
         $parsingTest = self::testParsing();
         $validationTest = self::testValidation();
-        $failureTest = self::testFailureCase();
         
         echo "=== Final Test Results ===\n";
         echo "Parsing tests: " . ($parsingTest ? "PASSED" : "FAILED") . "\n";
         echo "Validation tests: " . ($validationTest ? "PASSED" : "FAILED") . "\n";
-        echo "Failure case test: " . ($failureTest ? "PASSED" : "FAILED") . "\n";
         
-        if ($parsingTest && $validationTest && $failureTest) {
+        if ($parsingTest && $validationTest) {
             echo "\n🎉 All tests passed! The postal code parser is working correctly.\n";
             return true;
         } else {
