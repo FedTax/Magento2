@@ -57,6 +57,30 @@ bin/magento setup:di:compile
 }
 ```
 
+## Development
+
+### Contributing
+
+1. Fork the repository and create a feature branch
+2. Make your changes and test them in a Magento installation
+3. Submit a pull request
+
+**Note:** Tests run automatically on pull requests via GitHub Actions.
+
+### Running Tests
+
+```bash
+# Run all tests using Docker (recommended)
+make test
+
+# Run all tests locally (requires PHP)
+make test-local
+
+# Or run individual tests
+./run-test.sh
+php Test/Integration/PostalCodeParserTest.php
+```
+
 ## Configuring the TaxCloud Module
 
 After installing the module, there are a few important configuration options you must set in the Magento 2 admin dashboard.
