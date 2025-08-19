@@ -1,0 +1,17 @@
+# Composer dependencies
+vendor/
+composer.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+phpunit.xml
+.phpunit.result.cache
