@@ -17,6 +17,7 @@
 
 namespace Taxcloud\Magento2\Model;
 use Magento\Framework\Serialize\SerializerInterface;
+use Taxcloud\Magento2\Model\PostalCodeParser;
 /**
  * Tax Calculation Model
  * @SuppressWarnings(PHPMD.TooManyFields)
@@ -208,13 +209,23 @@ class Api
     {
         $scope = \Magento\Store\Model\ScopeInterface::SCOPE_STORE;
 
+        $originPostcode = $this->_scopeConfig->getValue('shipping/origin/postcode', $scope);
+        $parsedZip = PostalCodeParser::parse($originPostcode);
+        
+        // Validate the parsed ZIP code
+        if (!PostalCodeParser::isValid($parsedZip)) {
+            $this->_tclogger->info('Invalid origin ZIP code format: ' . $originPostcode);
+            // For origin address, we need a valid ZIP code - return null to indicate invalid origin
+            return null;
+        }
+        
         return array(
             'Address1' => $this->_scopeConfig->getValue('shipping/origin/street_line1', $scope),
             'Address2' => $this->_scopeConfig->getValue('shipping/origin/street_line2', $scope),
             'City' => $this->_scopeConfig->getValue('shipping/origin/city', $scope),
             'State' => $this->_regionFactory->create()->load($this->_scopeConfig->getValue('shipping/origin/region_id', $scope))->getCode(),
-            'Zip5' => explode('-', $this->_scopeConfig->getValue('shipping/origin/postcode', $scope))[0] ?? null,
-            'Zip4' => explode('-', $this->_scopeConfig->getValue('shipping/origin/postcode', $scope))[1] ?? null,
+            'Zip5' => $parsedZip['Zip5'],
+            'Zip4' => $parsedZip['Zip4'],
         );
     }
 
@@ -257,13 +268,22 @@ class Api
             $this->_tclogger->info('No address, returning 0');
             return $result;
         }
+        $destinationPostcode = $address->getPostcode();
+        $parsedZip = PostalCodeParser::parse($destinationPostcode);
+        
+        // Validate the parsed ZIP code
+        if (!PostalCodeParser::isValid($parsedZip)) {
+            $this->_tclogger->info('Invalid ZIP code format: ' . $destinationPostcode);
+            return $result;
+        }
+        
         $destination = array(
             'Address1' => $address->getStreet()[0] ?? '',
             'Address2' => $address->getStreet()[1] ?? '',
             'City' => $address->getCity(),
             'State' => $this->_regionFactory->create()->load($address->getRegionId())->getCode(),
-            'Zip5' => explode('-', $address->getPostcode())[0] ?? '',
-            'Zip4' => explode('-', $address->getPostcode())[1] ?? '',
+            'Zip5' => $parsedZip['Zip5'],
+            'Zip4' => $parsedZip['Zip4'],
         );
 
 
@@ -342,13 +362,19 @@ class Api
             }
         }
 
+        $origin = $this->_getOrigin();
+        if ($origin === null) {
+            $this->_tclogger->info('Invalid origin address configuration - cannot proceed with tax calculation');
+            return $result;
+        }
+
         $params = array(
             'apiLoginID' => $this->_getApiId(),
             'apiKey' => $this->_getApiKey(),
             'customerID' => $customer->getId() ?? $this->_getGuestCustomerId(),
             'cartID' => $quote->getId(),
             'cartItems' => $cartItems,
-            'origin' => $this->_getOrigin(),
+            'origin' => $origin,
             'destination' => $destination,
             'deliveredBySeller' => false,
             'exemptCert' => array(
