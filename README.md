@@ -6,7 +6,7 @@
 ## Compatibility
 
 **Adobe Commerce 2.4.8-p1 Compatible** ✅  
-This extension has been tested and verified to work with Adobe Commerce 2.4.8-p1 (released June 10th, 2025).
+This extension (Version 1.0.0) has been tested and verified to work with Adobe Commerce 2.4.8-p1 (released June 10th, 2025).
 
 **Supported Versions:**
 - Adobe Commerce 2.4.x
