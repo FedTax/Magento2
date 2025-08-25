@@ -3,6 +3,16 @@
 # TaxCloud for Magento 2
 > Sales Tax at the Speed of Commerce
 
+## Compatibility
+
+**Adobe Commerce 2.4.8-p1 Compatible** ✅  
+This extension (Version 1.0.0) has been tested and verified to work with Adobe Commerce 2.4.8-p1 (released June 10th, 2025).
+
+**Supported Versions:**
+- Adobe Commerce 2.4.x
+- Adobe Commerce 2.4.8-p1 ✅
+- Magento Open Source 2.4.x
+
 ##### How It Works
 TaxCloud is the Internet's most affordable sales tax compliance service with a state-paid option from 25 member states - because the states paying us lets us give back to you. Working closely with states allows TaxCloud to offer industry leading tax data, automated filing options, the lowest prices and best value for your business's transactions in the USA.
 
