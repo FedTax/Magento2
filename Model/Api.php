@@ -31,6 +31,7 @@ class Api
      */
     const ITEM_TYPE_SHIPPING = 'shipping';
     const ITEM_TYPE_PRODUCT = 'product';
+    const ITEM_CODE_SHIPPING = 'shipping';
     /**#@+
      * Constants for array keys
      */
@@ -199,6 +200,15 @@ class Api
     protected function _getCacheLifetime()
     {
         return intval($this->_scopeConfig->getValue('tax/taxcloud_settings/cache_lifetime', \Magento\Store\Model\ScopeInterface::SCOPE_STORE));
+    }
+
+    /**
+     * Check if fallback to Magento tax rates is enabled
+     * @return bool
+     */
+    private function _isFallbackToMagentoEnabled()
+    {
+        return (bool) $this->_scopeConfig->getValue('tax/taxcloud_settings/fallback_to_magento', \Magento\Store\Model\ScopeInterface::SCOPE_STORE);
     }
 
     /**
@@ -430,6 +440,13 @@ class Api
                 $lookupResponse = $client->lookup($params);
             } catch(Throwable $e) {
                 $this->_tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
+                
+                // Check if fallback to Magento is enabled
+                if ($this->_isFallbackToMagentoEnabled()) {
+                    $this->_tclogger->info('TaxCloud lookup failed, falling back to Magento tax rates');
+                    return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
+                }
+                
                 return $result;
             }
         }
@@ -479,6 +496,135 @@ class Api
         } else {
             $this->_tclogger->info('Error encountered during lookupTaxes: ' );
             $this->_tclogger->info(print_r($lookupResult, true));
+            
+            // Check if fallback to Magento is enabled
+            if ($this->_isFallbackToMagentoEnabled()) {
+                $this->_tclogger->info('TaxCloud lookup returned error response, falling back to Magento tax rates');
+                return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
+            }
+            
+            return $result;
+        }
+    }
+
+    /**
+     * Get Magento's default tax rates for fallback when TaxCloud fails
+     * @param $itemsByType
+     * @param $shippingAssignment
+     * @param $quote
+     * @return array
+     */
+    private function getMagentoTaxRates($itemsByType, $shippingAssignment, $quote)
+    {
+        $this->_tclogger->info('Falling back to Magento tax rates');
+        
+        $result = array(self::ITEM_TYPE_PRODUCT => array(), self::ITEM_TYPE_SHIPPING => 0);
+        
+        $address = $shippingAssignment->getShipping()->getAddress();
+        if (!$address) {
+            return $result;
+        }
+        
+        // Get the tax calculation service from the Tax model
+        $taxCalculationService = $this->_objectFactory->create(\Magento\Tax\Api\TaxCalculationInterface::class);
+        
+        if (!$taxCalculationService) {
+            $this->_tclogger->info('Could not get Magento tax calculation service');
+            return $result;
+        }
+        
+        try {
+            // Create quote details for tax calculation
+            $quoteDetailsFactory = $this->_objectFactory->create(\Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory::class);
+            $quoteDetailsItemFactory = $this->_objectFactory->create(\Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory::class);
+            $taxClassKeyFactory = $this->_objectFactory->create(\Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory::class);
+            $customerAddressFactory = $this->_objectFactory->create(\Magento\Customer\Api\Data\AddressInterfaceFactory::class);
+            $customerAddressRegionFactory = $this->_objectFactory->create(\Magento\Customer\Api\Data\RegionInterfaceFactory::class);
+            
+            if (!$quoteDetailsFactory || !$quoteDetailsItemFactory || !$taxClassKeyFactory || 
+                !$customerAddressFactory || !$customerAddressRegionFactory) {
+                $this->_tclogger->info('Could not create required factories for Magento tax calculation');
+                return $result;
+            }
+            
+            // Build customer address for tax calculation
+            $customerAddress = $customerAddressFactory->create();
+            $customerAddress->setCountryId($address->getCountryId());
+            $customerAddress->setRegionId($address->getRegionId());
+            $customerAddress->setPostcode($address->getPostcode());
+            $customerAddress->setCity($address->getCity());
+            $customerAddress->setStreet($address->getStreet());
+            
+            // Create quote details
+            $quoteDetails = $quoteDetailsFactory->create();
+            $quoteDetails->setBillingAddress($customerAddress);
+            $quoteDetails->setShippingAddress($customerAddress);
+            $quoteDetails->setCustomerTaxClassId($quote->getCustomerTaxClassId());
+            $quoteDetails->setItems([]);
+            
+            $keyedAddressItems = [];
+            foreach($shippingAssignment->getItems() as $item) {
+                $keyedAddressItems[$item->getTaxCalculationItemId()] = $item;
+            }
+            
+            $items = [];
+            if(isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
+                foreach($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
+                    $item = $keyedAddressItems[$code];
+                    if($item->getProduct()->getTaxClassId() === '0') {
+                        continue;
+                    }
+                    
+                    $quoteDetailsItem = $quoteDetailsItemFactory->create();
+                    $quoteDetailsItem->setCode($code);
+                    $quoteDetailsItem->setType(self::ITEM_TYPE_PRODUCT);
+                    $quoteDetailsItem->setTaxClassKey($taxClassKeyFactory->create()->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID)->setValue($item->getProduct()->getTaxClassId()));
+                    $quoteDetailsItem->setUnitPrice($item->getPrice());
+                    $quoteDetailsItem->setQuantity($item->getQty());
+                    $quoteDetailsItem->setDiscountAmount($item->getDiscountAmount());
+                    $quoteDetailsItem->setTaxIncluded(false);
+                    
+                    $items[] = $quoteDetailsItem;
+                }
+            }
+            
+            if(isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
+                foreach($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
+                    $quoteDetailsItem = $quoteDetailsItemFactory->create();
+                    $quoteDetailsItem->setCode($code);
+                    $quoteDetailsItem->setType(self::ITEM_TYPE_SHIPPING);
+                    $quoteDetailsItem->setTaxClassKey($taxClassKeyFactory->create()->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID)->setValue(0)); // Default tax class for shipping
+                    $quoteDetailsItem->setUnitPrice($itemTaxDetail[self::KEY_ITEM]->getRowTotal());
+                    $quoteDetailsItem->setQuantity(1);
+                    $quoteDetailsItem->setDiscountAmount(0);
+                    $quoteDetailsItem->setTaxIncluded(false);
+                    
+                    $items[] = $quoteDetailsItem;
+                }
+            }
+            
+            $quoteDetails->setItems($items);
+            
+            // Calculate tax using Magento's service
+            $taxDetails = $taxCalculationService->calculateTax($quoteDetails, $quote->getStoreId());
+            
+            // Process results
+            foreach($taxDetails->getItems() as $item) {
+                $code = $item->getCode();
+                $taxAmount = $item->getRowTax();
+                
+                if($item->getType() === self::ITEM_TYPE_SHIPPING) {
+                    $result[self::ITEM_TYPE_SHIPPING] += $taxAmount;
+                } else {
+                    $result[self::ITEM_TYPE_PRODUCT][$code] = $taxAmount;
+                }
+            }
+            
+            $this->_tclogger->info('Successfully calculated Magento tax rates: ' . json_encode($result));
+            return $result;
+            
+        } catch (\Throwable $e) {
+            $this->_tclogger->info('Error calculating Magento tax rates: ' . $e->getMessage());
             return $result;
         }
     }
