@@ -38,7 +38,7 @@ class CartItemResponseTest
         
         $testCases = [
             [
-                'name' => 'Client bug scenario - single item',
+                'name' => 'Single item',
                 'input' => ['CartItemIndex' => 0, 'TaxAmount' => 0],
                 'expected_processed' => 1,
                 'description' => 'The exact scenario from client bug report'
@@ -85,9 +85,6 @@ class CartItemResponseTest
             try {
                 $processedItems = $handler->processCartItemResponses($testCase['input']);
                 $processed = count($processedItems);
-                
-                echo "✓ Processed $processed items without crashing\n";
-                
             } catch (Throwable $e) {
                 $crashed = true;
                 echo "✗ Crashed with error: " . $e->getMessage() . "\n";
@@ -120,10 +117,10 @@ class CartItemResponseTest
         echo "CartItemResponse processing test: " . ($processingTest ? "PASSED" : "FAILED") . "\n";
         
         if ($processingTest) {
-            echo "\n✓ All tests passed! The fix prevents the 'array offset on int' error.\n";
+            echo "\n✓ All tests passed!\n";
             return true;
         } else {
-            echo "\n✗ Some tests failed. Please review the implementation.\n";
+            echo "\n✗ Some tests failed.\n";
             return false;
         }
     }
