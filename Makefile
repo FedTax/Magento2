@@ -16,6 +16,7 @@ test:
 # Run tests locally (requires PHP)
 test-local:
 	@echo "Running all tests locally..."
+	@echo "Running Integration Tests..."
 	@for test_file in Test/Integration/*.php; do \
 		echo "Running $$test_file..."; \
 		php "$$test_file"; \
