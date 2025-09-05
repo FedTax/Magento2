@@ -17,6 +17,8 @@
 
 namespace Taxcloud\Magento2\Test\Integration;
 
+require_once __DIR__ . '/../../Model/CartItemResponseHandler.php';
+
 use Taxcloud\Magento2\Model\CartItemResponseHandler;
 
 /**
