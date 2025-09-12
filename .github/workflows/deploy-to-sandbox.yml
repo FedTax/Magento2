@@ -1,0 +1,170 @@
+name: Deploy to Sandbox Environment
+
+on:
+  push:
+    branches: [ main, develop, DEV-* ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  MODULE_NAME: Taxcloud_Magento2
+  MODULE_PATH: app/code/Taxcloud/Magento2
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+        coverage: none
+        
+    - name: Install dependencies
+      run: |
+        composer install --no-dev --optimize-autoloader
+        
+    - name: Run integration tests
+      run: |
+        php Test/Integration/PostalCodeParserTest.php
+        php Test/Integration/RefundTest.php
+        php Test/Integration/ComprehensiveRefundTest.php
+        php Test/Integration/FailureCaseTest.php
+        php Test/Integration/FallbackToMagentoTest.php
+        php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
+
+  deploy:
+    name: Deploy to Sandbox
+    runs-on: ubuntu-latest
+    needs: test
+    if: needs.test.result == 'success'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create deployment package
+      run: |
+        # Create a clean deployment package
+        mkdir -p deployment-package
+        cp -r . deployment-package/
+        cd deployment-package
+        
+        # Remove unnecessary files for deployment
+        rm -rf .git
+        rm -rf .github
+        rm -rf Test/
+        rm -rf docs/
+        rm -rf .gitignore
+        rm -rf Makefile
+        rm -rf run-test.sh
+        rm -rf README.md
+        rm -rf LICENSE.txt
+        
+        # Create deployment archive
+        tar -czf ../taxcloud-magento2-deployment.tar.gz .
+        cd ..
+        
+    - name: Deploy via SFTP
+      uses: SamKirkland/FTP-Deploy-Action@4.3.4
+      with:
+        server: ${{ secrets.SFTP_HOST }}
+        username: ${{ secrets.SFTP_USERNAME }}
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SFTP_PORT || '22' }}
+        local-dir: './deployment-package/'
+        server-dir: '/${{ secrets.MAGENTO_ROOT_PATH }}/${{ env.MODULE_PATH }}/'
+        exclude: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
+          **/.DS_Store
+          **/Thumbs.db
+          **/.vscode/**
+          **/Test/**
+          **/docs/**
+          **/.github/**
+          **/Makefile
+          **/run-test.sh
+          **/README.md
+          **/LICENSE.txt
+          
+    - name: Execute Magento Commands
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SFTP_HOST }}
+        username: ${{ secrets.SFTP_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SFTP_PORT || '22' }}
+        script: |
+          cd ${{ secrets.MAGENTO_ROOT_PATH }}
+          
+          # Set proper permissions
+          chmod -R 755 ${{ env.MODULE_PATH }}
+          chown -R ${{ secrets.WEB_USER }}:${{ secrets.WEB_GROUP }} ${{ env.MODULE_PATH }}
+          
+          # Enable module if not already enabled
+          bin/magento module:enable ${{ env.MODULE_NAME }}
+          
+          # Run Magento setup commands
+          bin/magento setup:upgrade
+          bin/magento setup:di:compile
+          bin/magento setup:static-content:deploy -f
+          bin/magento cache:clean
+          bin/magento cache:flush
+          
+          # Verify module is enabled
+          bin/magento module:status ${{ env.MODULE_NAME }}
+          
+    - name: Verify Deployment
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SFTP_HOST }}
+        username: ${{ secrets.SFTP_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SFTP_PORT || '22' }}
+        script: |
+          cd ${{ secrets.MAGENTO_ROOT_PATH }}
+          
+          # Check if module files exist
+          if [ -d "${{ env.MODULE_PATH }}" ]; then
+            echo "✅ Module directory exists"
+            ls -la ${{ env.MODULE_PATH }}
+          else
+            echo "❌ Module directory not found"
+            exit 1
+          fi
+          
+          # Check if module is enabled
+          if bin/magento module:status ${{ env.MODULE_NAME }} | grep -q "enabled"; then
+            echo "✅ Module is enabled"
+          else
+            echo "❌ Module is not enabled"
+            exit 1
+          fi
+          
+          # Check if API files exist
+          if [ -f "${{ env.MODULE_PATH }}/Model/Api.php" ]; then
+            echo "✅ API model exists"
+          else
+            echo "❌ API model not found"
+            exit 1
+          fi
+          
+    - name: Notify Deployment Status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "🎉 Deployment successful!"
+          echo "Module deployed to: ${{ secrets.SFTP_HOST }}${{ secrets.MAGENTO_ROOT_PATH }}/${{ env.MODULE_PATH }}"
+        else
+          echo "❌ Deployment failed!"
+          exit 1
+        fi
