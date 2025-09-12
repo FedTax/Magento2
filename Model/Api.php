@@ -212,6 +212,21 @@ class Api
     }
 
     /**
+     * Set customer address data from quote address
+     * @param \Magento\Customer\Api\Data\AddressInterface $customerAddress
+     * @param \Magento\Quote\Model\Quote\Address $quoteAddress
+     * @return void
+     */
+    private function setFromAddress($customerAddress, $quoteAddress)
+    {
+        $customerAddress->setCountryId($quoteAddress->getCountryId());
+        $customerAddress->setRegionId($quoteAddress->getRegionId());
+        $customerAddress->setPostcode($quoteAddress->getPostcode());
+        $customerAddress->setCity($quoteAddress->getCity());
+        $customerAddress->setStreet($quoteAddress->getStreet());
+    }
+
+    /**
      * Get TaxCloud Shipping Origin
      * @return array
      */
@@ -549,11 +564,7 @@ class Api
             
             // Build customer address for tax calculation
             $customerAddress = $customerAddressFactory->create();
-            $customerAddress->setCountryId($address->getCountryId());
-            $customerAddress->setRegionId($address->getRegionId());
-            $customerAddress->setPostcode($address->getPostcode());
-            $customerAddress->setCity($address->getCity());
-            $customerAddress->setStreet($address->getStreet());
+            $this->setFromAddress($customerAddress, $address);
             
             // Create quote details
             $quoteDetails = $quoteDetailsFactory->create();

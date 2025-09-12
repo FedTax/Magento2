@@ -72,7 +72,8 @@ class FallbackToMagentoTest
             
             $requiredMethods = [
                 '_isFallbackToMagentoEnabled',
-                'getMagentoTaxRates'
+                'getMagentoTaxRates',
+                'setFromAddress'
             ];
             
             $passed = 0;
