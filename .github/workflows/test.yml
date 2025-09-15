@@ -29,23 +29,12 @@ jobs:
       run: |
         composer install --no-dev --optimize-autoloader
         
-    - name: Run Postal Code Parser Tests
-      run: php Test/Integration/PostalCodeParserTest.php
-      
-    - name: Run Refund Tests
-      run: php Test/Integration/RefundTest.php
-      
-    - name: Run Comprehensive Refund Tests
-      run: php Test/Integration/ComprehensiveRefundTest.php
-      
-    - name: Run Failure Case Tests
-      run: php Test/Integration/FailureCaseTest.php
-      
-    - name: Run Fallback Tests
-      run: php Test/Integration/FallbackToMagentoTest.php
-      
-    - name: Run Adobe Commerce Compatibility Tests
-      run: php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
+    - name: Run Integration Tests
+      run: |
+        for test_file in Test/Integration/*Test.php; do
+          echo "Running $test_file..."
+          php "$test_file"
+        done
 
   test-docker:
     name: Test with Docker

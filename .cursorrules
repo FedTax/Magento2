@@ -15,7 +15,6 @@ php Test/Integration/PostalCodeParserTest.php
 php Test/Integration/RefundTest.php
 php Test/Integration/ComprehensiveRefundTest.php
 php Test/Integration/FailureCaseTest.php
-php Test/Integration/FallbackToMagentoTest.php
 php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
 
 # Run all tests at once
