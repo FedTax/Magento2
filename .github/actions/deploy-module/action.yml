@@ -35,22 +35,18 @@ runs:
       run: |
         # Create a clean deployment package
         mkdir -p deployment-package
-        cp -r . deployment-package/
-        cd deployment-package
         
-        # Remove unnecessary files for deployment
-        rm -rf .git
-        rm -rf .github
-        rm -rf Test/
-        rm -rf docs/
-        rm -rf .gitignore
-        rm -rf Makefile
-        rm -rf run-test.sh
-        rm -rf README.md
-        rm -rf LICENSE.txt
-        rm -rf scripts/
+        # Copy specific files and directories needed for deployment
+        cp -r Model/ deployment-package/
+        cp -r Observer/ deployment-package/
+        cp -r Logger/ deployment-package/
+        cp -r Setup/ deployment-package/
+        cp -r etc/ deployment-package/
+        cp registration.php deployment-package/
+        cp composer.json deployment-package/
         
         # Create deployment archive
+        cd deployment-package
         tar -czf ../taxcloud-magento2-deployment.tar.gz .
         cd ..
         
@@ -63,7 +59,6 @@ runs:
         port: ${{ inputs.port }}
         source: './deployment-package/*'
         target: '${{ inputs.magento-root }}/${{ inputs.module-path }}/'
-        strip_components: 1
           
     - name: Execute Magento Commands
       uses: appleboy/ssh-action@v1.0.3
