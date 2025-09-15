@@ -1,0 +1,33 @@
+name: 'Run Integration Tests'
+description: 'Run all integration tests for the TaxCloud Magento2 extension'
+inputs:
+  php-version:
+    description: 'PHP version to use'
+    required: false
+    default: '8.1'
+  extensions:
+    description: 'PHP extensions to install (comma-separated)'
+    required: false
+    default: 'soap,dom,curl,libxml,mbstring,zip,pcntl,pdo,sqlite,pdo_sqlite,bcmath,soap,intl,gd,exif,iconv'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up PHP ${{ inputs.php-version }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ inputs.php-version }}
+        extensions: ${{ inputs.extensions }}
+        coverage: none
+        
+    - name: Install dependencies
+      run: |
+        composer install --no-dev --optimize-autoloader
+        
+    - name: Run integration tests
+      shell: bash
+      run: |
+        for test_file in Test/Integration/*Test.php; do
+          echo "Running $test_file..."
+          php "$test_file"
+        done
