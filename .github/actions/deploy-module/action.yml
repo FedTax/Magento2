@@ -1,0 +1,107 @@
+name: 'Deploy Module to Server'
+description: 'Deploy TaxCloud Magento2 module to a Magento installation via SFTP'
+inputs:
+  server:
+    description: 'Server hostname or IP'
+    required: true
+  username:
+    description: 'SSH username'
+    required: true
+  ssh-key:
+    description: 'SSH private key'
+    required: true
+  port:
+    description: 'SSH port'
+    required: false
+    default: '22'
+  magento-root:
+    description: 'Magento root directory path'
+    required: true
+  module-path:
+    description: 'Module path relative to Magento root'
+    required: true
+  web-user:
+    description: 'Web server user'
+    required: true
+  web-group:
+    description: 'Web server group'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create deployment package
+      shell: bash
+      run: |
+        # Create a clean deployment package
+        mkdir -p deployment-package
+        cp -r . deployment-package/
+        cd deployment-package
+        
+        # Remove unnecessary files for deployment
+        rm -rf .git
+        rm -rf .github
+        rm -rf Test/
+        rm -rf docs/
+        rm -rf .gitignore
+        rm -rf Makefile
+        rm -rf run-test.sh
+        rm -rf README.md
+        rm -rf LICENSE.txt
+        rm -rf scripts/
+        
+        # Create deployment archive
+        tar -czf ../taxcloud-magento2-deployment.tar.gz .
+        cd ..
+        
+    - name: Deploy via SFTP
+      uses: SamKirkland/FTP-Deploy-Action@4.3.4
+      with:
+        server: ${{ inputs.server }}
+        username: ${{ inputs.username }}
+        ssh-private-key: ${{ inputs.ssh-key }}
+        port: ${{ inputs.port }}
+        local-dir: './deployment-package/'
+        server-dir: '/${{ inputs.magento-root }}/${{ inputs.module-path }}/'
+        exclude: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
+          **/.DS_Store
+          **/Thumbs.db
+          **/.vscode/**
+          **/Test/**
+          **/docs/**
+          **/.github/**
+          **/Makefile
+          **/run-test.sh
+          **/README.md
+          **/LICENSE.txt
+          **/scripts/**
+          
+    - name: Execute Magento Commands
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ inputs.server }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.ssh-key }}
+        port: ${{ inputs.port }}
+        script: |
+          cd ${{ inputs.magento-root }}
+          
+          # Set proper permissions
+          chmod -R 755 ${{ inputs.module-path }}
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} ${{ inputs.module-path }}
+          
+          # Enable module if not already enabled
+          bin/magento module:enable Taxcloud_Magento2
+          
+          # Run Magento setup commands
+          bin/magento setup:upgrade
+          bin/magento setup:di:compile
+          bin/magento setup:static-content:deploy -f
+          bin/magento cache:clean
+          bin/magento cache:flush
+          
+          # Verify module is enabled
+          bin/magento module:status Taxcloud_Magento2

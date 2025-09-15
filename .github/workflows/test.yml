@@ -1,23 +1,107 @@
-name: Tests
+name: Test Suite
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, develop, DEV-* ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, develop ]
+  workflow_dispatch:
 
 jobs:
-  test:
+  test-php-versions:
+    name: Test PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: ['8.1', '8.2', '8.3']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up PHP ${{ matrix.php-version }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+        coverage: none
+        
+    - name: Install dependencies
+      run: |
+        composer install --no-dev --optimize-autoloader
+        
+    - name: Run Postal Code Parser Tests
+      run: php Test/Integration/PostalCodeParserTest.php
+      
+    - name: Run Refund Tests
+      run: php Test/Integration/RefundTest.php
+      
+    - name: Run Comprehensive Refund Tests
+      run: php Test/Integration/ComprehensiveRefundTest.php
+      
+    - name: Run Failure Case Tests
+      run: php Test/Integration/FailureCaseTest.php
+      
+    - name: Run Fallback Tests
+      run: php Test/Integration/FallbackToMagentoTest.php
+      
+    - name: Run Adobe Commerce Compatibility Tests
+      run: php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
+
+  test-docker:
+    name: Test with Docker
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run tests with Docker
+      run: |
+        chmod +x run-test.sh
+        ./run-test.sh
+
+  lint-code:
+    name: Lint Code
+    runs-on: ubuntu-latest
     
-    - name: Setup PHP
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up PHP
       uses: shivammathur/setup-php@v2
       with:
         php-version: '8.1'
-        extensions: mbstring, xml, ctype, iconv
+        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+        
+    - name: Install PHP CodeSniffer
+      run: |
+        composer global require squizlabs/php_codesniffer
+        echo "$HOME/.composer/vendor/bin" >> $GITHUB_PATH
+        
+    - name: Run PHP CodeSniffer
+      run: |
+        phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
+        
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
     
-    - name: Run all tests
-      run: make test
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
