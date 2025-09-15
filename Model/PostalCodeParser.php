@@ -19,7 +19,7 @@ namespace Taxcloud\Magento2\Model;
 
 /**
  * Postal Code Parser Utility
- * 
+ *
  * Handles parsing of US ZIP codes in various formats:
  * - 55057 (5 digits only)
  * - 55057-1616 (ZIP+4 with hyphen)
@@ -30,7 +30,7 @@ class PostalCodeParser
 {
     /**
      * Parse a postal code string into Zip5 and Zip4 components
-     * 
+     *
      * @param string|null $postcode The postal code to parse
      * @return array Array with 'Zip5' and 'Zip4' keys
      */
@@ -54,7 +54,7 @@ class PostalCodeParser
 
     /**
      * Validate if a parsed ZIP code is valid for TaxCloud API
-     * 
+     *
      * @param array $parsedZip Array with 'Zip5' and 'Zip4' keys
      * @return bool True if valid, false otherwise
      */

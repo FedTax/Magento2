@@ -21,6 +21,7 @@ runs:
         coverage: none
         
     - name: Install dependencies
+      shell: bash
       run: |
         composer install --no-dev --optimize-autoloader
         

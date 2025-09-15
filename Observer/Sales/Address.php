@@ -53,16 +53,17 @@ class Address implements ObserverInterface
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger
-    )
-    {
+    ) {
         $this->_scopeConfig = $scopeConfig;
         $this->_tcapi = $tcapi;
 
-        if($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->_tclogger = $tclogger;
         } else {
             $this->_tclogger = new class {
-                public function info() {}
+                public function info()
+                {
+                }
             };
         }
     }
@@ -72,13 +73,12 @@ class Address implements ObserverInterface
      */
     public function execute(
         Observer $observer
-    )
-    {
-        if(!$this->_scopeConfig->getValue('tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+    ) {
+        if (!$this->_scopeConfig->getValue('tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             return;
         }
 
-        if(!$this->_scopeConfig->getValue('tax/taxcloud_settings/verify_address', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+        if (!$this->_scopeConfig->getValue('tax/taxcloud_settings/verify_address', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             return;
         }
 
@@ -89,11 +89,9 @@ class Address implements ObserverInterface
 
         $result = $this->_tcapi->verifyAddress($params['destination']);
 
-        if($result) {
+        if ($result) {
             $params['destination'] = $result;
             $obj->setParams($params);
         }
-
     }
-
 }
