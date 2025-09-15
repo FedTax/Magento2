@@ -54,30 +54,16 @@ runs:
         tar -czf ../taxcloud-magento2-deployment.tar.gz .
         cd ..
         
-    - name: Deploy via SFTP
-      uses: SamKirkland/FTP-Deploy-Action@4.3.4
+    - name: Deploy via SCP
+      uses: appleboy/scp-action@v0.1.7
       with:
-        server: ${{ inputs.server }}
+        host: ${{ inputs.server }}
         username: ${{ inputs.username }}
-        ssh-private-key: ${{ inputs.ssh-key }}
+        key: ${{ inputs.ssh-key }}
         port: ${{ inputs.port }}
-        local-dir: './deployment-package/'
-        server-dir: '/${{ inputs.magento-root }}/${{ inputs.module-path }}/'
-        exclude: |
-          **/.git*
-          **/.git*/**
-          **/node_modules/**
-          **/.DS_Store
-          **/Thumbs.db
-          **/.vscode/**
-          **/Test/**
-          **/docs/**
-          **/.github/**
-          **/Makefile
-          **/run-test.sh
-          **/README.md
-          **/LICENSE.txt
-          **/scripts/**
+        source: './deployment-package/*'
+        target: '${{ inputs.magento-root }}/${{ inputs.module-path }}/'
+        strip_components: 1
           
     - name: Execute Magento Commands
       uses: appleboy/ssh-action@v1.0.3
