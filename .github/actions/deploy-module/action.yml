@@ -50,15 +50,38 @@ runs:
         tar -czf ../taxcloud-magento2-deployment.tar.gz .
         cd ..
         
-    - name: Deploy via SCP
+    - name: Upload and Extract Module
       uses: appleboy/scp-action@v0.1.7
       with:
         host: ${{ inputs.server }}
         username: ${{ inputs.username }}
         key: ${{ inputs.ssh-key }}
         port: ${{ inputs.port }}
-        source: './deployment-package/*'
-        target: '${{ inputs.magento-root }}/${{ inputs.module-path }}/'
+        source: './taxcloud-magento2-deployment.tar.gz'
+        target: '/tmp/'
+        timeout: 300s
+        
+    - name: Extract Module Files
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ inputs.server }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.ssh-key }}
+        port: ${{ inputs.port }}
+        timeout: 300s
+        script: |
+          # Create module directory if it doesn't exist
+          mkdir -p ${{ inputs.magento-root }}/${{ inputs.module-path }}
+          
+          # Remove old module files
+          rm -rf ${{ inputs.magento-root }}/${{ inputs.module-path }}/*
+          
+          # Extract new module files
+          cd ${{ inputs.magento-root }}/${{ inputs.module-path }}
+          tar -xzf /tmp/taxcloud-magento2-deployment.tar.gz
+          
+          # Clean up temporary file
+          rm -f /tmp/taxcloud-magento2-deployment.tar.gz
           
     - name: Execute Magento Commands
       uses: appleboy/ssh-action@v1.0.3
@@ -67,6 +90,7 @@ runs:
         username: ${{ inputs.username }}
         key: ${{ inputs.ssh-key }}
         port: ${{ inputs.port }}
+        timeout: 600s
         script: |
           cd ${{ inputs.magento-root }}
           
