@@ -94,14 +94,42 @@ runs:
         script: |
           cd ${{ inputs.magento-root }}
           
+          echo "🔍 Checking for existing module installations..."
+          
+          # Check if module exists in vendor directory
+          if [ -d "vendor/taxcloud/magento2" ]; then
+            echo "⚠️  Module exists in vendor/ directory. This will cause conflicts."
+            echo "📋 Module locations found:"
+            echo "   - vendor/taxcloud/magento2 (Composer package)"
+            echo "   - ${{ inputs.module-path }} (app/code deployment)"
+            echo ""
+            echo "🔄 Resolving conflict by removing vendor installation..."
+            
+            # Disable module first
+            bin/magento module:disable Taxcloud_Magento2 || true
+            
+            # Remove from vendor directory
+            rm -rf vendor/taxcloud/magento2
+            
+            # Update composer autoload
+            composer dump-autoload
+            
+            echo "✅ Vendor installation removed successfully"
+          else
+            echo "✅ No vendor installation found - safe to proceed"
+          fi
+          
           # Set proper permissions
+          echo "🔧 Setting proper permissions..."
           chmod -R 755 ${{ inputs.module-path }}
           chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} ${{ inputs.module-path }}
           
-          # Enable module if not already enabled
+          # Enable module
+          echo "🚀 Enabling module..."
           bin/magento module:enable Taxcloud_Magento2
           
           # Run Magento setup commands
+          echo "⚙️  Running Magento setup commands..."
           bin/magento setup:upgrade
           bin/magento setup:di:compile
           bin/magento setup:static-content:deploy -f
@@ -109,4 +137,7 @@ runs:
           bin/magento cache:flush
           
           # Verify module is enabled
+          echo "✅ Verifying module status..."
           bin/magento module:status Taxcloud_Magento2
+          
+          echo "🎉 Deployment completed successfully!"
