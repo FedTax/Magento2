@@ -17,6 +17,12 @@ php Test/Integration/ComprehensiveRefundTest.php
 php Test/Integration/FailureCaseTest.php
 php Test/Integration/FallbackToMagentoTest.php
 php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
+
+# Run all tests at once
+for test_file in Test/Integration/*Test.php; do
+  echo "Running $test_file..."
+  php "$test_file"
+done
 ```
 
 ### Run Linting
@@ -33,12 +39,14 @@ phpcbf --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore
 
 ### Run Both Tests and Linting
 ```bash
-# Run both tests and linting (recommended)
-./scripts/lint-and-test.sh
+# Run tests first
+for test_file in Test/Integration/*Test.php; do
+  echo "Running $test_file..."
+  php "$test_file"
+done
 
-# Or run individually
-./scripts/lint-and-test.sh lint
-./scripts/lint-and-test.sh test
+# Then run linting
+phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
 
 # Or use make commands
 make test
