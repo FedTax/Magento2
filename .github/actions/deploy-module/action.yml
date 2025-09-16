@@ -124,6 +124,16 @@ runs:
           chmod -R 755 ${{ inputs.module-path }}
           chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} ${{ inputs.module-path }}
           
+          # Fix static content permissions
+          echo "🔧 Fixing static content permissions..."
+          chmod -R 775 pub/static
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} pub/static
+          
+          # Fix var directory permissions
+          echo "🔧 Fixing var directory permissions..."
+          chmod -R 775 var
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} var
+          
           # Enable module
           echo "🚀 Enabling module..."
           bin/magento module:enable Taxcloud_Magento2
@@ -132,7 +142,26 @@ runs:
           echo "⚙️  Running Magento setup commands..."
           bin/magento setup:upgrade
           bin/magento setup:di:compile
+          
+          # Clear static content and regenerate
+          echo "🧹 Clearing static content..."
+          rm -rf pub/static/adminhtml/*
+          rm -rf pub/static/frontend/*
+          rm -rf var/view_preprocessed/*
+          
+          # Deploy static content
+          echo "📦 Deploying static content..."
           bin/magento setup:static-content:deploy -f
+          
+          # Set final permissions
+          echo "🔧 Setting final permissions..."
+          chmod -R 775 pub/static
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} pub/static
+          chmod -R 775 var
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} var
+          
+          # Clear caches
+          echo "🧹 Clearing caches..."
           bin/magento cache:clean
           bin/magento cache:flush
           
