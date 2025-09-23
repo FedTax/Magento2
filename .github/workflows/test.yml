@@ -1,23 +1,106 @@
-name: Tests
+name: Test Suite
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, develop, DEV-* ]
   pull_request:
-    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  test:
+  test-php-versions:
+    name: Test PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: ['8.1', '8.2', '8.3']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up PHP ${{ matrix.php-version }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+        coverage: none
+        
+    - name: Install dependencies
+      run: |
+        composer install --no-dev --optimize-autoloader
+        
+    - name: Run Integration Tests
+      run: |
+        for test_file in Test/Integration/*Test.php; do
+          echo "Running $test_file..."
+          php "$test_file"
+        done
+
+  test-docker:
+    name: Test with Docker
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run tests with Docker
+      run: |
+        chmod +x run-test.sh
+        ./run-test.sh
+
+  lint-code:
+    name: Lint Code
+    runs-on: ubuntu-latest
     
-    - name: Setup PHP
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up PHP
       uses: shivammathur/setup-php@v2
       with:
         php-version: '8.1'
-        extensions: mbstring, xml, ctype, iconv
+        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+        
+    - name: Install PHP CodeSniffer
+      run: |
+        composer global require squizlabs/php_codesniffer
+        echo "$HOME/.composer/vendor/bin" >> $GITHUB_PATH
+        
+    - name: Run PHP CodeSniffer
+      run: |
+        # Run linting and capture output
+        lint_output=$(phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/ 2>&1 || true)
+        
+        # Check if there are any errors (not just warnings)
+        if echo "$lint_output" | grep -q "FOUND [1-9][0-9]* ERROR"; then
+          echo "❌ Linting failed - errors found:"
+          echo "$lint_output"
+          exit 1
+        else
+          echo "✅ Linting passed - only warnings found (non-fatal):"
+          echo "$lint_output"
+        fi
+        
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
     
-    - name: Run all tests
-      run: make test
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

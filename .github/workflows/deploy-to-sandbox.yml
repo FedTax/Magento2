@@ -1,0 +1,65 @@
+name: Deploy to Sandbox Environment
+
+on:
+  workflow_dispatch:
+
+env:
+  MODULE_NAME: Taxcloud_Magento2
+  MODULE_PATH: app/code/Taxcloud/Magento2
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run integration tests
+      uses: ./.github/actions/run-tests
+      with:
+        php-version: '8.1'
+
+  deploy:
+    name: Deploy to Sandbox
+    runs-on: ubuntu-latest
+    needs: test
+    if: needs.test.result == 'success'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy module
+      uses: ./.github/actions/deploy-module
+      with:
+        server: ${{ secrets.SFTP_HOST }}
+        username: ${{ secrets.SFTP_USERNAME }}
+        ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SFTP_PORT || '22' }}
+        magento-root: ${{ secrets.MAGENTO_ROOT_PATH }}
+        module-path: ${{ env.MODULE_PATH }}
+        web-user: ${{ secrets.WEB_USER }}
+        web-group: ${{ secrets.WEB_GROUP }}
+        
+    - name: Verify deployment
+      uses: ./.github/actions/verify-deployment
+      with:
+        server: ${{ secrets.SFTP_HOST }}
+        username: ${{ secrets.SFTP_USERNAME }}
+        ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SFTP_PORT || '22' }}
+        magento-root: ${{ secrets.MAGENTO_ROOT_PATH }}
+        module-path: ${{ env.MODULE_PATH }}
+          
+    - name: Notify Deployment Status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "🎉 Deployment successful!"
+          echo "Module deployed to: ${{ secrets.SFTP_HOST }}${{ secrets.MAGENTO_ROOT_PATH }}/${{ env.MODULE_PATH }}"
+        else
+          echo "❌ Deployment failed!"
+          exit 1
+        fi

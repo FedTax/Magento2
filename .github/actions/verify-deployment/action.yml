@@ -1,0 +1,67 @@
+name: 'Verify Deployment'
+description: 'Verify that the module deployment was successful'
+inputs:
+  server:
+    description: 'Server hostname or IP'
+    required: true
+  username:
+    description: 'SSH username'
+    required: true
+  ssh-key:
+    description: 'SSH private key'
+    required: true
+  port:
+    description: 'SSH port'
+    required: false
+    default: '22'
+  magento-root:
+    description: 'Magento root directory path'
+    required: true
+  module-path:
+    description: 'Module path relative to Magento root'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify Deployment
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ inputs.server }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.ssh-key }}
+        port: ${{ inputs.port }}
+        script: |
+          cd ${{ inputs.magento-root }}
+          
+          # Check if module files exist
+          if [ -d "${{ inputs.module-path }}" ]; then
+            echo "✅ Module directory exists"
+            ls -la ${{ inputs.module-path }}
+          else
+            echo "❌ Module directory not found"
+            exit 1
+          fi
+          
+          # Check if module is enabled
+          if bin/magento module:status Taxcloud_Magento2 | grep -q "enabled"; then
+            echo "✅ Module is enabled"
+          else
+            echo "❌ Module is not enabled"
+            exit 1
+          fi
+          
+          # Check if API files exist
+          if [ -f "${{ inputs.module-path }}/Model/Api.php" ]; then
+            echo "✅ API model exists"
+          else
+            echo "❌ API model not found"
+            exit 1
+          fi
+          
+          # Check if configuration is available
+          if bin/magento config:show | grep -q "taxcloud"; then
+            echo "✅ Module configuration is available"
+          else
+            echo "⚠️ Module configuration not found (may need admin configuration)"
+          fi

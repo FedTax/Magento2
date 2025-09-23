@@ -1,0 +1,172 @@
+name: 'Deploy Module to Server'
+description: 'Deploy TaxCloud Magento2 module to a Magento installation via SFTP'
+inputs:
+  server:
+    description: 'Server hostname or IP'
+    required: true
+  username:
+    description: 'SSH username'
+    required: true
+  ssh-key:
+    description: 'SSH private key'
+    required: true
+  port:
+    description: 'SSH port'
+    required: false
+    default: '22'
+  magento-root:
+    description: 'Magento root directory path'
+    required: true
+  module-path:
+    description: 'Module path relative to Magento root'
+    required: true
+  web-user:
+    description: 'Web server user'
+    required: true
+  web-group:
+    description: 'Web server group'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create deployment package
+      shell: bash
+      run: |
+        # Create a clean deployment package
+        mkdir -p deployment-package
+        
+        # Copy specific files and directories needed for deployment
+        cp -r Model/ deployment-package/
+        cp -r Observer/ deployment-package/
+        cp -r Logger/ deployment-package/
+        cp -r Setup/ deployment-package/
+        cp -r etc/ deployment-package/
+        cp registration.php deployment-package/
+        cp composer.json deployment-package/
+        
+        # Create deployment archive
+        cd deployment-package
+        tar -czf ../taxcloud-magento2-deployment.tar.gz .
+        cd ..
+        
+    - name: Upload and Extract Module
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ inputs.server }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.ssh-key }}
+        port: ${{ inputs.port }}
+        source: './taxcloud-magento2-deployment.tar.gz'
+        target: '/tmp/'
+        timeout: 300s
+        
+    - name: Extract Module Files
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ inputs.server }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.ssh-key }}
+        port: ${{ inputs.port }}
+        timeout: 300s
+        script: |
+          # Create module directory if it doesn't exist
+          mkdir -p ${{ inputs.magento-root }}/${{ inputs.module-path }}
+          
+          # Remove old module files
+          rm -rf ${{ inputs.magento-root }}/${{ inputs.module-path }}/*
+          
+          # Extract new module files
+          cd ${{ inputs.magento-root }}/${{ inputs.module-path }}
+          tar -xzf /tmp/taxcloud-magento2-deployment.tar.gz
+          
+          # Clean up temporary file
+          rm -f /tmp/taxcloud-magento2-deployment.tar.gz
+          
+    - name: Execute Magento Commands
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ inputs.server }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.ssh-key }}
+        port: ${{ inputs.port }}
+        timeout: 600s
+        script: |
+          cd ${{ inputs.magento-root }}
+          
+          echo "🔍 Checking for existing module installations..."
+          
+          # Check if module exists in vendor directory
+          if [ -d "vendor/taxcloud/magento2" ]; then
+            echo "⚠️  Module exists in vendor/ directory. This will cause conflicts."
+            echo "📋 Module locations found:"
+            echo "   - vendor/taxcloud/magento2 (Composer package)"
+            echo "   - ${{ inputs.module-path }} (app/code deployment)"
+            echo ""
+            echo "🔄 Resolving conflict by removing vendor installation..."
+            
+            # Disable module first
+            bin/magento module:disable Taxcloud_Magento2 || true
+            
+            # Remove from vendor directory
+            rm -rf vendor/taxcloud/magento2
+            
+            # Update composer autoload
+            composer dump-autoload
+            
+            echo "✅ Vendor installation removed successfully"
+          else
+            echo "✅ No vendor installation found - safe to proceed"
+          fi
+          
+          # Set proper permissions
+          echo "🔧 Setting proper permissions..."
+          chmod -R 755 ${{ inputs.module-path }}
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} ${{ inputs.module-path }}
+          
+          # Fix static content permissions
+          echo "🔧 Fixing static content permissions..."
+          chmod -R 775 pub/static
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} pub/static
+          
+          # Fix var directory permissions
+          echo "🔧 Fixing var directory permissions..."
+          chmod -R 775 var
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} var
+          
+          # Enable module
+          echo "🚀 Enabling module..."
+          bin/magento module:enable Taxcloud_Magento2
+          
+          # Run Magento setup commands
+          echo "⚙️  Running Magento setup commands..."
+          bin/magento setup:upgrade
+          bin/magento setup:di:compile
+          
+          # Clear static content and regenerate
+          echo "🧹 Clearing static content..."
+          rm -rf pub/static/adminhtml/*
+          rm -rf pub/static/frontend/*
+          rm -rf var/view_preprocessed/*
+          
+          # Deploy static content
+          echo "📦 Deploying static content..."
+          bin/magento setup:static-content:deploy -f
+          
+          # Set final permissions
+          echo "🔧 Setting final permissions..."
+          chmod -R 775 pub/static
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} pub/static
+          chmod -R 775 var
+          chown -R ${{ inputs.web-user }}:${{ inputs.web-group }} var
+          
+          # Clear caches
+          echo "🧹 Clearing caches..."
+          bin/magento cache:clean
+          bin/magento cache:flush
+          
+          # Verify module is enabled
+          echo "✅ Verifying module status..."
+          bin/magento module:status Taxcloud_Magento2
+          
+          echo "🎉 Deployment completed successfully!"

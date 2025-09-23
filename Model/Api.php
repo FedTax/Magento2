@@ -16,8 +16,10 @@
  */
 
 namespace Taxcloud\Magento2\Model;
+
 use Magento\Framework\Serialize\SerializerInterface;
 use Taxcloud\Magento2\Model\PostalCodeParser;
+
 /**
  * Tax Calculation Model
  * @SuppressWarnings(PHPMD.TooManyFields)
@@ -151,7 +153,9 @@ class Api
             $this->_tclogger = $tclogger;
         } else {
             $this->_tclogger = new class {
-                public function info() {}
+                public function info()
+                {
+                }
             };
         }
     }
@@ -244,12 +248,12 @@ class Api
      */
     public function getClient()
     {
-        if($this->_client === null) {
+        if ($this->_client === null) {
             try {
                 $wsdl = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
                 // $this->_client = $this->_soapClientFactory->create($wsdl);
                 $this->_client = new \SoapClient($wsdl);
-            } catch(Throwable $e) {
+            } catch (Throwable $e) {
                 $this->_tclogger->info('Cannot get SoapClient:');
                 $this->_tclogger->info($e->getMessage());
             }
@@ -264,7 +268,7 @@ class Api
      * @param $quote
      * @return array
      */
-    function lookupTaxes($itemsByType, $shippingAssignment, $quote)
+    public function lookupTaxes($itemsByType, $shippingAssignment, $quote)
     {
         $this->_tclogger->info('Calling lookupTaxes');
 
@@ -273,7 +277,7 @@ class Api
         $customer = $quote->getCustomer();
 
         $address = $shippingAssignment->getShipping()->getAddress();
-        if(!$address || !$address->getPostcode()) {
+        if (!$address || !$address->getPostcode()) {
             $this->_tclogger->info('No address, returning 0');
             return $result;
         }
@@ -296,28 +300,28 @@ class Api
         );
 
 
-        if($address->getCountryId() !== 'US') {
+        if ($address->getCountryId() !== 'US') {
             $this->_tclogger->info('Not US, returning 0');
             return $result;
         }
 
-        if($address->getRegionId() == 0) {
+        if ($address->getRegionId() == 0) {
             $this->_tclogger->info('No region, returning 0');
             return $result;
         }
 
-        if(!$address->getCity()) {
+        if (!$address->getCity()) {
             $this->_tclogger->info('No city, returning 0');
             return $result;
         }
 
-        if(!$address->getPostcode()) {
+        if (!$address->getPostcode()) {
             $this->_tclogger->info('No postcode, returning 0');
             return $result;
         }
 
         $keyedAddressItems = [];
-        foreach($shippingAssignment->getItems() as $item) {
+        foreach ($shippingAssignment->getItems() as $item) {
             $keyedAddressItems[$item->getTaxCalculationItemId()] = $item;
         }
 
@@ -325,10 +329,10 @@ class Api
         $indexedItems = array();
         $cartItems = array();
 
-        if(isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
-            foreach($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
+        if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
+            foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
                 $item = $keyedAddressItems[$code];
-                if($item->getProduct()->getTaxClassId() === '0') {
+                if ($item->getProduct()->getTaxClassId() === '0') {
                     // Skip products with tax_class_id of None, store owners should avoid doing this
                     continue;
                 }
@@ -345,8 +349,8 @@ class Api
             }
         }
 
-        if(isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
-            foreach($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
+        if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
+            foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
                 // Shipping as a cart item - shipping needs to be taxed
                 $cartItems[] = array(
                     'ItemID' => 'shipping',
@@ -358,15 +362,15 @@ class Api
             }
         }
 
-        if(count($cartItems) === 0) {
+        if (count($cartItems) === 0) {
             $this->_tclogger->info('No cart items, returning 0');
             return $result;
         }
 
         $certificateID = null;
-        if($customer) {
+        if ($customer) {
             $certificate = $customer->getCustomAttribute('taxcloud_cert');
-            if($certificate) {
+            if ($certificate) {
                 $certificateID = $certificate->getValue();
             }
         }
@@ -394,18 +398,18 @@ class Api
         // hash, check cache
         $cacheKeyApi = 'taxcloud_rates_' . hash('sha256', json_encode($params));
         $cacheResult = null;
-        if($this->_cacheType->load($cacheKeyApi)){
+        if ($this->_cacheType->load($cacheKeyApi)) {
             $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
         }
 
-        if($this->_getCacheLifetime() && $cacheResult) {
+        if ($this->_getCacheLifetime() && $cacheResult) {
             $this->_tclogger->info('Using Cache');
             return $cacheResult;
         }
 
         $client = $this->getClient();
 
-        if(!$client) {
+        if (!$client) {
             $this->_tclogger->info('Error encountered during lookupTaxes: Cannot get SoapClient');
             return $result;
         }
@@ -433,11 +437,11 @@ class Api
 
         try {
             $lookupResponse = $client->lookup($params);
-        } catch(Throwable $e) {
+        } catch (Throwable $e) {
             // Retry
             try {
                 $lookupResponse = $client->lookup($params);
-            } catch(Throwable $e) {
+            } catch (Throwable $e) {
                 $this->_tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
                 return $result;
             }
@@ -466,7 +470,7 @@ class Api
 
         $lookupResult = $obj->getResult();
 
-        if($lookupResult['ResponseType'] == 'OK' || $lookupResult['ResponseType'] == 'Informational') {
+        if ($lookupResult['ResponseType'] == 'OK' || $lookupResult['ResponseType'] == 'Informational') {
             $cartItemResponse = $lookupResult['CartItemsResponse']['CartItemResponse'];
             
             if (empty($cartItemResponse)) {
@@ -479,9 +483,8 @@ class Api
             $this->_cacheType->save($this->serializer->serialize($result), $cacheKeyApi, array('taxcloud_rates'), $this->_getCacheLifetime());
 
             return $result;
-
         } else {
-            $this->_tclogger->info('Error encountered during lookupTaxes: ' );
+            $this->_tclogger->info('Error encountered during lookupTaxes: ');
             $this->_tclogger->info(print_r($lookupResult, true));
             return $result;
         }
@@ -500,7 +503,7 @@ class Api
 
         $client = $this->getClient();
 
-        if(!$client) {
+        if (!$client) {
             $this->_tclogger->info('Error encountered during authorizeCapture: Cannot get SoapClient');
             return false;
         }
@@ -533,11 +536,11 @@ class Api
 
         try {
             $authorizedResponse = $client->authorizedWithCapture($params);
-        } catch(Throwable $e) {
+        } catch (Throwable $e) {
             // Retry
             try {
                 $authorizedResponse = $client->authorizedWithCapture($params);
-            } catch(Throwable $e) {
+            } catch (Throwable $e) {
                 $this->_tclogger->info('Error encountered during authorizeCapture: ' . $e->getMessage());
                 return false;
             }
@@ -562,9 +565,9 @@ class Api
 
         $authorizedResult = $obj->getResult();
 
-        if($authorizedResult['ResponseType'] != 'OK') {
+        if ($authorizedResult['ResponseType'] != 'OK') {
             $respMsg = $authorizedResult['Messages']['ResponseMessage']['Message'];
-            if(trim(substr($respMsg, 0, strlen($dup))) === $dup) {
+            if (trim(substr($respMsg, 0, strlen($dup))) === $dup) {
                 // Duplicate means the the previous call was good. Therefore, consider this to be good
                 $this->_tclogger->info('Warning encountered during authorizeCapture: Duplicate transaction');
                 return true;
@@ -588,7 +591,7 @@ class Api
 
         $client = $this->getClient();
 
-        if(!$client) {
+        if (!$client) {
             $this->_tclogger->info('Error encountered during returnOrder: Cannot get SoapClient');
             return false;
         }
@@ -599,8 +602,8 @@ class Api
         $index = 0;
         $cartItems = array();
 
-        if($items) {
-            foreach($items as $creditItem) {
+        if ($items) {
+            foreach ($items as $creditItem) {
                 $item = $creditItem->getOrderItem();
                 $productModel = $this->_productFactory->create()->load($item->getProduct()->getId());
                 $tic = $productModel->getCustomAttribute('taxcloud_tic');
@@ -617,7 +620,7 @@ class Api
 
         $shippingAmount = $creditmemo->getShippingAmount();
 
-        if($shippingAmount > 0) {
+        if ($shippingAmount > 0) {
             $cartItems[] = array(
                 'ItemID' => 'shipping',
                 'Index' => $index,
@@ -672,12 +675,12 @@ class Api
 
         try {
             $returnResponse = $client->Returned($soapParams);
-        } catch(Throwable $e) {
+        } catch (Throwable $e) {
             $this->_tclogger->info('First attempt failed: ' . $e->getMessage());
             // Retry with explicit parameter mapping
             try {
                 $returnResponse = $client->Returned($soapParams);
-            } catch(Throwable $e) {
+            } catch (Throwable $e) {
                 $this->_tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
                 $this->_tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
                 return false;
@@ -705,7 +708,7 @@ class Api
 
         $returnResult = $obj->getResult();
 
-        if($returnResult['ResponseType'] != 'OK') {
+        if ($returnResult['ResponseType'] != 'OK') {
             $this->_tclogger->info('Error encountered during returnOrder: ' . $returnResult['Messages']['ResponseMessage']['Message']);
             return false;
         }
@@ -736,18 +739,18 @@ class Api
         // hash, check cache
         $cacheKeyApi = 'taxcloud_address_' . hash('sha256', json_encode($params));
         $cacheResult = null;
-        if( $this->_cacheType->load($cacheKeyApi) ){
+        if ($this->_cacheType->load($cacheKeyApi)) {
             $cacheResult = $this->serializer->unserialize($this->_cacheType->load($cacheKeyApi));
         }
 
-        if($this->_getCacheLifetime() && $cacheResult) {
+        if ($this->_getCacheLifetime() && $cacheResult) {
             $this->_tclogger->info('Using Cache');
             return $cacheResult;
         }
 
         $client = $this->getClient();
 
-        if(!$client) {
+        if (!$client) {
             $this->_tclogger->info('Error encountered during lookupTaxes: Cannot get SoapClient');
             return $result;
         }
@@ -771,11 +774,11 @@ class Api
 
         try {
             $verifyResponse = $client->verifyAddress($params);
-        } catch(Throwable $e) {
+        } catch (Throwable $e) {
             // Retry
             try {
                 $verifyResponse = $client->verifyAddress($params);
-            } catch(Throwable $e) {
+            } catch (Throwable $e) {
                 $this->_tclogger->info('Error encountered during verifyAddress: ' . $e->getMessage());
                 return $result;
             }
@@ -799,8 +802,7 @@ class Api
 
         $verifyResult = $obj->getResult();
 
-        if($verifyResult['ErrNumber'] == 0) {
-
+        if ($verifyResult['ErrNumber'] == 0) {
             $result = array(
                 'Address1' => $verifyResult['Address1'] ?? '',
                 'Address2' => $verifyResult['Address2'] ?? '',
@@ -814,11 +816,9 @@ class Api
             $this->_cacheType->save($this->serializer->serialize($result), $cacheKeyApi, array('taxcloud_address'), $this->_getCacheLifetime());
 
             return $result;
-
         } else {
             $this->_tclogger->info('Error encountered during verifyAddress: ' . $verifyResult['ErrDescription']);
             return false;
         }
     }
-
 }

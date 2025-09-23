@@ -28,21 +28,21 @@ class Refund implements ObserverInterface
      *
      * @var \Magento\Framework\App\Config\ScopeConfigInterface
      */
-    protected $_scopeConfig = null;
+    protected $scopeConfig = null;
 
     /**
      * TaxCloud Api Object
      *
      * @var \Taxcloud\Magento2\Model\Api
      */
-    protected $_tcapi;
+    protected $tcapi;
 
     /**
      * TaxCloud Logger
      *
      * @var \Taxcloud\Magento2\Logger\Logger
      */
-    protected $_tclogger;
+    protected $tclogger;
 
     /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
@@ -53,16 +53,17 @@ class Refund implements ObserverInterface
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger
-    )
-    {
-        $this->_scopeConfig = $scopeConfig;
-        $this->_tcapi = $tcapi;
+    ) {
+        $this->scopeConfig = $scopeConfig;
+        $this->tcapi = $tcapi;
 
-        if($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->_tclogger = $tclogger;
+        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+            $this->tclogger = $tclogger;
         } else {
-            $this->_tclogger = new class {
-                public function info() {}
+            $this->tclogger = new class {
+                public function info()
+                {
+                }
             };
         }
     }
@@ -72,17 +73,15 @@ class Refund implements ObserverInterface
      */
     public function execute(
         Observer $observer
-    )
-    {
-        if(!$this->_scopeConfig->getValue('tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+    ) {
+        if (!$this->scopeConfig->getValue('tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             return;
         }
 
-        $this->_tclogger->info('Running Observer sales_order_creditmemo_refund');
+        $this->tclogger->info('Running Observer sales_order_creditmemo_refund');
 
         $creditmemo = $observer->getEvent()->getCreditmemo();
 
-        $this->_tcapi->returnOrder($creditmemo);
+        $this->tcapi->returnOrder($creditmemo);
     }
-
 }

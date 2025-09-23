@@ -49,8 +49,7 @@ class InstallTaxcloudData implements DataPatchInterface, PatchRevertableInterfac
         AttributeSetFactory  $attributeSetFactory,
         EavSetupFactory      $eavSetupFactory,
         ModuleDataSetupInterface $moduleDataSetup
-    )
-    {
+    ) {
         $this->moduleDataSetup = $moduleDataSetup;
         $this->customerSetupFactory = $customerSetupFactory;
         $this->attributeSetFactory = $attributeSetFactory;
@@ -115,7 +114,6 @@ class InstallTaxcloudData implements DataPatchInterface, PatchRevertableInterfac
             ]);
 
         $attribute->save();
-
     }
 
     /**

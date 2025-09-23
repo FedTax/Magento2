@@ -71,7 +71,6 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
         \Magento\Tax\Helper\Data $taxData,
         \Magento\Framework\Serialize\Serializer\Json $serializer = null,
-
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger
@@ -79,11 +78,13 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         $this->_scopeConfig = $scopeConfig;
         $this->_tcapi = $tcapi;
 
-        if($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->_tclogger = $tclogger;
         } else {
             $this->_tclogger = new class {
-                public function info() {}
+                public function info()
+                {
+                }
             };
         }
 
@@ -136,19 +137,18 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         // $this->_tclogger->info(json_encode($taxAmounts, JSON_PRETTY_PRINT));
 
         $keyedAddressItems = [];
-        foreach($shippingAssignment->getItems() as $item) {
+        foreach ($shippingAssignment->getItems() as $item) {
             $keyedAddressItems[$item->getTaxCalculationItemId()] = $item;
         }
 
-        if(isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
-            foreach($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
-
+        if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
+            foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
                 $taxDetail = $itemTaxDetail[self::KEY_ITEM];
                 $baseTaxDetail = $itemTaxDetail[self::KEY_BASE_ITEM];
 
                 $quoteItem = $keyedAddressItems[$code];
 
-                if($quoteItem->getProduct()->getTaxClassId() === '0' || $quoteItem->getQty() === 0) {
+                if ($quoteItem->getProduct()->getTaxClassId() === '0' || $quoteItem->getQty() === 0) {
                     $taxAmount = 0;
                     $taxAmountPer = 0;
                 } else {
@@ -160,7 +160,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 $taxDetail->setPriceInclTax($taxDetail->getPrice() + $taxAmountPer);
                 $taxDetail->setRowTotalInclTax($taxDetail->getRowTotal() + $taxAmount);
                 $taxDetail->setAppliedTaxes([]);
-                if($taxDetail->getRowTotal() > 0) {
+                if ($taxDetail->getRowTotal() > 0) {
                     $taxDetail->setTaxPercent(round(100 * $taxDetail->getRowTax() / $taxDetail->getRowTotal(), 2));
                 } else {
                     $taxDetail->setTaxPercent(0);
@@ -170,18 +170,17 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 $baseTaxDetail->setPriceInclTax($baseTaxDetail->getPrice() + $taxAmountPer);
                 $baseTaxDetail->setRowTotalInclTax($baseTaxDetail->getRowTotal() + $taxAmount);
                 $baseTaxDetail->setAppliedTaxes([]);
-                if($baseTaxDetail->getRowTotal() > 0) {
+                if ($baseTaxDetail->getRowTotal() > 0) {
                     $baseTaxDetail->setTaxPercent(round(100 * $baseTaxDetail->getRowTax() / $baseTaxDetail->getRowTotal(), 2));
                 } else {
                     $baseTaxDetail->setTaxPercent(0);
                 }
-
             }
 
             $this->processProductItems($shippingAssignment, $itemsByType[self::ITEM_TYPE_PRODUCT], $total);
         }
 
-        if(isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
+        if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
             $shippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING][self::ITEM_CODE_SHIPPING][self::KEY_ITEM];
             $baseShippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING][self::ITEM_CODE_SHIPPING][self::KEY_BASE_ITEM];
 
@@ -192,7 +191,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $shippingTaxDetails->setPriceInclTax($shippingTaxDetails->getPrice() + $taxAmountPer);
             $shippingTaxDetails->setRowTotalInclTax($shippingTaxDetails->getRowTotal() + $taxAmount);
             $shippingTaxDetails->setAppliedTaxes([]);
-            if($shippingTaxDetails->getRowTotal() > 0) {
+            if ($shippingTaxDetails->getRowTotal() > 0) {
                 $shippingTaxDetails->setTaxPercent(round(100 * $shippingTaxDetails->getRowTax() / $shippingTaxDetails->getRowTotal(), 2));
             } else {
                 $shippingTaxDetails->setTaxPercent(0);
@@ -202,7 +201,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $baseShippingTaxDetails->setPriceInclTax($baseShippingTaxDetails->getPrice() + $taxAmountPer);
             $baseShippingTaxDetails->setRowTotalInclTax($baseShippingTaxDetails->getRowTotal() + $taxAmount);
             $baseShippingTaxDetails->setAppliedTaxes([]);
-            if($baseShippingTaxDetails->getRowTotal() > 0) {
+            if ($baseShippingTaxDetails->getRowTotal() > 0) {
                 $baseShippingTaxDetails->setTaxPercent(round(100 * $baseShippingTaxDetails->getRowTax() / $baseShippingTaxDetails->getRowTotal(), 2));
             } else {
                 $baseShippingTaxDetails->setTaxPercent(0);
@@ -224,5 +223,4 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
         return $this;
     }
-
 }
