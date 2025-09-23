@@ -19,13 +19,13 @@ namespace Taxcloud\Magento2\Model;
 
 /**
  * Handles processing of CartItemResponse data from TaxCloud API
- * 
+ *
  */
 class CartItemResponseHandler
 {
     /**
      * Process cart item responses and return processed items
-     * 
+     *
      * @param mixed $cartItemResponse Raw CartItemResponse from TaxCloud API
      * @return array Array of processed cart items with CartItemIndex and TaxAmount
      */
@@ -43,7 +43,7 @@ class CartItemResponseHandler
             $cartItemResponse = array($cartItemResponse);
         }
 
-        foreach($cartItemResponse as $c) {
+        foreach ($cartItemResponse as $c) {
             if (!is_array($c) || !isset($c['CartItemIndex'], $c['TaxAmount'])) {
                 // Skip invalid items
                 continue;
@@ -60,7 +60,7 @@ class CartItemResponseHandler
     
     /**
      * Process cart item responses and apply them to tax result in one step
-     * 
+     *
      * @param mixed $cartItemResponse Raw CartItemResponse from TaxCloud API
      * @param array $cartItems Original cart items for reference
      * @param array $indexedItems Indexed items mapping
@@ -74,7 +74,7 @@ class CartItemResponseHandler
     
     /**
      * Apply processed cart items to tax result
-     * 
+     *
      * @param array $processedItems Array of processed cart items
      * @param array $cartItems Original cart items for reference
      * @param array $indexedItems Indexed items mapping
@@ -82,11 +82,11 @@ class CartItemResponseHandler
      */
     public function applyProcessedItemsToResult($processedItems, $cartItems, $indexedItems, &$result)
     {
-        foreach($processedItems as $item) {
+        foreach ($processedItems as $item) {
             $index = $item['CartItemIndex'];
             $taxAmount = $item['TaxAmount'];
             
-            if($cartItems[$index]['ItemID'] === 'shipping') {
+            if ($cartItems[$index]['ItemID'] === 'shipping') {
                 $result[Api::ITEM_TYPE_SHIPPING] += $taxAmount;
             } else {
                 $code = $indexedItems[$index];

@@ -138,8 +138,7 @@ class Api
         \Taxcloud\Magento2\Logger\Logger $tclogger,
         SerializerInterface $serializer,
         \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler
-    )
-    {
+    ) {
         $this->_scopeConfig = $scopeConfig;
         $this->_cacheType = $cacheType;
         $this->_eventManager = $eventManager;
@@ -149,7 +148,7 @@ class Api
         $this->_regionFactory = $regionFactory;
         $this->serializer = $serializer;
         $this->cartItemResponseHandler = $cartItemResponseHandler;
-        if($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->_tclogger = $tclogger;
         } else {
             $this->_tclogger = new class {
