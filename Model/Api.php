@@ -110,6 +110,13 @@ class Api
     private $serializer;
 
     /**
+     * Cart Item Response Handler
+     *
+     * @var \Taxcloud\Magento2\Model\CartItemResponseHandler
+     */
+    private $cartItemResponseHandler;
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Magento\Framework\App\CacheInterface $cacheType
      * @param \Magento\Framework\Event\ManagerInterface $eventManager
@@ -129,7 +136,8 @@ class Api
         \Magento\Catalog\Model\ProductFactory $productFactory,
         \Magento\Directory\Model\RegionFactory $regionFactory,
         \Taxcloud\Magento2\Logger\Logger $tclogger,
-        SerializerInterface $serializer
+        SerializerInterface $serializer,
+        \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler
     ) {
         $this->_scopeConfig = $scopeConfig;
         $this->_cacheType = $cacheType;
@@ -139,6 +147,7 @@ class Api
         $this->_productFactory = $productFactory;
         $this->_regionFactory = $regionFactory;
         $this->serializer = $serializer;
+        $this->cartItemResponseHandler = $cartItemResponseHandler;
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->_tclogger = $tclogger;
         } else {
@@ -462,17 +471,12 @@ class Api
 
         if ($lookupResult['ResponseType'] == 'OK' || $lookupResult['ResponseType'] == 'Informational') {
             $cartItemResponse = $lookupResult['CartItemsResponse']['CartItemResponse'];
-            $cartItemResponse = is_array($cartItemResponse) ? $cartItemResponse : array($cartItemResponse);
-
-            foreach ($cartItemResponse as $c) {
-                $index = $c['CartItemIndex'];
-                if ($cartItems[$index]['ItemID'] === 'shipping') {
-                    $result[self::ITEM_TYPE_SHIPPING] += $c['TaxAmount'];
-                } else {
-                    $code = $indexedItems[$index];
-                    $result[self::ITEM_TYPE_PRODUCT][$code] = $c['TaxAmount'];
-                }
+            
+            if (empty($cartItemResponse)) {
+                $this->_tclogger->info('CartItemResponse is empty, skipping tax calculation');
+                return $result;
             }
+            $this->cartItemResponseHandler->processAndApplyCartItemResponses($cartItemResponse, $cartItems, $indexedItems, $result);
 
             $this->_tclogger->info('Caching lookupTaxes result for ' . $this->_getCacheLifetime());
             $this->_cacheType->save($this->serializer->serialize($result), $cacheKeyApi, array('taxcloud_rates'), $this->_getCacheLifetime());
