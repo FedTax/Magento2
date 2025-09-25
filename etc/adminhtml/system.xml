@@ -129,6 +129,16 @@
           </depends>
         </field>
 
+        <field id="fallback_to_magento" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Fallback to Magento Tax Rates</label>
+          <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+          <config_path>tax/taxcloud_settings/fallback_to_magento</config_path>
+          <tooltip>When enabled, if TaxCloud tax lookup fails, the system will fall back to Magento's default tax calculation</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
       </group>
     </section>
   </system>
