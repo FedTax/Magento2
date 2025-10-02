@@ -107,24 +107,6 @@ class ProductTicService
     }
 
     /**
-     * Get product TIC with additional validation
-     * 
-     * @param \Magento\Sales\Model\Order\Item $item
-     * @param string $context
-     * @return array Array with 'tic' (string) and 'isValid' (boolean)
-     */
-    public function getProductTicWithValidation($item, $context = '')
-    {
-        $isValid = $this->isProductValid($item);
-        $tic = $this->getProductTic($item, $context);
-        
-        return [
-            'tic' => $tic,
-            'isValid' => $isValid
-        ];
-    }
-
-    /**
      * Get the shipping TIC value from configuration
      * 
      * @return string
