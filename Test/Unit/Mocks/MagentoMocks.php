@@ -6,6 +6,7 @@
  * without requiring a full Magento installation.
  * 
  * HOW TO GENERATE THESE MOCKS:
+ * (Asking AI to generate the mocks for the classes that are not found works pretty well)
  * 
  * 1. When you get "Class not found" errors during unit testing:
  *    - Add the missing class to the appropriate namespace below
