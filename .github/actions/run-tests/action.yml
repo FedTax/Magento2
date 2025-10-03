@@ -23,7 +23,12 @@ runs:
     - name: Install dependencies
       shell: bash
       run: |
-        composer install --no-dev --optimize-autoloader
+        composer install --optimize-autoloader
+        
+    - name: Run unit tests
+      shell: bash
+      run: |
+        vendor/bin/phpunit Test/Unit/ --testdox
         
     - name: Run integration tests
       shell: bash

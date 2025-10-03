@@ -27,7 +27,11 @@ jobs:
         
     - name: Install dependencies
       run: |
-        composer install --no-dev --optimize-autoloader
+        composer install --optimize-autoloader
+        
+    - name: Run Unit Tests
+      run: |
+        vendor/bin/phpunit Test/Unit/ --testdox
         
     - name: Run Integration Tests
       run: |

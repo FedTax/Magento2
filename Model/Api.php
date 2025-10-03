@@ -117,6 +117,13 @@ class Api
     private $cartItemResponseHandler;
 
     /**
+     * Product TIC Service
+     *
+     * @var \Taxcloud\Magento2\Model\ProductTicService
+     */
+    private $productTicService;
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Magento\Framework\App\CacheInterface $cacheType
      * @param \Magento\Framework\Event\ManagerInterface $eventManager
@@ -125,6 +132,9 @@ class Api
      * @param \Magento\Catalog\Model\ProductFactory $productFactory
      * @param \Magento\Directory\Model\RegionFactory $regionFactory
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
+     * @param SerializerInterface $serializer
+     * @param \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler
+     * @param \Taxcloud\Magento2\Model\ProductTicService $productTicService
      * @SuppressWarnings(PHPMD.ExcessiveParameterList)
      */
     public function __construct(
@@ -137,7 +147,8 @@ class Api
         \Magento\Directory\Model\RegionFactory $regionFactory,
         \Taxcloud\Magento2\Logger\Logger $tclogger,
         SerializerInterface $serializer,
-        \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler
+        \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler,
+        \Taxcloud\Magento2\Model\ProductTicService $productTicService
     ) {
         $this->_scopeConfig = $scopeConfig;
         $this->_cacheType = $cacheType;
@@ -148,6 +159,7 @@ class Api
         $this->_regionFactory = $regionFactory;
         $this->serializer = $serializer;
         $this->cartItemResponseHandler = $cartItemResponseHandler;
+        $this->productTicService = $productTicService;
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->_tclogger = $tclogger;
         } else {
@@ -186,23 +198,6 @@ class Api
         return $this->_scopeConfig->getValue('tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE) ?? '-1';
     }
 
-    /**
-     * Get TaxCloud Default Product TIC
-     * @return string
-     */
-    protected function _getDefaultTic()
-    {
-        return $this->_scopeConfig->getValue('tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE) ?? '00000';
-    }
-
-    /**
-     * Get TaxCloud Default Shipping TIC
-     * @return string
-     */
-    protected function _getShippingTic()
-    {
-        return $this->_scopeConfig->getValue('tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE) ?? '11010';
-    }
 
     /**
      * Get TaxCloud Cache Lifetime
@@ -331,16 +326,14 @@ class Api
         if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
             foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
                 $item = $keyedAddressItems[$code];
-                if ($item->getProduct()->getTaxClassId() === '0') {
+                if ($item->getProduct() && $item->getProduct()->getTaxClassId() === '0') {
                     // Skip products with tax_class_id of None, store owners should avoid doing this
                     continue;
                 }
-                $productModel = $this->_productFactory->create()->load($item->getProduct()->getId());
-                $tic = $productModel->getCustomAttribute('taxcloud_tic');
                 $cartItems[] = array(
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
-                    'TIC' => $tic ? $tic->getValue() : $this->_getDefaultTic(),
+                    'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes'),
                     'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
                     'Qty' => $item->getQty(),
                 );
@@ -354,7 +347,7 @@ class Api
                 $cartItems[] = array(
                     'ItemID' => 'shipping',
                     'Index' => $index++,
-                    'TIC' => $this->_getShippingTic(),
+                    'TIC' => $this->productTicService->getShippingTic(),
                     'Price' => $itemTaxDetail[self::KEY_ITEM]->getRowTotal(),
                     'Qty' => 1,
                 );
@@ -604,12 +597,10 @@ class Api
         if ($items) {
             foreach ($items as $creditItem) {
                 $item = $creditItem->getOrderItem();
-                $productModel = $this->_productFactory->create()->load($item->getProduct()->getId());
-                $tic = $productModel->getCustomAttribute('taxcloud_tic');
                 $cartItems[] = array(
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
-                    'TIC' => $tic ? $tic->getValue() : $this->_getDefaultTic(),
+                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
                     'Price' => $creditItem->getPrice() - $creditItem->getDiscountAmount() / $creditItem->getQty(),
                     'Qty' => $creditItem->getQty(),
                 );
@@ -623,7 +614,7 @@ class Api
             $cartItems[] = array(
                 'ItemID' => 'shipping',
                 'Index' => $index,
-                'TIC' => $this->_getShippingTic(),
+                'TIC' => $this->productTicService->getShippingTic(),
                 'Price' => $shippingAmount,
                 'Qty' => 1,
             );
@@ -707,8 +698,12 @@ class Api
 
         $returnResult = $obj->getResult();
 
-        if ($returnResult['ResponseType'] != 'OK') {
-            $this->_tclogger->info('Error encountered during returnOrder: ' . $returnResult['Messages']['ResponseMessage']['Message']);
+        if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
+            $errorMessage = 'Unknown error';
+            if ($returnResult && isset($returnResult['Messages']['ResponseMessage']['Message'])) {
+                $errorMessage = $returnResult['Messages']['ResponseMessage']['Message'];
+            }
+            $this->_tclogger->info('Error encountered during returnOrder: ' . $errorMessage);
             return false;
         }
 
