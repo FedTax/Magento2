@@ -60,7 +60,7 @@ class ProductTicService
     /**
      * Get product TIC (Taxability Information Code) with null safety
      * Handles cases where product has been deleted or doesn't have custom TIC
-     * 
+     *
      * @param \Magento\Sales\Model\Order\Item $item
      * @param string $context Context for logging (e.g., 'lookupTaxes', 'returnOrder')
      * @return string The TIC value
@@ -71,7 +71,9 @@ class ProductTicService
         
         // Handle case where product has been deleted
         if (!$product || !$product->getId()) {
-            $this->logger->info('Product not found for item ' . $item->getSku() . ' in ' . $context . ', using default TIC');
+            $this->logger->info(
+                'Product not found for item ' . $item->getSku() . ' in ' . $context . ', using default TIC'
+            );
             return $this->getDefaultTic();
         }
         
@@ -83,20 +85,20 @@ class ProductTicService
 
     /**
      * Get the default TIC value from configuration
-     * 
+     *
      * @return string
      */
     public function getDefaultTic()
     {
         return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/default_tic', 
+            'tax/taxcloud_settings/default_tic',
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         ) ?? '00000';
     }
 
     /**
      * Check if a product exists and is valid
-     * 
+     *
      * @param \Magento\Sales\Model\Order\Item $item
      * @return bool
      */
@@ -108,13 +110,13 @@ class ProductTicService
 
     /**
      * Get the shipping TIC value from configuration
-     * 
+     *
      * @return string
      */
     public function getShippingTic()
     {
         return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/shipping_tic', 
+            'tax/taxcloud_settings/shipping_tic',
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         ) ?? '11010';
     }
