@@ -28,6 +28,15 @@ use Taxcloud\Magento2\Logger\Logger;
 class ProductTicService
 {
     /**
+     * Default TIC fallback value when configuration is empty or null
+     */
+    const DEFAULT_TIC = '00000';
+
+    /**
+     * Default shipping TIC fallback value when configuration is empty or null
+     */
+    const DEFAULT_SHIPPING_TIC = '11010';
+    /**
      * @var ScopeConfigInterface
      */
     private $scopeConfig;
@@ -85,6 +94,7 @@ class ProductTicService
 
     /**
      * Get the default TIC value from configuration
+     * Falls back to DEFAULT_TIC if configuration is empty or null
      *
      * @return string
      */
@@ -95,7 +105,7 @@ class ProductTicService
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         );
         
-        return ($value !== null && $value !== '') ? $value : '00000';
+        return ($value !== null && $value !== '') ? $value : self::DEFAULT_TIC;
     }
 
     /**
@@ -112,6 +122,7 @@ class ProductTicService
 
     /**
      * Get the shipping TIC value from configuration
+     * Falls back to DEFAULT_SHIPPING_TIC if configuration is empty or null
      *
      * @return string
      */
@@ -122,6 +133,6 @@ class ProductTicService
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         );
         
-        return ($value !== null && $value !== '') ? $value : '11010';
+        return ($value !== null && $value !== '') ? $value : self::DEFAULT_SHIPPING_TIC;
     }
 }
