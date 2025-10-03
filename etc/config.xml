@@ -26,7 +26,8 @@
         <guest_customer_id>-1</guest_customer_id>
         <default_tic>00000</default_tic>
         <shipping_tic>11010</shipping_tic>
-       <cache_lifetime>86400</cache_lifetime>
+        <cache_lifetime>86400</cache_lifetime>
+        <fallback_to_magento>0</fallback_to_magento>
       </taxcloud_settings>
     </tax>
   </default>

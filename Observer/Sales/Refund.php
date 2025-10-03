@@ -74,7 +74,10 @@ class Refund implements ObserverInterface
     public function execute(
         Observer $observer
     ) {
-        if (!$this->scopeConfig->getValue('tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+        if (!$this->scopeConfig->getValue(
+            'tax/taxcloud_settings/enabled',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        )) {
             return;
         }
 
