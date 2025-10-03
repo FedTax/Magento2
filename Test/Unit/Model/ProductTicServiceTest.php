@@ -177,119 +177,84 @@ class ProductTicServiceTest extends TestCase
     }
 
     /**
-     * Test getDefaultTic with configured value
+     * Test getDefaultTic with various configurations
+     * @dataProvider defaultTicProvider
      */
-    public function testGetDefaultTicWithConfiguredValue()
+    public function testGetDefaultTic($configValue, $expectedResult, $description)
     {
         $this->scopeConfig->method('getValue')
             ->with('tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
-            ->willReturn('12345');
-
-        // Execute the method
-        $result = $this->productTicService->getDefaultTic();
-
-        $this->assertEquals('12345', $result, 'Should return configured default TIC value');
-    }
-
-    /**
-     * Test getDefaultTic with null configuration (fallback)
-     */
-    public function testGetDefaultTicWithNullConfiguration()
-    {
-        $this->scopeConfig->method('getValue')
-            ->with('tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
-            ->willReturn(null);
+            ->willReturn($configValue);
 
         $result = $this->productTicService->getDefaultTic();
 
-        $this->assertEquals('00000', $result, 'Should return fallback default TIC value when configuration is null');
+        $this->assertEquals($expectedResult, $result, $description);
+    }
+
+    public function defaultTicProvider()
+    {
+        return [
+            'configured value' => ['12345', '12345', 'Should return configured default TIC value'],
+            'null configuration' => [null, '00000', 'Should return fallback default TIC value when configuration is null'],
+            'empty string' => ['', '00000', 'Should return fallback default TIC value when configuration is empty'],
+            'zero value' => ['0', '0', 'Should return zero if configured as zero'],
+        ];
     }
 
     /**
-     * Test isProductValid with valid product
+     * Test isProductValid with various product states
+     * @dataProvider productValidationProvider
      */
-    public function testIsProductValidWithValidProduct()
+    public function testIsProductValid($productId, $expectedResult, $description)
     {
         $item = $this->createMock(Item::class);
-        $product = $this->createMock(Product::class);
         
-        $item->method('getProduct')->willReturn($product);
-        $product->method('getId')->willReturn(789);
+        if ($productId === 'null_product') {
+            $item->method('getProduct')->willReturn(null);
+        } else {
+            $product = $this->createMock(Product::class);
+            $item->method('getProduct')->willReturn($product);
+            $product->method('getId')->willReturn($productId);
+        }
 
         $result = $this->productTicService->isProductValid($item);
 
-        $this->assertTrue($result, 'Should return true for valid product with ID');
+        $this->assertEquals($expectedResult, $result, $description);
     }
 
-    /**
-     * Test isProductValid with null product
-     */
-    public function testIsProductValidWithNullProduct()
+    public function productValidationProvider()
     {
-        $item = $this->createMock(Item::class);
-        $item->method('getProduct')->willReturn(null);
-
-        $result = $this->productTicService->isProductValid($item);
-
-        $this->assertFalse($result, 'Should return false for null product');
+        return [
+            'valid product with ID' => [789, true, 'Should return true for valid product with ID'],
+            'null product' => ['null_product', false, 'Should return false for null product'],
+            'product with no ID' => [null, false, 'Should return false for product with no ID'],
+            'product with zero ID' => [0, false, 'Should return false for product with zero ID'],
+        ];
     }
 
     /**
-     * Test isProductValid with product having no ID
+     * Test getShippingTic with various configurations
+     * @dataProvider shippingTicProvider
      */
-    public function testIsProductValidWithProductHavingNoId()
-    {
-        $item = $this->createMock(Item::class);
-        $product = $this->createMock(Product::class);
-        
-        $item->method('getProduct')->willReturn($product);
-        $product->method('getId')->willReturn(null);
-
-        $result = $this->productTicService->isProductValid($item);
-
-        $this->assertFalse($result, 'Should return false for product with no ID');
-    }
-
-    /**
-     * Test getShippingTic with configured value
-     */
-    public function testGetShippingTicWithConfiguredValue()
+    public function testGetShippingTic($configValue, $expectedResult, $description)
     {
         $this->scopeConfig->method('getValue')
             ->with('tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
-            ->willReturn('11010');
+            ->willReturn($configValue);
 
         $result = $this->productTicService->getShippingTic();
 
-        $this->assertEquals('11010', $result, 'Should return configured shipping TIC value');
+        $this->assertEquals($expectedResult, $result, $description);
     }
 
-    /**
-     * Test getShippingTic with null configuration (fallback)
-     */
-    public function testGetShippingTicWithNullConfiguration()
+    public function shippingTicProvider()
     {
-        $this->scopeConfig->method('getValue')
-            ->with('tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
-            ->willReturn(null);
-
-        $result = $this->productTicService->getShippingTic();
-
-        $this->assertEquals('11010', $result, 'Should return fallback shipping TIC value when configuration is null');
-    }
-
-    /**
-     * Test getShippingTic with custom configured value
-     */
-    public function testGetShippingTicWithCustomConfiguredValue()
-    {
-        $this->scopeConfig->method('getValue')
-            ->with('tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
-            ->willReturn('99999');
-
-        $result = $this->productTicService->getShippingTic();
-
-        $this->assertEquals('99999', $result, 'Should return custom configured shipping TIC value');
+        return [
+            'default configured value' => ['11010', '11010', 'Should return configured shipping TIC value'],
+            'null configuration' => [null, '11010', 'Should return fallback shipping TIC value when configuration is null'],
+            'custom configured value' => ['99999', '99999', 'Should return custom configured shipping TIC value'],
+            'empty string' => ['', '11010', 'Should return fallback shipping TIC value when configuration is empty'],
+        ];
     }
 
 }

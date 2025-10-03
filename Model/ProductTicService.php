@@ -90,10 +90,12 @@ class ProductTicService
      */
     public function getDefaultTic()
     {
-        return $this->scopeConfig->getValue(
+        $value = $this->scopeConfig->getValue(
             'tax/taxcloud_settings/default_tic',
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        ) ?? '00000';
+        );
+        
+        return ($value !== null && $value !== '') ? $value : '00000';
     }
 
     /**
@@ -115,9 +117,11 @@ class ProductTicService
      */
     public function getShippingTic()
     {
-        return $this->scopeConfig->getValue(
+        $value = $this->scopeConfig->getValue(
             'tax/taxcloud_settings/shipping_tic',
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        ) ?? '11010';
+        );
+        
+        return ($value !== null && $value !== '') ? $value : '11010';
     }
 }
