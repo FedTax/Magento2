@@ -71,7 +71,7 @@ class FallbackToMagentoTest
             $reflection = new \ReflectionClass(Api::class);
             
             $requiredMethods = [
-                '_isFallbackToMagentoEnabled',
+                'isFallbackToMagentoEnabled',
                 'getMagentoTaxRates',
                 'setFromAddress'
             ];
