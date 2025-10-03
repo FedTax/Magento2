@@ -614,7 +614,7 @@ class Api
             $cartItems[] = array(
                 'ItemID' => 'shipping',
                 'Index' => $index,
-                'TIC' => $this->_getShippingTic(),
+                'TIC' => $this->productTicService->getShippingTic(),
                 'Price' => $shippingAmount,
                 'Qty' => 1,
             );
@@ -698,8 +698,12 @@ class Api
 
         $returnResult = $obj->getResult();
 
-        if ($returnResult['ResponseType'] != 'OK') {
-            $this->_tclogger->info('Error encountered during returnOrder: ' . $returnResult['Messages']['ResponseMessage']['Message']);
+        if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
+            $errorMessage = 'Unknown error';
+            if ($returnResult && isset($returnResult['Messages']['ResponseMessage']['Message'])) {
+                $errorMessage = $returnResult['Messages']['ResponseMessage']['Message'];
+            }
+            $this->_tclogger->info('Error encountered during returnOrder: ' . $errorMessage);
             return false;
         }
 

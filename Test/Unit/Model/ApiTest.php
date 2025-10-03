@@ -29,6 +29,8 @@ use Magento\Directory\Model\RegionFactory;
 use Taxcloud\Magento2\Logger\Logger;
 use Magento\Framework\Serialize\SerializerInterface;
 use Magento\Framework\DataObject;
+use Taxcloud\Magento2\Model\CartItemResponseHandler;
+use Taxcloud\Magento2\Model\ProductTicService;
 
 class ApiTest extends TestCase
 {
@@ -42,6 +44,8 @@ class ApiTest extends TestCase
     private $regionFactory;
     private $logger;
     private $serializer;
+    private $cartItemResponseHandler;
+    private $productTicService;
     private $mockSoapClient;
     private $mockDataObject;
 
@@ -56,8 +60,16 @@ class ApiTest extends TestCase
         $this->regionFactory = $this->createMock(RegionFactory::class);
         $this->logger = $this->createMock(Logger::class);
         $this->serializer = $this->createMock(SerializerInterface::class);
-        $this->mockSoapClient = $this->createMock(\SoapClient::class);
-        $this->mockDataObject = $this->createMock(DataObject::class);
+        $this->cartItemResponseHandler = $this->createMock(CartItemResponseHandler::class);
+        $this->productTicService = $this->createMock(ProductTicService::class);
+        $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['Returned'])
+            ->getMock();
+        $this->mockDataObject = $this->getMockBuilder(DataObject::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['setParams', 'getParams', 'setResult', 'getResult'])
+            ->getMock();
 
         $this->api = new Api(
             $this->scopeConfig,
@@ -68,7 +80,9 @@ class ApiTest extends TestCase
             $this->productFactory,
             $this->regionFactory,
             $this->logger,
-            $this->serializer
+            $this->serializer,
+            $this->cartItemResponseHandler,
+            $this->productTicService
         );
     }
 
@@ -95,7 +109,7 @@ class ApiTest extends TestCase
 
         // Mock credit memo
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
-        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
         
         $creditmemo->method('getOrder')->willReturn($order);
@@ -157,7 +171,7 @@ class ApiTest extends TestCase
 
         // Mock credit memo
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
-        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
         
         $creditmemo->method('getOrder')->willReturn($order);
@@ -209,7 +223,7 @@ class ApiTest extends TestCase
 
         // Mock credit memo with items
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
-        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
         
         $creditItem = $this->createMock(\Magento\Sales\Model\Order\Creditmemo\Item::class);
@@ -312,7 +326,7 @@ class ApiTest extends TestCase
 
         // Mock credit memo
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
-        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
         
         $creditmemo->method('getOrder')->willReturn($order);
