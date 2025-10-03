@@ -4,6 +4,23 @@
  * 
  * This file provides minimal class definitions needed for PHPUnit mocking
  * without requiring a full Magento installation.
+ * 
+ * HOW TO GENERATE THESE MOCKS:
+ * 
+ * 1. When you get "Class not found" errors during unit testing:
+ *    - Add the missing class to the appropriate namespace below
+ *    - Include only the methods that are actually called in your tests
+ *    - Use empty method bodies: public function methodName() {}
+ * 
+ * 2. For interfaces, just declare them without implementation
+ * 3. For classes, add minimal method signatures that your tests need
+ * 4. Keep it minimal - only add what's necessary for tests to run
+ * 
+ * Example:
+ *    class MyClass {
+ *        public function getValue() {}
+ *        public function setValue($value) { return $this; }
+ *    }
  */
 
 namespace Magento\Framework\App\Config {
