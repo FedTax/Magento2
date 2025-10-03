@@ -1,62 +1,10 @@
-# TaxCloud Magento2 Extension - Development Context
-
-## Project Overview
-This is a Magento2 extension for TaxCloud sales tax compliance service. The extension handles sales tax calculation, collection, and filing for Adobe Commerce/Magento Open Source stores.
-
-## Adobe Commerce 2.4.8-p1 Compatibility
-
-### ✅ **Compatible Features**
-- **PHP 8.1+**: Fully compatible (tested with PHP 8.4.10)
-- **SOAP Client**: SOAP extension and client instantiation work correctly
-- **Anonymous Classes**: Observer pattern anonymous classes function properly
-- **Throwable Exception Handling**: Modern exception handling patterns work
-
-### ⚠️ **Known Compatibility Issues**
-- **SerializerInterface**: Not available in standalone test environment (requires Magento framework)
-- **ObserverInterface**: Not available in standalone test environment (requires Magento framework)
-- **Note**: These interfaces are available when running within actual Magento environment
-
-### 🧪 **Compatibility Testing**
-```bash
-# Run Adobe Commerce 2.4.8-p1 compatibility tests
-make test-compatibility
-
-# Run all compatibility tests
-php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
-```
-
-**Compatibility Test Coverage:**
-- **PHP 8.1+ Compatibility**: Version requirements and features
-- **SOAP Client**: Extension loading and client instantiation
-- **Anonymous Classes**: Observer pattern functionality
-- **Throwable Handling**: Modern exception handling patterns
-- **Array Operations**: Data structure handling and validation
-- **String Operations**: Text processing and manipulation
-- **SOAP Parameters**: API parameter handling and type safety
-- **Error Handling**: Error suppression and reporting control
-
-**Current Status**: ✅ **8/8 tests PASSED** - Fully compatible with Adobe Commerce 2.4.8-p1
-
-## Key Files & Directories
-
-### Core Extension Files
-- `Model/Api.php` - Main API integration with TaxCloud services
-- `Model/Tax.php` - Tax calculation logic
-- `Model/PostalCodeParser.php` - ZIP code parsing and validation
-- `Observer/Sales/` - Event observers for order lifecycle
-- `etc/` - Configuration and dependency injection files
-
-### Testing
-- `Test/Integration/` - Integration tests (can run without PHPUnit)
-- `Test/Unit/` - Unit tests (require PHPUnit framework)
-- `run-test.sh` - Docker-based test runner
-- `Makefile` - Test automation commands
+# TaxCloud Magento2 Extension - Cursor Configuration
 
 ## Development Commands
 
-### Running Tests
+### Run Tests
 ```bash
-# Run all tests using Docker (recommended)
+# Run all integration tests
 make test
 
 # Run tests locally (requires PHP)
@@ -65,51 +13,87 @@ make test-local
 # Run individual test files
 php Test/Integration/PostalCodeParserTest.php
 php Test/Integration/RefundTest.php
+php Test/Integration/ComprehensiveRefundTest.php
+php Test/Integration/FailureCaseTest.php
+php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
+
+# Run all tests at once
+for test_file in Test/Integration/*Test.php; do
+  echo "Running $test_file..."
+  php "$test_file"
+done
 ```
 
-### Test Coverage
-- **Integration Tests**: 31 tests covering core functionality
-- **Unit Tests**: Require PHPUnit framework (not included)
-- **Test Focus**: Refund handling, postal code parsing, API integration
+### Run Linting
+```bash
+# Install PHP CodeSniffer (if not already installed)
+composer global require squizlabs/php_codesniffer
 
-## Key Features
-1. **Sales Tax Calculation** - Real-time tax rates from TaxCloud
-2. **Address Verification** - TaxCloud address validation API
-3. **Order Management** - Tax capture and refund handling
-4. **Postal Code Parsing** - Flexible ZIP+4 code handling
-5. **Event System** - Extensible observer pattern for customization
+# Run linting on PHP files (warnings are non-fatal)
+phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
 
-## Configuration
-- Admin configuration under Stores → Configuration → Sales → Tax
-- Requires TaxCloud API credentials (API ID and Key)
-- Configurable taxability information codes (TIC) per product
-- Address verification and logging options
+# Auto-fix linting issues (where possible)
+phpcbf --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
 
-## Compatibility
-- **Adobe Commerce 2.4.8-p1**: ✅ Compatible (Version 1.1.0+)
-- **Magento Open Source 2.4.x**: ✅ Supported
-- **PHP**: 8.1+ recommended
+# Run linting with error-only failure (recommended for CI)
+lint_output=$($HOME/.composer/vendor/bin/phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/ 2>&1 || true)
+if echo "$lint_output" | grep -q "FOUND [1-9][0-9]* ERROR"; then
+  echo "❌ Linting failed - errors found:"
+  echo "$lint_output"
+  exit 1
+else
+  echo "✅ Linting passed - only warnings found (non-fatal):"
+  echo "$lint_output"
+fi
+```
 
-## Development Notes
-- Extension follows Magento2 module structure standards
-- Uses dependency injection and event observers
-- Comprehensive error handling and logging
-- SOAP API integration with TaxCloud services
-- Refund functionality includes special handling for delivery fees
+### Run Both Tests and Linting
+```bash
+# Run tests first
+for test_file in Test/Integration/*Test.php; do
+  echo "Running $test_file..."
+  php "$test_file"
+done
 
-## Common Development Tasks
-1. **Adding New Tax Rules**: Extend the Tax model
-2. **Custom Event Handling**: Use existing observer pattern
-3. **API Integration**: Extend the Api model for new TaxCloud endpoints
-4. **Testing**: Add new tests to Integration or Unit test directories
+# Then run linting
+phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
 
-## Dependencies
-- Magento2 Framework
-- TaxCloud API credentials
-- PHP SOAP extension (for API calls)
+# Or use make commands
+make test
+phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
+```
 
-## Troubleshooting
-- Check `var/log/taxcloud.log` for API call logs
-- Verify TaxCloud API credentials in admin configuration
-- Test postal code parsing with various formats
-- Ensure proper shipping origin address configuration
+## Code Style Guidelines
+
+- Follow PSR-2 coding standards
+- Use proper indentation (4 spaces)
+- Add proper spacing around operators and keywords
+- Place opening braces on the same line as function declarations
+- Use camelCase for property names (no underscore prefixes)
+- Keep lines under 120 characters when possible
+
+## File Structure
+
+- `Model/` - Core business logic
+- `Observer/` - Event observers
+- `Logger/` - Logging functionality
+- `Setup/` - Database setup and patches
+- `Test/Integration/` - Integration tests
+- `Test/Unit/` - Unit tests (require PHPUnit)
+- `.github/workflows/` - GitHub Actions workflows
+- `.github/actions/` - Reusable GitHub Actions
+
+## Testing
+
+- All tests should be run before committing
+- Integration tests can run without PHPUnit
+- Unit tests require PHPUnit framework
+- Use descriptive test method names
+- Test both success and failure scenarios
+
+## Deployment
+
+- Manual deployment only via GitHub Actions
+- Tests must pass before deployment
+- Use SSH keys for secure deployment
+- Deploy to sandbox environment for testing

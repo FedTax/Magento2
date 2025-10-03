@@ -202,6 +202,37 @@ Each of these situations can be accomplished using an event observer. For every 
 | `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created | `$result`, `$order`, `$items`, `$creditmemo` |
 
 
+## Automated Deployment
+
+This extension includes automated deployment to sandbox environments via GitHub Actions.
+
+### Setup
+
+1. **Configure GitHub Secrets** in your repository settings:
+   - `SFTP_HOST`: Your sandbox server IP
+   - `SFTP_USERNAME`: SSH username (e.g., `root` or `deploy`)
+   - `SFTP_PORT`: SSH port (default: `22`)
+   - `MAGENTO_ROOT_PATH`: Magento root directory (e.g., `/var/www/html`)
+   - `WEB_USER`: Web server user (e.g., `www-data`)
+   - `WEB_GROUP`: Web server group (e.g., `www-data`)
+   - `SSH_PRIVATE_KEY`: Private SSH key for server access
+
+2. **Generate SSH Key** (if needed):
+   ```bash
+   ./scripts/setup-ssh-deployment.sh
+   ```
+
+### Deployment
+
+- **Automatic**: Push to `main`, `develop`, or `DEV-*` branches
+- **Manual**: Go to Actions → Deploy to Sandbox → Run workflow
+
+The deployment process will:
+- Run all integration tests
+- Deploy module files via SFTP
+- Execute Magento setup commands
+- Verify deployment success
+
 ## License
 
 [![OSL 3.0](docs/images/osl-3.0.svg)](https://opensource.org/licenses/OSL-3.0)
