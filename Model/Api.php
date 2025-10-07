@@ -284,17 +284,17 @@ class Api
      */
     public function getClient()
     {
-        if ($this->_client === null) {
+        if ($this->client === null) {
             try {
                 $wsdl = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
-                // $this->_client = $this->_soapClientFactory->create($wsdl);
-                $this->_client = new \SoapClient($wsdl);
+                // $this->client = $this->soapClientFactory->create($wsdl);
+                $this->client = new \SoapClient($wsdl);
             } catch (Throwable $e) {
                 $this->tclogger->info('Cannot get SoapClient:');
                 $this->tclogger->info($e->getMessage());
             }
         }
-        return $this->_client;
+        return $this->client;
     }
 
     /**
