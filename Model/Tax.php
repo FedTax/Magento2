@@ -186,8 +186,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         }
 
         if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
-            $shippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING][self::ITEM_CODE_SHIPPING][self::KEY_ITEM];
-            $baseShippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING][self::ITEM_CODE_SHIPPING][self::KEY_BASE_ITEM];
+            $shippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING]
+                [self::ITEM_CODE_SHIPPING][self::KEY_ITEM];
+            $baseShippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING]
+                [self::ITEM_CODE_SHIPPING][self::KEY_BASE_ITEM];
 
             $taxAmount = $taxAmounts[self::ITEM_TYPE_SHIPPING];
             $taxAmountPer = $taxAmount / 1;

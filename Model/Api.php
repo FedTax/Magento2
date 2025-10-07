@@ -519,7 +519,10 @@ class Api
                 return $result;
             }
             $this->cartItemResponseHandler->processAndApplyCartItemResponses(
-                $cartItemResponse, $cartItems, $indexedItems, $result
+                $cartItemResponse,
+                $cartItems,
+                $indexedItems,
+                $result
             );
 
             $this->tclogger->info('Caching lookupTaxes result for ' . $this->getCacheLifetime());
@@ -573,11 +576,21 @@ class Api
         
         try {
             // Create quote details for tax calculation
-            $quoteDetailsFactory = $this->objectFactory->create(\Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory::class);
-            $quoteDetailsItemFactory = $this->objectFactory->create(\Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory::class);
-            $taxClassKeyFactory = $this->objectFactory->create(\Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory::class);
-            $customerAddressFactory = $this->objectFactory->create(\Magento\Customer\Api\Data\AddressInterfaceFactory::class);
-            $customerAddressRegionFactory = $this->objectFactory->create(\Magento\Customer\Api\Data\RegionInterfaceFactory::class);
+            $quoteDetailsFactory = $this->objectFactory->create(
+                \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory::class
+            );
+            $quoteDetailsItemFactory = $this->objectFactory->create(
+                \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory::class
+            );
+            $taxClassKeyFactory = $this->objectFactory->create(
+                \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory::class
+            );
+            $customerAddressFactory = $this->objectFactory->create(
+                \Magento\Customer\Api\Data\AddressInterfaceFactory::class
+            );
+            $customerAddressRegionFactory = $this->objectFactory->create(
+                \Magento\Customer\Api\Data\RegionInterfaceFactory::class
+            );
             
             if (!$quoteDetailsFactory || !$quoteDetailsItemFactory || !$taxClassKeyFactory ||
                 !$customerAddressFactory || !$customerAddressRegionFactory) {
@@ -612,9 +625,10 @@ class Api
                     $quoteDetailsItem = $quoteDetailsItemFactory->create();
                     $quoteDetailsItem->setCode($code);
                     $quoteDetailsItem->setType(self::ITEM_TYPE_PRODUCT);
-                    $quoteDetailsItem->setTaxClassKey(
-                        $taxClassKeyFactory->create()->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID)->setValue($item->getProduct()->getTaxClassId())
-                    );
+                    $taxClassKey = $taxClassKeyFactory->create();
+                    $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
+                    $taxClassKey->setValue($item->getProduct()->getTaxClassId());
+                    $quoteDetailsItem->setTaxClassKey($taxClassKey);
                     $quoteDetailsItem->setUnitPrice($item->getPrice());
                     $quoteDetailsItem->setQuantity($item->getQty());
                     $quoteDetailsItem->setDiscountAmount($item->getDiscountAmount());
@@ -629,9 +643,10 @@ class Api
                     $quoteDetailsItem = $quoteDetailsItemFactory->create();
                     $quoteDetailsItem->setCode($code);
                     $quoteDetailsItem->setType(self::ITEM_TYPE_SHIPPING);
-                    $quoteDetailsItem->setTaxClassKey(
-                        $taxClassKeyFactory->create()->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID)->setValue(0)
-                    ); // Default tax class for shipping
+                    $taxClassKey = $taxClassKeyFactory->create();
+                    $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
+                    $taxClassKey->setValue(0); // Default tax class for shipping
+                    $quoteDetailsItem->setTaxClassKey($taxClassKey);
                     $quoteDetailsItem->setUnitPrice($itemTaxDetail[self::KEY_ITEM]->getRowTotal());
                     $quoteDetailsItem->setQuantity(1);
                     $quoteDetailsItem->setDiscountAmount(0);
