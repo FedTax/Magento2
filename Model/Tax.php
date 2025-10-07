@@ -29,21 +29,21 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
      *
      * @var \Magento\Framework\App\Config\ScopeConfigInterface
      */
-    protected $_scopeConfig = null;
+    protected $scopeConfig = null;
 
     /**
      * TaxCloud Api Object
      *
      * @var \Taxcloud\Magento2\Model\Api
      */
-    protected $_tcapi;
+    protected $tcapi;
 
     /**
      * TaxCloud Logger
      *
      * @var \Taxcloud\Magento2\Logger\Logger
      */
-    protected $_tclogger;
+    protected $tclogger;
 
     /**
      * Class constructor
@@ -75,13 +75,13 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Taxcloud\Magento2\Model\Api $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger
     ) {
-        $this->_scopeConfig = $scopeConfig;
-        $this->_tcapi = $tcapi;
+        $this->scopeConfig = $scopeConfig;
+        $this->tcapi = $tcapi;
 
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->_tclogger = $tclogger;
+            $this->tclogger = $tclogger;
         } else {
-            $this->_tclogger = new class {
+            $this->tclogger = new class {
                 public function info()
                 {
                 }
@@ -117,7 +117,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Quote\Model\Quote\Address\Total $total
     ) {
 
-        if (!$this->_scopeConfig->getValue('tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
+        if (!$this->scopeConfig->getValue(
+            'tax/taxcloud_settings/enabled',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        )) {
             return parent::collect($quote, $shippingAssignment, $total);
         }
 
@@ -133,8 +136,8 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         $itemsByType = $this->organizeItemTaxDetailsByType($taxDetails, $baseTaxDetails);
 
         // Fetch tax amount from TaxCloud
-        $taxAmounts = $this->_tcapi->lookupTaxes($itemsByType, $shippingAssignment, $quote);
-        // $this->_tclogger->info(json_encode($taxAmounts, JSON_PRETTY_PRINT));
+        $taxAmounts = $this->tcapi->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+        // $this->tclogger->info(json_encode($taxAmounts, JSON_PRETTY_PRINT));
 
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
@@ -171,7 +174,9 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 $baseTaxDetail->setRowTotalInclTax($baseTaxDetail->getRowTotal() + $taxAmount);
                 $baseTaxDetail->setAppliedTaxes([]);
                 if ($baseTaxDetail->getRowTotal() > 0) {
-                    $baseTaxDetail->setTaxPercent(round(100 * $baseTaxDetail->getRowTax() / $baseTaxDetail->getRowTotal(), 2));
+                    $baseTaxDetail->setTaxPercent(
+                        round(100 * $baseTaxDetail->getRowTax() / $baseTaxDetail->getRowTotal(), 2)
+                    );
                 } else {
                     $baseTaxDetail->setTaxPercent(0);
                 }
@@ -181,8 +186,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         }
 
         if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
-            $shippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING][self::ITEM_CODE_SHIPPING][self::KEY_ITEM];
-            $baseShippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING][self::ITEM_CODE_SHIPPING][self::KEY_BASE_ITEM];
+            $shippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING]
+                [self::ITEM_CODE_SHIPPING][self::KEY_ITEM];
+            $baseShippingTaxDetails = $itemsByType[self::ITEM_TYPE_SHIPPING]
+                [self::ITEM_CODE_SHIPPING][self::KEY_BASE_ITEM];
 
             $taxAmount = $taxAmounts[self::ITEM_TYPE_SHIPPING];
             $taxAmountPer = $taxAmount / 1;
@@ -192,7 +199,9 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $shippingTaxDetails->setRowTotalInclTax($shippingTaxDetails->getRowTotal() + $taxAmount);
             $shippingTaxDetails->setAppliedTaxes([]);
             if ($shippingTaxDetails->getRowTotal() > 0) {
-                $shippingTaxDetails->setTaxPercent(round(100 * $shippingTaxDetails->getRowTax() / $shippingTaxDetails->getRowTotal(), 2));
+                $shippingTaxDetails->setTaxPercent(
+                    round(100 * $shippingTaxDetails->getRowTax() / $shippingTaxDetails->getRowTotal(), 2)
+                );
             } else {
                 $shippingTaxDetails->setTaxPercent(0);
             }
@@ -202,7 +211,9 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $baseShippingTaxDetails->setRowTotalInclTax($baseShippingTaxDetails->getRowTotal() + $taxAmount);
             $baseShippingTaxDetails->setAppliedTaxes([]);
             if ($baseShippingTaxDetails->getRowTotal() > 0) {
-                $baseShippingTaxDetails->setTaxPercent(round(100 * $baseShippingTaxDetails->getRowTax() / $baseShippingTaxDetails->getRowTotal(), 2));
+                $baseShippingTaxDetails->setTaxPercent(
+                    round(100 * $baseShippingTaxDetails->getRowTax() / $baseShippingTaxDetails->getRowTotal(), 2)
+                );
             } else {
                 $baseShippingTaxDetails->setTaxPercent(0);
             }
