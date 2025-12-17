@@ -69,6 +69,8 @@ namespace Magento\Sales\Model\Order {
         public function setSku($sku) { return $this; }
         public function getProduct() { return null; }
         public function setProduct($product) { return $this; }
+        public function getQuoteItemId() { return null; }
+        public function getId() { return null; }
     }
 
     class Order
