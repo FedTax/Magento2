@@ -372,8 +372,15 @@ class Api
                     // Skip products with tax_class_id of None, store owners should avoid doing this
                     continue;
                 }
+                
+                // Create unique ItemID by combining SKU with quote item ID to distinguish between
+                // separate line items (e.g., regular item vs promo item with same SKU)
+                // We use the quote item ID (not tax calculation ID) so it matches returnOrder
+                $quoteItemId = $item->getId();
+                $itemId = $quoteItemId ? $item->getSku() . '-' . $quoteItemId : $item->getSku();
+                
                 $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
+                    'ItemID' => $itemId,
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes'),
                     'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
@@ -796,8 +803,15 @@ class Api
         if ($items) {
             foreach ($items as $creditItem) {
                 $item = $creditItem->getOrderItem();
+                
+                // Create unique ItemID by combining SKU with quote item ID to distinguish between
+                // separate line items (e.g., regular item vs promo item with same SKU)
+                // We use quote item ID (from order item) to match the ItemID used in lookupTaxes
+                $quoteItemId = $item->getQuoteItemId();
+                $itemId = $quoteItemId ? $item->getSku() . '-' . $quoteItemId : $item->getSku();
+                
                 $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
+                    'ItemID' => $itemId,
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
                     'Price' => $creditItem->getPrice() - $creditItem->getDiscountAmount() / $creditItem->getQty(),
