@@ -259,50 +259,122 @@ class TaxTest extends TestCase
     }
 
     /**
-     * Test that product tax is persisted to quote items
+     * Data provider for product tax persistence tests
+     * Format: [productTaxAmount, shippingTaxAmount, itemPrice, itemQty, expectedTaxPercent, expectedPriceInclTax, expectedRowTotalInclTax, description]
      */
-    public function testProductTaxIsPersistedToQuoteItems()
+    public function productTaxPersistenceDataProvider()
     {
+        return [
+            'single item with tax' => [
+                'productTaxAmount' => 5.00,
+                'shippingTaxAmount' => 2.50,
+                'itemPrice' => 50.00,
+                'itemQty' => 1,
+                'expectedTaxPercent' => 10.00, // 5/50 * 100
+                'expectedPriceInclTax' => 55.00, // 50 + 5
+                'expectedRowTotalInclTax' => 55.00, // 50 + 5
+                'description' => 'Single item with $5 tax'
+            ],
+            'multiple quantity items' => [
+                'productTaxAmount' => 5.00,
+                'shippingTaxAmount' => 2.50,
+                'itemPrice' => 50.00,
+                'itemQty' => 2,
+                'expectedTaxPercent' => 5.00, // 5/100 * 100
+                'expectedPriceInclTax' => 52.50, // 50 + (5/2)
+                'expectedRowTotalInclTax' => 105.00, // 100 + 5
+                'description' => 'Two items with $5 total tax'
+            ],
+            'high price item' => [
+                'productTaxAmount' => 10.00,
+                'shippingTaxAmount' => 0.00,
+                'itemPrice' => 100.00,
+                'itemQty' => 1,
+                'expectedTaxPercent' => 10.00, // 10/100 * 100
+                'expectedPriceInclTax' => 110.00, // 100 + 10
+                'expectedRowTotalInclTax' => 110.00, // 100 + 10
+                'description' => 'High price item with 10% tax'
+            ],
+            'low tax amount' => [
+                'productTaxAmount' => 0.50,
+                'shippingTaxAmount' => 0.00,
+                'itemPrice' => 10.00,
+                'itemQty' => 1,
+                'expectedTaxPercent' => 5.00, // 0.5/10 * 100
+                'expectedPriceInclTax' => 10.50, // 10 + 0.5
+                'expectedRowTotalInclTax' => 10.50, // 10 + 0.5
+                'description' => 'Low tax amount on low price item'
+            ],
+            'zero tax' => [
+                'productTaxAmount' => 0.00,
+                'shippingTaxAmount' => 0.00,
+                'itemPrice' => 50.00,
+                'itemQty' => 1,
+                'expectedTaxPercent' => 0.00,
+                'expectedPriceInclTax' => 50.00, // 50 + 0
+                'expectedRowTotalInclTax' => 50.00, // 50 + 0
+                'description' => 'Zero tax scenario'
+            ],
+        ];
+    }
+
+    /**
+     * Test that product tax is persisted to quote items
+     * @dataProvider productTaxPersistenceDataProvider
+     */
+    public function testProductTaxIsPersistedToQuoteItems(
+        $productTaxAmount,
+        $shippingTaxAmount,
+        $itemPrice,
+        $itemQty,
+        $expectedTaxPercent,
+        $expectedPriceInclTax,
+        $expectedRowTotalInclTax,
+        $description
+    ) {
         [$quote, $shippingAssignment, $total, $quoteItem] = $this->createTestScenario(
-            productTaxAmount: 5.00,
-            shippingTaxAmount: 2.50,
-            itemPrice: 50.00,
-            itemQty: 2
+            productTaxAmount: $productTaxAmount,
+            shippingTaxAmount: $shippingTaxAmount,
+            itemPrice: $itemPrice,
+            itemQty: $itemQty
         );
+
+        $rowTotal = $itemPrice * $itemQty;
+        $expectedRowTotalInclTax = $rowTotal + $productTaxAmount;
 
         // Expect tax to be set on quote item
         $quoteItem->expects($this->once())
             ->method('setTaxAmount')
-            ->with($this->equalTo(5.00));
+            ->with($this->equalTo($productTaxAmount));
         
         $quoteItem->expects($this->once())
             ->method('setBaseTaxAmount')
-            ->with($this->equalTo(5.00));
+            ->with($this->equalTo($productTaxAmount));
         
         $quoteItem->expects($this->once())
             ->method('setTaxPercent')
-            ->with($this->equalTo(5.00));
+            ->with($this->equalTo($expectedTaxPercent));
         
         $quoteItem->expects($this->once())
             ->method('setPriceInclTax')
-            ->with($this->equalTo(52.50)); // 50 + (5/2)
+            ->with($this->equalTo($expectedPriceInclTax));
         
         $quoteItem->expects($this->once())
             ->method('setBasePriceInclTax')
-            ->with($this->equalTo(52.50));
+            ->with($this->equalTo($expectedPriceInclTax));
         
         $quoteItem->expects($this->once())
             ->method('setRowTotalInclTax')
-            ->with($this->equalTo(105.00)); // 100 + 5
+            ->with($this->equalTo($expectedRowTotalInclTax));
         
         $quoteItem->expects($this->once())
             ->method('setBaseRowTotalInclTax')
-            ->with($this->equalTo(105.00));
+            ->with($this->equalTo($expectedRowTotalInclTax));
 
         // Call collect
         $result = $this->tax->collect($quote, $shippingAssignment, $total);
 
-        $this->assertSame($this->tax, $result);
+        $this->assertSame($this->tax, $result, "Failed for: $description");
     }
 
     /**
@@ -358,37 +430,80 @@ class TaxTest extends TestCase
     }
 
     /**
-     * Test that zero quantity items don't cause division by zero
+     * Data provider for edge case tests
      */
-    public function testZeroQuantityDoesNotCauseDivisionByZero()
+    public function edgeCaseDataProvider()
     {
+        return [
+            'zero quantity' => [
+                'productTaxAmount' => 5.00,
+                'shippingTaxAmount' => 0.00,
+                'itemPrice' => 50.00,
+                'itemQty' => 0,
+                'expectedTaxAmount' => 0,
+                'expectedPriceInclTax' => 50.00,
+                'description' => 'Zero quantity should result in zero tax'
+            ],
+            'tax exempt product' => [
+                'productTaxAmount' => 0.00,
+                'shippingTaxAmount' => 0.00,
+                'itemPrice' => 50.00,
+                'itemQty' => 1,
+                'expectedTaxAmount' => 0,
+                'expectedPriceInclTax' => 50.00,
+                'description' => 'Tax exempt product (tax class 0)'
+            ],
+        ];
+    }
+
+    /**
+     * Test edge cases that don't cause errors
+     * @dataProvider edgeCaseDataProvider
+     */
+    public function testEdgeCases(
+        $productTaxAmount,
+        $shippingTaxAmount,
+        $itemPrice,
+        $itemQty,
+        $expectedTaxAmount,
+        $expectedPriceInclTax,
+        $description
+    ) {
+        $taxClassId = ($productTaxAmount > 0 && $itemQty > 0) ? '2' : '0';
+        
         [$quote, $shippingAssignment, $total, $quoteItem] = $this->createTestScenario(
-            productTaxAmount: 5.00,
-            shippingTaxAmount: 0.00,
-            itemPrice: 50.00,
-            itemQty: 0  // Zero quantity
+            productTaxAmount: $productTaxAmount,
+            shippingTaxAmount: $shippingTaxAmount,
+            itemPrice: $itemPrice,
+            itemQty: $itemQty
         );
 
-        // With zero quantity, tax should be 0 and no division should occur
+        // Override tax class if needed
+        if ($taxClassId === '0') {
+            $product = $quoteItem->getProduct();
+            $product->method('getTaxClassId')->willReturn('0');
+        }
+
+        // Expect tax to be set correctly
         $quoteItem->expects($this->once())
             ->method('setTaxAmount')
-            ->with($this->equalTo(0));
+            ->with($this->equalTo($expectedTaxAmount));
         
         $quoteItem->expects($this->once())
             ->method('setBaseTaxAmount')
-            ->with($this->equalTo(0));
+            ->with($this->equalTo($expectedTaxAmount));
         
         $quoteItem->expects($this->once())
             ->method('setPriceInclTax')
-            ->with($this->equalTo(50.00)); // Price + 0 tax
+            ->with($this->equalTo($expectedPriceInclTax));
         
         $quoteItem->expects($this->once())
             ->method('setBasePriceInclTax')
-            ->with($this->equalTo(50.00));
+            ->with($this->equalTo($expectedPriceInclTax));
 
-        // Should not throw division by zero error
+        // Should not throw any errors
         $result = $this->tax->collect($quote, $shippingAssignment, $total);
         
-        $this->assertSame($this->tax, $result);
+        $this->assertSame($this->tax, $result, "Failed for: $description");
     }
 }
