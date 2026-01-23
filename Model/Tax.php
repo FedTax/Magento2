@@ -163,19 +163,15 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
                 $productTaxTotal += (float) $taxAmount;
 
-                // Calculate base tax amount (using same value as baseTaxDetail will be set to)
-                $baseTaxAmount = $taxAmount;
-                $baseTaxAmountPer = $baseTaxAmount / $quoteItem->getQty();
-
                 // Persist tax onto quote item so tax does not get lost downstream
                 // This ensures tax is available when quote is converted to order
                 $quoteItem->setTaxAmount($taxAmount);
-                $quoteItem->setBaseTaxAmount($baseTaxAmount);
+                $quoteItem->setBaseTaxAmount($taxAmount);
                 $quoteItem->setTaxPercent($taxDetail->getRowTotal() > 0 ? round(100 * $taxAmount / $taxDetail->getRowTotal(), 2) : 0);
                 $quoteItem->setPriceInclTax($quoteItem->getPrice() + $taxAmountPer);
-                $quoteItem->setBasePriceInclTax($quoteItem->getBasePrice() + $baseTaxAmountPer);
+                $quoteItem->setBasePriceInclTax($quoteItem->getBasePrice() + $taxAmountPer);
                 $quoteItem->setRowTotalInclTax($quoteItem->getRowTotal() + $taxAmount);
-                $quoteItem->setBaseRowTotalInclTax($quoteItem->getBaseRowTotal() + $baseTaxAmount);
+                $quoteItem->setBaseRowTotalInclTax($quoteItem->getBaseRowTotal() + $taxAmount);
 
                 $taxDetail->setRowTax($taxAmount);
                 $taxDetail->setPriceInclTax($taxDetail->getPrice() + $taxAmountPer);

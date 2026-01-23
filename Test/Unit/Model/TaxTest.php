@@ -356,4 +356,39 @@ class TaxTest extends TestCase
         // Call collect
         $this->tax->collect($quote, $shippingAssignment, $total);
     }
+
+    /**
+     * Test that zero quantity items don't cause division by zero
+     */
+    public function testZeroQuantityDoesNotCauseDivisionByZero()
+    {
+        [$quote, $shippingAssignment, $total, $quoteItem] = $this->createTestScenario(
+            productTaxAmount: 5.00,
+            shippingTaxAmount: 0.00,
+            itemPrice: 50.00,
+            itemQty: 0  // Zero quantity
+        );
+
+        // With zero quantity, tax should be 0 and no division should occur
+        $quoteItem->expects($this->once())
+            ->method('setTaxAmount')
+            ->with($this->equalTo(0));
+        
+        $quoteItem->expects($this->once())
+            ->method('setBaseTaxAmount')
+            ->with($this->equalTo(0));
+        
+        $quoteItem->expects($this->once())
+            ->method('setPriceInclTax')
+            ->with($this->equalTo(50.00)); // Price + 0 tax
+        
+        $quoteItem->expects($this->once())
+            ->method('setBasePriceInclTax')
+            ->with($this->equalTo(50.00));
+
+        // Should not throw division by zero error
+        $result = $this->tax->collect($quote, $shippingAssignment, $total);
+        
+        $this->assertSame($this->tax, $result);
+    }
 }
