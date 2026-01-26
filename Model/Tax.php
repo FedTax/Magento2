@@ -144,6 +144,8 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $keyedAddressItems[$item->getTaxCalculationItemId()] = $item;
         }
 
+        $productTaxTotal = 0.0;
+
         if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
             foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
                 $taxDetail = $itemTaxDetail[self::KEY_ITEM];
@@ -158,6 +160,18 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                     $taxAmount = $taxAmounts[self::ITEM_TYPE_PRODUCT][$code] ?? 0;
                     $taxAmountPer = $taxAmount / $quoteItem->getQty();
                 }
+
+                $productTaxTotal += (float) $taxAmount;
+
+                // Persist tax onto quote item so tax does not get lost downstream
+                // This ensures tax is available when quote is converted to order
+                $quoteItem->setTaxAmount($taxAmount);
+                $quoteItem->setBaseTaxAmount($taxAmount);
+                $quoteItem->setTaxPercent($taxDetail->getRowTotal() > 0 ? round(100 * $taxAmount / $taxDetail->getRowTotal(), 2) : 0);
+                $quoteItem->setPriceInclTax($quoteItem->getPrice() + $taxAmountPer);
+                $quoteItem->setBasePriceInclTax($quoteItem->getBasePrice() + $taxAmountPer);
+                $quoteItem->setRowTotalInclTax($quoteItem->getRowTotal() + $taxAmount);
+                $quoteItem->setBaseRowTotalInclTax($quoteItem->getBaseRowTotal() + $taxAmount);
 
                 $taxDetail->setRowTax($taxAmount);
                 $taxDetail->setPriceInclTax($taxDetail->getPrice() + $taxAmountPer);
@@ -226,6 +240,24 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
         //Save applied taxes for each item and the quote in aggregation
         $this->processAppliedTaxes($total, $shippingAssignment, $itemsByType);
+
+        // Defensive safeguard: if Magento only kept shipping tax in totals, add product tax
+        // This handles cases where processAppliedTaxes() or other Magento processes
+        // might have dropped product tax from the order totals
+        $shippingTaxTotal = (float) ($taxAmounts[self::ITEM_TYPE_SHIPPING] ?? 0);
+        $currentTaxTotal = (float) $total->getTaxAmount();
+        
+        // Check if product tax exists but wasn't included in totals
+        // Compare current total to shipping tax (with small tolerance for rounding)
+        if ($productTaxTotal > 0.0001 && abs($currentTaxTotal - $shippingTaxTotal) < 0.0001) {
+            $this->tclogger->info(
+                sprintf('Product tax missing from totals. Adding %.2f to total tax.', $productTaxTotal)
+            );
+            $total->setTaxAmount($currentTaxTotal + $productTaxTotal);
+            $total->setBaseTaxAmount((float) $total->getBaseTaxAmount() + $productTaxTotal);
+            $total->addTotalAmount('tax', $productTaxTotal);
+            $total->addBaseTotalAmount('tax', $productTaxTotal);
+        }
 
         if ($this->includeExtraTax()) {
             $total->addTotalAmount('extra_tax', $total->getExtraTaxAmount());

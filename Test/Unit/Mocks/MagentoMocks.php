@@ -58,6 +58,7 @@ namespace Magento\Catalog\Model {
         public function load($id) { return $this; }
         public function getCustomAttribute($code) { return null; }
         public function setCustomAttribute($code, $value) { return $this; }
+        public function getTaxClassId() { return null; }
     }
 }
 
@@ -264,5 +265,138 @@ namespace Taxcloud\Magento2\Logger {
         public function info($message) { /* do nothing */ }
         public function error($message) { /* do nothing */ }
         public function debug($message) { /* do nothing */ }
+    }
+}
+
+// Mock Magento Quote Classes
+namespace Magento\Quote\Model {
+    class Quote
+    {
+        public function getCustomerTaxClassId() { return null; }
+        public function getStoreId() { return 1; }
+    }
+}
+
+namespace Magento\Quote\Model\Quote {
+    class Item
+    {
+        public function getTaxCalculationItemId() { return null; }
+        public function getProduct() { return null; }
+        public function getQty() { return 1; }
+        public function getPrice() { return 0; }
+        public function getBasePrice() { return 0; }
+        public function getRowTotal() { return 0; }
+        public function getBaseRowTotal() { return 0; }
+        public function setTaxAmount($amount) { return $this; }
+        public function setBaseTaxAmount($amount) { return $this; }
+        public function setTaxPercent($percent) { return $this; }
+        public function setPriceInclTax($price) { return $this; }
+        public function setBasePriceInclTax($price) { return $this; }
+        public function setRowTotalInclTax($total) { return $this; }
+        public function setBaseRowTotalInclTax($total) { return $this; }
+    }
+}
+
+namespace Magento\Quote\Model\Quote\Address {
+    class Total
+    {
+        public function getTaxAmount() { return 0; }
+        public function getBaseTaxAmount() { return 0; }
+        public function setTaxAmount($amount) { return $this; }
+        public function setBaseTaxAmount($amount) { return $this; }
+        public function addTotalAmount($code, $amount) { return $this; }
+        public function addBaseTotalAmount($code, $amount) { return $this; }
+    }
+}
+
+namespace Magento\Quote\Api\Data {
+    interface ShippingAssignmentInterface
+    {
+        public function getItems();
+    }
+}
+
+// Mock Magento Tax Classes
+namespace Magento\Tax\Model {
+    class Config
+    {
+        public function priceIncludesTax() { return false; }
+    }
+}
+
+namespace Magento\Tax\Model\Sales\Total\Quote {
+    class Tax
+    {
+        const ITEM_TYPE_SHIPPING = 'shipping';
+        const ITEM_TYPE_PRODUCT = 'product';
+        const ITEM_CODE_SHIPPING = 'shipping';
+        const KEY_ITEM = 'item';
+        const KEY_BASE_ITEM = 'base_item';
+        
+        protected function clearValues($total) { /* do nothing */ }
+        protected function getQuoteTaxDetails($shippingAssignment, $total, $base) { return null; }
+        protected function organizeItemTaxDetailsByType($taxDetails, $baseTaxDetails) { return []; }
+        protected function processProductItems($shippingAssignment, $items, $total) { /* do nothing */ }
+        protected function processShippingTaxInfo($shippingAssignment, $total, $shippingTaxDetails, $baseShippingTaxDetails) { /* do nothing */ }
+        protected function processExtraTaxables($total, $itemsByType) { /* do nothing */ }
+        protected function processAppliedTaxes($total, $shippingAssignment, $itemsByType) { /* do nothing */ }
+        protected function includeExtraTax() { return false; }
+    }
+}
+
+namespace Magento\Tax\Api {
+    interface TaxCalculationInterface
+    {
+        public function calculateTax($quoteDetails, $storeId);
+    }
+}
+
+namespace Magento\Tax\Api\Data {
+    interface QuoteDetailsInterface { }
+    interface QuoteDetailsItemInterface
+    {
+        public function getCode();
+        public function getType();
+        public function getRowTax();
+    }
+    interface TaxClassKeyInterface
+    {
+        const TYPE_ID = 'id';
+    }
+}
+
+namespace Magento\Tax\Api\Data {
+    interface QuoteDetailsInterfaceFactory
+    {
+        public function create();
+    }
+    
+    interface QuoteDetailsItemInterfaceFactory
+    {
+        public function create();
+    }
+    
+    interface TaxClassKeyInterfaceFactory
+    {
+        public function create();
+    }
+}
+
+namespace Magento\Customer\Api\Data {
+    interface AddressInterfaceFactory
+    {
+        public function create();
+    }
+    
+    interface RegionInterfaceFactory
+    {
+        public function create();
+    }
+}
+
+namespace Magento\Tax\Helper {
+    class Data
+    {
+        public function getPriceDisplayType() { return 1; }
     }
 }
