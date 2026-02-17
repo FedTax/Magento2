@@ -184,6 +184,34 @@ Test creating a credit memo for an order and comparing the results to your TaxCl
 
 ![Completed Refund in TaxCloud Dashboard](docs/images/testing-refund-taxcloud.png)
 
+##### How Refunds Work
+
+When a credit memo is refunded in Magento, the extension automatically processes the refund through TaxCloud's API. Here's how the refund flow works:
+
+1. **Event Trigger**: When a credit memo is refunded, Magento fires the `sales_order_creditmemo_refund` event, which is observed by `Taxcloud\Magento2\Observer\Sales\Refund`.
+
+2. **Refund Processing**: The observer calls `returnOrder()` method in the API model, which:
+   - Extracts all items from the credit memo (products and shipping)
+   - Builds cart items array with product details (SKU, TIC, Price, Quantity)
+   - Calculates item prices accounting for discounts
+   - Adds shipping as a separate cart item if shipping is being refunded
+   - Prepares API parameters including the order ID and returned date
+
+3. **Event Hooks**: Before making the API call, the `taxcloud_returned_before` event is dispatched, allowing you to modify refund parameters. After the API call, `taxcloud_returned_after` is dispatched, allowing you to modify the response.
+
+4. **TaxCloud API Call**: The extension makes a SOAP call to TaxCloud's `Returned` API with retry logic for reliability.
+
+5. **Response Validation**: The response is validated to ensure the refund was processed successfully.
+
+**Key Features:**
+- Supports both partial and full refunds
+- Handles product items and shipping separately
+- Calculates prices with discounts applied
+- Uses Taxability Information Codes (TIC) for accurate tax processing
+- Includes retry logic for API failures
+- Provides event hooks for extension customization
+- Ensures all required parameters are present for API calls
+
 ## Extending the TaxCloud Module
 
 In certain cases, a store owner may need to extend this module. Specific use cases might include: needing to adjust the shipping cost for a shipment containing both taxable and non-taxable items, fetching exemption certificates from an external source, or changing the shipping origin for multi-warehouse fulfillment.
