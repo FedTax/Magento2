@@ -795,13 +795,19 @@ class Api
 
         if ($items) {
             foreach ($items as $creditItem) {
+                $qty = $creditItem->getQty();
+                if ($qty <= 0) {
+                    continue;
+                }
                 $item = $creditItem->getOrderItem();
+                $price = $creditItem->getPrice();
+                $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
                 $cartItems[] = array(
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
-                    'Price' => $creditItem->getPrice() - $creditItem->getDiscountAmount() / $creditItem->getQty(),
-                    'Qty' => $creditItem->getQty(),
+                    'Price' => $price - $discountPerUnit,
+                    'Qty' => $qty,
                 );
                 $index++;
             }
@@ -817,6 +823,13 @@ class Api
                 'Price' => $shippingAmount,
                 'Qty' => 1,
             );
+        }
+
+        // Tax-only (or other non-product) refunds: no items and no shipping to return.
+        // Do not call Returned with empty cartItems—TaxCloud treats that as entire order return.
+        if (empty($cartItems)) {
+            $this->tclogger->info('returnOrder: no product or shipping items to return (e.g. tax-only refund); skipping Returned API call');
+            return true;
         }
 
         $params = array(
