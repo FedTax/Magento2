@@ -830,10 +830,8 @@ class Api
         $wasTaxOnlyRefund = false;
         if (empty($cartItems)) {
             $orderTax = (float) $order->getBaseTaxAmount();
-            $creditmemoTax = (float) $creditmemo->getBaseTaxAmount();
             $refundTotal = (float) $creditmemo->getBaseGrandTotal();
-            $isTaxOnlyRefund = $creditmemoTax > 0
-                && $orderTax > 0
+            $isTaxOnlyRefund = $orderTax > 0
                 && abs($refundTotal - $orderTax) < 0.02;
 
             if ($isTaxOnlyRefund) {
