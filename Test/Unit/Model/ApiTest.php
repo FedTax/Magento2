@@ -64,7 +64,7 @@ class ApiTest extends TestCase
         $this->productTicService = $this->createMock(ProductTicService::class);
         $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
             ->disableOriginalConstructor()
-            ->addMethods(['Returned'])
+            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture'])
             ->getMock();
         $this->mockDataObject = $this->getMockBuilder(DataObject::class)
             ->disableOriginalConstructor()
@@ -111,7 +111,7 @@ class ApiTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
-        
+
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([]);
         $creditmemo->method('getShippingAmount')->willReturn(0);
@@ -148,6 +148,76 @@ class ApiTest extends TestCase
         $this->assertTrue($result, 'returnOrder should return true for successful refund');
     }
 
+    /**
+     * Tax-only refund: empty credit memo where refund amount equals the order tax.
+     * Returned is called with empty cartItems (TaxCloud treats this as a full order return),
+     * then an exempt re-create is attempted via Lookup and AuthorizedWithCapture.
+     */
+    public function testReturnOrderTaxOnlyRefundCallsReturnedThenReCreatesAsExempt()
+    {
+        // Mock configuration
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '00000'],
+                ['tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '11010']
+            ]);
+
+        // Mock SOAP client
+        $this->soapClientFactory->method('create')
+            ->willReturn($this->mockSoapClient);
+
+        // Mock data object for event handling
+        $this->objectFactory->method('create')
+            ->willReturn($this->mockDataObject);
+
+        // Mock credit memo
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
+        $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
+        $order->method('getBaseTaxAmount')->willReturn(5.0);
+
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0);
+        $creditmemo->method('getBaseTaxAmount')->willReturn(5.0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(5.0);
+
+        // Mock successful SOAP response
+        $mockResponse = new \stdClass();
+        $mockResponse->ReturnedResult = new \stdClass();
+        $mockResponse->ReturnedResult->ResponseType = 'OK';
+        $mockResponse->ReturnedResult->Messages = [];
+
+        $this->mockSoapClient->method('Returned')
+            ->willReturn($mockResponse);
+
+        // Mock data object methods
+        $this->mockDataObject->method('setParams')->willReturnSelf();
+        $this->mockDataObject->method('getParams')->willReturn([
+            'apiLoginID' => 'test_api_id',
+            'apiKey' => 'test_api_key',
+            'orderID' => 'TEST_ORDER_123',
+            'cartItems' => [],
+            'returnedDate' => '2026-01-03T00:00:00+00:00',
+            'returnCoDeliveryFeeWhenNoCartItems' => false
+        ]);
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->mockDataObject->method('getResult')->willReturn([
+            'ResponseType' => 'OK',
+            'Messages' => []
+        ]);
+
+        // Execute the method
+        $result = $this->api->returnOrder($creditmemo);
+
+        // Assert the result
+        $this->assertTrue($result, 'returnOrder should return true for a tax-only refund');
+    }
+
     public function testReturnOrderHandlesSoapErrorGracefully()
     {
         // Mock configuration
@@ -173,7 +243,7 @@ class ApiTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
-        
+
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([]);
         $creditmemo->method('getShippingAmount')->willReturn(0);
@@ -328,7 +398,7 @@ class ApiTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
-        
+
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([]);
         $creditmemo->method('getShippingAmount')->willReturn(0);

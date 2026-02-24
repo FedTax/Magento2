@@ -795,13 +795,19 @@ class Api
 
         if ($items) {
             foreach ($items as $creditItem) {
+                $qty = $creditItem->getQty();
+                if ($qty <= 0) {
+                    continue;
+                }
                 $item = $creditItem->getOrderItem();
+                $price = $creditItem->getPrice();
+                $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
                 $cartItems[] = array(
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
-                    'Price' => $creditItem->getPrice() - $creditItem->getDiscountAmount() / $creditItem->getQty(),
-                    'Qty' => $creditItem->getQty(),
+                    'Price' => $price - $discountPerUnit,
+                    'Qty' => $qty,
                 );
                 $index++;
             }
@@ -817,6 +823,21 @@ class Api
                 'Price' => $shippingAmount,
                 'Qty' => 1,
             );
+        }
+
+        // Tax-only refund: no product/shipping returned, refund amount equals order tax.
+        // Flow: return full order in TaxCloud, then re-create order as exempt.
+        $wasTaxOnlyRefund = false;
+        if (empty($cartItems)) {
+            $orderTax = (float) $order->getBaseTaxAmount();
+            $refundTotal = (float) $creditmemo->getBaseGrandTotal();
+            $isTaxOnlyRefund = $orderTax > 0
+                && abs($refundTotal - $orderTax) < 0.02;
+
+            if ($isTaxOnlyRefund) {
+                $this->tclogger->info('returnOrder: tax-only refund detected; will re-create as exempt after Returned');
+                $wasTaxOnlyRefund = true;
+            }
         }
 
         $params = array(
@@ -906,7 +927,167 @@ class Api
             return false;
         }
 
+        // Re-create order as exempt in TaxCloud for nexus tracking (isExempt=true).
+        if ($wasTaxOnlyRefund) {
+            if ($this->lookupForOrderExempt($order, $client)) {
+                $exemptCartId = $order->getIncrementId() . '-exempt';
+                if (!$this->authorizeCaptureWithCartId($order, $exemptCartId, $client)) {
+                    $this->tclogger->info('returnOrder: re-create as exempt capture failed; return was successful');
+                }
+            } else {
+                $this->tclogger->info('returnOrder: re-create as exempt lookup failed; return was successful');
+            }
+        }
+
         return true;
+    }
+
+    /**
+     * Build cart items from order for full-order return / exempt re-create.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return array
+     */
+    private function buildCartItemsFromOrder($order)
+    {
+        $cartItems = array();
+        $index = 0;
+        $orderItems = $order->getAllVisibleItems();
+        if ($orderItems) {
+            foreach ($orderItems as $item) {
+                $qty = (float) $item->getQtyOrdered();
+                if ($qty <= 0) {
+                    continue;
+                }
+                $price = (float) $item->getPrice();
+                $discountAmount = (float) $item->getDiscountAmount();
+                $discountPerUnit = $qty > 0 ? $discountAmount / $qty : 0;
+                $cartItems[] = array(
+                    'ItemID' => $item->getSku(),
+                    'Index' => $index,
+                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
+                    'Price' => $price - $discountPerUnit,
+                    'Qty' => $qty,
+                );
+                $index++;
+            }
+        }
+        $shippingAmount = (float) $order->getBaseShippingAmount();
+        if ($shippingAmount > 0) {
+            $cartItems[] = array(
+                'ItemID' => 'shipping',
+                'Index' => $index,
+                'TIC' => $this->productTicService->getShippingTic(),
+                'Price' => $shippingAmount,
+                'Qty' => 1,
+            );
+        }
+        return $cartItems;
+    }
+
+    /**
+     * Get destination array from order shipping address for Lookup.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return array|null
+     */
+    private function getDestinationFromOrder($order)
+    {
+        $address = $order->getShippingAddress();
+        if (!$address || !$address->getPostcode() || $address->getCountryId() !== 'US') {
+            return null;
+        }
+        $parsedZip = PostalCodeParser::parse($address->getPostcode());
+        if (!PostalCodeParser::isValid($parsedZip)) {
+            return null;
+        }
+        $street = $address->getStreet();
+        $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
+        $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
+        $region = $this->regionFactory->create()->load($address->getRegionId());
+        return array(
+            'Address1' => $street1,
+            'Address2' => $street2,
+            'City' => $address->getCity() ?? '',
+            'State' => $region->getCode() ?? '',
+            'Zip5' => $parsedZip['Zip5'],
+            'Zip4' => $parsedZip['Zip4'],
+        );
+    }
+
+    /**
+     * Look up order as exempt using a new cart ID in preparation for exempt re-create.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @param \SoapClient $client
+     * @return bool
+     */
+    private function lookupForOrderExempt($order, $client)
+    {
+        $cartItems = $this->buildCartItemsFromOrder($order);
+        if (empty($cartItems)) {
+            return false;
+        }
+        $destination = $this->getDestinationFromOrder($order);
+        if ($destination === null) {
+            $this->tclogger->info('returnOrder: no valid shipping address for exempt lookup');
+            return false;
+        }
+        $origin = $this->getOrigin();
+        if ($origin === null) {
+            return false;
+        }
+        $params = array(
+            'apiLoginID' => $this->getApiId(),
+            'apiKey' => $this->getApiKey(),
+            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
+            'cartID' => $order->getIncrementId() . '-exempt',
+            'cartItems' => $cartItems,
+            'origin' => $origin,
+            'destination' => $destination,
+            'deliveredBySeller' => false,
+            'isExempt' => true,
+        );
+        try {
+            $lookupResponse = $client->lookup($params);
+        } catch (Throwable $e) {
+            $this->tclogger->info('returnOrder: exempt lookup failed: ' . $e->getMessage());
+            return false;
+        }
+        $lookupResponse = json_decode(json_encode($lookupResponse), true);
+        $result = isset($lookupResponse['LookupResult']) ? $lookupResponse['LookupResult'] : array();
+        $responseType = isset($result['ResponseType']) ? $result['ResponseType'] : '';
+        return $responseType === 'OK' || $responseType === 'Informational';
+    }
+
+    /**
+     * Call AuthorizedWithCapture for the order using the given cart ID.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @param string $cartId
+     * @param \SoapClient $client
+     * @return bool
+     */
+    private function authorizeCaptureWithCartId($order, $cartId, $client)
+    {
+        $params = array(
+            'apiLoginID' => $this->getApiId(),
+            'apiKey' => $this->getApiKey(),
+            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
+            'cartID' => $cartId,
+            'orderID' => $order->getIncrementId(),
+            'dateAuthorized' => date('c'),
+            'dateCaptured' => date('c'),
+        );
+        try {
+            $response = $client->authorizedWithCapture($params);
+        } catch (Throwable $e) {
+            $this->tclogger->info('returnOrder: authorizeCapture failed: ' . $e->getMessage());
+            return false;
+        }
+        $response = json_decode(json_encode($response), true);
+        $result = isset($response['AuthorizedWithCaptureResult']) ? $response['AuthorizedWithCaptureResult'] : array();
+        return (isset($result['ResponseType']) ? $result['ResponseType'] : '') === 'OK';
     }
 
     /**
