@@ -218,14 +218,16 @@ In certain cases, a store owner may need to extend this module. Specific use cas
 
 Each of these situations can be accomplished using an event observer. For every API call to TaxCloud, this module emits a before and after event. The before events can be used to modify the parameters sent to TaxCloud's API, and the after events can be used to modify the response.
 
+**Capture on payment:** Orders are sent to TaxCloud when the order is **captured** (first invoice paid), not when the order is placed. Canceled orders never reach TaxCloud, avoiding the need for void/refund workarounds (TaxCloud has no native "Canceled" state). This aligns with a capture-on-payment/fulfillment flow used on other platforms.
+
 | Event Name | Description | Data Objects |
 | ----- | ---- | --- |
 | `taxcloud_lookup_before` | Emitted before the `Lookup` call to get tax rates | `$params`, `$customer`, `$address`, `$quote`, `$itemsByType`, `$shippingAssignment` |
 | `taxcloud_lookup_after` | Emitted after the `Lookup` call to get tax rates | `$result`, `$customer`, `$address`, `$quote`, `$itemsByType`, `$shippingAssignment` |
 | `taxcloud_verify_address_before` | Emitted before the `VerifyAddress` call during checkout | `$params` |
 | `taxcloud_verify_address_after` | Emitted after the `VerifyAddress` call during checkout | `$result` |
-| `taxcloud_authorized_with_capture_before` | Emitted before the `AuthorizedWithCapture` call when an order is placed | `$params`, `$order` |
-| `taxcloud_authorized_with_capture_after` | Emitted after the `AuthorizedWithCapture` call when an order is placed | `$result`, `$order` |
+| `taxcloud_authorized_with_capture_before` | Emitted before the `AuthorizedWithCapture` call when an order is captured (invoice paid) | `$params`, `$order` |
+| `taxcloud_authorized_with_capture_after` | Emitted after the `AuthorizedWithCapture` call when an order is captured (invoice paid) | `$result`, `$order` |
 | `taxcloud_returned_before` | Emitted before the `Returned` call when a credit memo is created | `$params`, `$order`, `$items`, `$creditmemo` |
 | `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created | `$result`, `$order`, `$items`, `$creditmemo` |
 

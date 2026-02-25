@@ -81,9 +81,14 @@ class Complete implements ObserverInterface
             return;
         }
 
-        $this->tclogger->info('Running Observer sales_order_place_after');
+        $this->tclogger->info('Running Observer sales_order_invoice_pay (capture on payment)');
 
-        $order = $observer->getEvent()->getOrder();
+        $order = $observer->getEvent()->getInvoice()->getOrder();
+
+        // Only send to TaxCloud on first invoice pay to avoid duplicate API calls for partial invoices
+        if ($order->getInvoiceCollection()->getSize() > 1) {
+            return;
+        }
 
         $this->tcapi->authorizeCapture($order);
     }
