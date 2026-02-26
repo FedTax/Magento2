@@ -19,6 +19,7 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
+use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 class Complete implements ObserverInterface
 {
@@ -69,6 +70,17 @@ class Complete implements ObserverInterface
     }
 
     /**
+     * Event names that correspond to each capture trigger option.
+     */
+    private static $triggerToEvent = [
+        CaptureTrigger::ORDER_CREATION => 'sales_order_place_after',
+        CaptureTrigger::PAYMENT => 'sales_order_invoice_pay',
+        CaptureTrigger::SHIPMENT => 'sales_order_shipment_save_after',
+    ];
+
+    /**
+     * Run only when the current event matches the configured "When to send order to TaxCloud" setting.
+     *
      * @param Observer $observer
      */
     public function execute(
@@ -81,15 +93,64 @@ class Complete implements ObserverInterface
             return;
         }
 
-        $this->tclogger->info('Running Observer sales_order_invoice_pay (capture on payment)');
+        $eventName = $observer->getEvent()->getName();
+        $configuredTrigger = $this->scopeConfig->getValue(
+            'tax/taxcloud_settings/capture_trigger',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
+        if ($configuredTrigger === null || $configuredTrigger === '') {
+            $configuredTrigger = CaptureTrigger::ORDER_CREATION;
+        }
 
-        $order = $observer->getEvent()->getInvoice()->getOrder();
+        $expectedEvent = isset(self::$triggerToEvent[$configuredTrigger])
+            ? self::$triggerToEvent[$configuredTrigger]
+            : self::$triggerToEvent[CaptureTrigger::ORDER_CREATION];
 
-        // Only send to TaxCloud on first invoice pay to avoid duplicate API calls for partial invoices
-        if ($order->getInvoiceCollection()->getSize() > 1) {
+        if ($eventName !== $expectedEvent) {
+            return;
+        }
+
+        $this->tclogger->info('Running Observer ' . $eventName . ' (capture trigger: ' . $configuredTrigger . ')');
+
+        $order = $this->getOrderFromObserver($observer, $eventName);
+        if (!$order) {
             return;
         }
 
         $this->tcapi->authorizeCapture($order);
+    }
+
+    /**
+     * Get order from observer based on event. Returns null if we should skip (e.g. not first invoice/shipment).
+     *
+     * @param Observer $observer
+     * @param string $eventName
+     * @return \Magento\Sales\Model\Order|null
+     */
+    private function getOrderFromObserver(Observer $observer, $eventName)
+    {
+        $event = $observer->getEvent();
+
+        if ($eventName === 'sales_order_place_after') {
+            return $event->getOrder();
+        }
+
+        if ($eventName === 'sales_order_invoice_pay') {
+            $order = $event->getInvoice()->getOrder();
+            if ($order->getInvoiceCollection()->getSize() > 1) {
+                return null;
+            }
+            return $order;
+        }
+
+        if ($eventName === 'sales_order_shipment_save_after') {
+            $order = $event->getShipment()->getOrder();
+            if ($order->getShipmentCollection()->getSize() > 1) {
+                return null;
+            }
+            return $order;
+        }
+
+        return null;
     }
 }
