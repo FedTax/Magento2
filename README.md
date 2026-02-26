@@ -118,6 +118,7 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 * **Default TIC** - Enter the Taxability Information Code you would like to use for products where an explicit TIC has not been specified.
 * **Shipping TIC** - Enter the Taxability Information Code you would like to use for shipping costs. Use `11010` if you charge only postage, and `11000` for shipping & handling.
 * **Cache Lifetime** - Enter the amount of time in seconds you would like to cache the sales tax lookup and verify address API calls. The default value is `86400` (24 hours), or enter `0` to disable caching for development purposes.
+* **When to send order to TaxCloud** - Choose when the order is sent to TaxCloud: *On order creation* (at checkout; default), *On payment* (when an invoice is paid; recommended to avoid canceled orders reaching TaxCloud), or *On shipment* (when a shipment is created). For online payment methods, "on creation" and "on payment" often fire together; the choice matters for offline payment or when you only want to report tax on fulfilled orders.
 
 #### Product Settings
 
@@ -218,16 +219,14 @@ In certain cases, a store owner may need to extend this module. Specific use cas
 
 Each of these situations can be accomplished using an event observer. For every API call to TaxCloud, this module emits a before and after event. The before events can be used to modify the parameters sent to TaxCloud's API, and the after events can be used to modify the response.
 
-**Capture on payment:** Orders are sent to TaxCloud when the order is **captured** (first invoice paid), not when the order is placed. Canceled orders never reach TaxCloud, avoiding the need for void/refund workarounds (TaxCloud has no native "Canceled" state). This aligns with a capture-on-payment/fulfillment flow used on other platforms.
-
 | Event Name | Description | Data Objects |
 | ----- | ---- | --- |
 | `taxcloud_lookup_before` | Emitted before the `Lookup` call to get tax rates | `$params`, `$customer`, `$address`, `$quote`, `$itemsByType`, `$shippingAssignment` |
 | `taxcloud_lookup_after` | Emitted after the `Lookup` call to get tax rates | `$result`, `$customer`, `$address`, `$quote`, `$itemsByType`, `$shippingAssignment` |
 | `taxcloud_verify_address_before` | Emitted before the `VerifyAddress` call during checkout | `$params` |
 | `taxcloud_verify_address_after` | Emitted after the `VerifyAddress` call during checkout | `$result` |
-| `taxcloud_authorized_with_capture_before` | Emitted before the `AuthorizedWithCapture` call when an order is captured (invoice paid) | `$params`, `$order` |
-| `taxcloud_authorized_with_capture_after` | Emitted after the `AuthorizedWithCapture` call when an order is captured (invoice paid) | `$result`, `$order` |
+| `taxcloud_authorized_with_capture_before` | Emitted before the `AuthorizedWithCapture` call (when the order is sent per "When to send order to TaxCloud" setting) | `$params`, `$order` |
+| `taxcloud_authorized_with_capture_after` | Emitted after the `AuthorizedWithCapture` call (when the order is sent per "When to send order to TaxCloud" setting) | `$result`, `$order` |
 | `taxcloud_returned_before` | Emitted before the `Returned` call when a credit memo is created | `$params`, `$order`, `$items`, `$creditmemo` |
 | `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created | `$result`, `$order`, `$items`, `$creditmemo` |
 
