@@ -79,7 +79,7 @@ class Complete implements ObserverInterface
     ];
 
     /**
-     * Run only when the current event matches the configured "When to send order to TaxCloud" setting.
+     * Run only when the current event matches the configured "Capture in TaxCloud" setting.
      *
      * @param Observer $observer
      */
