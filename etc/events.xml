@@ -21,6 +21,12 @@
   <event name="sales_order_place_after">
     <observer name="afterOrder" instance="Taxcloud\Magento2\Observer\Sales\Complete"/>
   </event>
+  <event name="sales_order_invoice_pay">
+    <observer name="afterInvoicePay" instance="Taxcloud\Magento2\Observer\Sales\Complete"/>
+  </event>
+  <event name="sales_order_shipment_save_after">
+    <observer name="afterShipment" instance="Taxcloud\Magento2\Observer\Sales\Complete"/>
+  </event>
 
   <event name="sales_order_creditmemo_refund">
     <observer name="afterRefund" instance="Taxcloud\Magento2\Observer\Sales\Refund"/>
