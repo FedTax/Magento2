@@ -1,0 +1,10 @@
+# Exclude dev/CI files from git archive (GitHub release ZIPs)
+.gitignore export-ignore
+.gitattributes export-ignore
+.github/ export-ignore
+.cursorrules export-ignore
+Test/ export-ignore
+Makefile export-ignore
+run-test.sh export-ignore
+scripts/ export-ignore
+docs/images/ export-ignore
