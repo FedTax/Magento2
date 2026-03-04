@@ -84,6 +84,20 @@ class ApiTest extends TestCase
             $this->cartItemResponseHandler,
             $this->productTicService
         );
+        $this->injectMockSoapClientIntoApi();
+    }
+
+    /**
+     * Inject mock SoapClient into Api so getClient() returns it (Api uses new \SoapClient in getClient).
+     */
+    private function injectMockSoapClientIntoApi()
+    {
+        $ref = new \ReflectionClass(Api::class);
+        $prop = $ref->getProperty('client');
+        if (method_exists($prop, 'setAccessible')) {
+            @$prop->setAccessible(true);
+        }
+        $prop->setValue($this->api, $this->mockSoapClient);
     }
 
     public function testReturnOrderIncludesReturnCoDeliveryFeeWhenNoCartItems()
@@ -111,6 +125,7 @@ class ApiTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
+        $order->method('getBaseTaxAmount')->willReturn(0);
 
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([]);
@@ -179,6 +194,8 @@ class ApiTest extends TestCase
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
         $order->method('getBaseTaxAmount')->willReturn(5.0);
+        $order->method('getAllVisibleItems')->willReturn([]);
+        $order->method('getBaseShippingAmount')->willReturn(0);
 
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([]);
@@ -243,7 +260,8 @@ class ApiTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
-
+        
+        $order->method('getBaseTaxAmount')->willReturn(0);
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([]);
         $creditmemo->method('getShippingAmount')->willReturn(0);
@@ -295,7 +313,7 @@ class ApiTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
-        
+
         $creditItem = $this->createMock(\Magento\Sales\Model\Order\Creditmemo\Item::class);
         $orderItem = $this->createMock(\Magento\Sales\Model\Order\Item::class);
         $product = $this->createMock(\Magento\Catalog\Model\Product::class);
@@ -316,7 +334,7 @@ class ApiTest extends TestCase
         $customAttribute->method('getValue')->willReturn('20000');
         
         $this->productFactory->method('create')->willReturn($productModel);
-        
+
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([$creditItem]);
         $creditmemo->method('getShippingAmount')->willReturn(5.99);
@@ -398,7 +416,8 @@ class ApiTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_123');
-
+        
+        $order->method('getBaseTaxAmount')->willReturn(0);
         $creditmemo->method('getOrder')->willReturn($order);
         $creditmemo->method('getAllItems')->willReturn([]);
         $creditmemo->method('getShippingAmount')->willReturn(0);
@@ -424,5 +443,127 @@ class ApiTest extends TestCase
         // This should FAIL when the fix is not applied
         // The test expects the method to return false due to the SOAP error
         $this->assertFalse($result, 'returnOrder should return false when returnCoDeliveryFeeWhenNoCartItems parameter is missing');
+    }
+
+    /**
+     * returnOrderCancellation: success path with order items and shipping.
+     */
+    public function testReturnOrderCancellationSuccess()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '00000'],
+                ['tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '11010']
+            ]);
+
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+        $this->mockDataObject->method('setParams')->willReturnSelf();
+        $this->mockDataObject->method('getParams')->willReturn([
+            'apiLoginID' => 'test_api_id',
+            'apiKey' => 'test_api_key',
+            'orderID' => 'CANCEL_ORDER_123',
+            'cartItems' => [],
+            'returnedDate' => '2026-01-03T00:00:00+00:00',
+            'returnCoDeliveryFeeWhenNoCartItems' => false
+        ]);
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->mockDataObject->method('getResult')->willReturn([
+            'ResponseType' => 'OK',
+            'Messages' => []
+        ]);
+
+        $orderItem = $this->createMock(\Magento\Sales\Model\Order\Item::class);
+        $orderItem->method('getQtyOrdered')->willReturn(1);
+        $orderItem->method('getPrice')->willReturn(10.00);
+        $orderItem->method('getDiscountAmount')->willReturn(0);
+        $orderItem->method('getSku')->willReturn('SKU1');
+
+        $this->productTicService->method('getProductTic')->with($orderItem, 'returnOrder')->willReturn('20000');
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('CANCEL_ORDER_123');
+        $order->method('getAllVisibleItems')->willReturn([$orderItem]);
+        $order->method('getBaseShippingAmount')->willReturn(5.99);
+
+        $mockResponse = new \stdClass();
+        $mockResponse->ReturnedResult = new \stdClass();
+        $mockResponse->ReturnedResult->ResponseType = 'OK';
+        $mockResponse->ReturnedResult->Messages = [];
+        $this->mockSoapClient->method('Returned')->willReturn($mockResponse);
+
+        $result = $this->api->returnOrderCancellation($order);
+
+        $this->assertTrue($result, 'returnOrderCancellation should return true on success');
+    }
+
+    /**
+     * returnOrderCancellation: empty cart items returns false.
+     */
+    public function testReturnOrderCancellationEmptyCartItemsReturnsFalse()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1']
+            ]);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('EMPTY_ORDER');
+        $order->method('getAllVisibleItems')->willReturn([]);
+        $order->method('getBaseShippingAmount')->willReturn(0);
+
+        $result = $this->api->returnOrderCancellation($order);
+
+        $this->assertFalse($result, 'returnOrderCancellation should return false when order has no cart items');
+    }
+
+    /**
+     * returnOrderCancellation: SOAP error returns false.
+     */
+    public function testReturnOrderCancellationSoapErrorReturnsFalse()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '00000'],
+                ['tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '11010']
+            ]);
+
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+        $this->mockDataObject->method('setParams')->willReturnSelf();
+        $this->mockDataObject->method('getParams')->willReturn([
+            'apiLoginID' => 'test_api_id',
+            'apiKey' => 'test_api_key',
+            'orderID' => 'CANCEL_ORDER_123',
+            'cartItems' => [['ItemID' => 'SKU1', 'Index' => 0, 'TIC' => '20000', 'Price' => 10, 'Qty' => 1]],
+            'returnedDate' => '2026-01-03T00:00:00+00:00',
+            'returnCoDeliveryFeeWhenNoCartItems' => false
+        ]);
+
+        $orderItem = $this->createMock(\Magento\Sales\Model\Order\Item::class);
+        $orderItem->method('getQtyOrdered')->willReturn(1);
+        $orderItem->method('getPrice')->willReturn(10.00);
+        $orderItem->method('getDiscountAmount')->willReturn(0);
+        $orderItem->method('getSku')->willReturn('SKU1');
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('CANCEL_ORDER_123');
+        $order->method('getAllVisibleItems')->willReturn([$orderItem]);
+        $order->method('getBaseShippingAmount')->willReturn(0);
+
+        $this->mockSoapClient->method('Returned')
+            ->willThrowException(new \SoapFault('SOAP-ERROR', 'Server error'));
+
+        $result = $this->api->returnOrderCancellation($order);
+        $this->assertFalse($result, 'returnOrderCancellation should return false when SOAP call fails');
     }
 } 

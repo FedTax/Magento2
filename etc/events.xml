@@ -26,6 +26,14 @@
     <observer name="afterRefund" instance="Taxcloud\Magento2\Observer\Sales\Refund"/>
   </event>
 
+  <event name="order_cancel_after">
+    <observer name="taxcloud_order_cancel" instance="Taxcloud\Magento2\Observer\Sales\Cancel"/>
+  </event>
+
+  <event name="sales_order_save_after">
+    <observer name="taxcloud_order_save_after_cancel" instance="Taxcloud\Magento2\Observer\Sales\Cancel"/>
+  </event>
+
   <event name="taxcloud_lookup_before">
     <observer name="addressVerify" instance="Taxcloud\Magento2\Observer\Sales\Address"/>
   </event>

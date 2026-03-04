@@ -761,6 +761,7 @@ class Api
             if (trim(substr($respMsg, 0, strlen($dup))) === $dup) {
                 // Duplicate means the the previous call was good. Therefore, consider this to be good
                 $this->tclogger->info('Warning encountered during authorizeCapture: Duplicate transaction');
+                $order->setData('taxcloud_captured', true);
                 return true;
             } else {
                 $this->tclogger->info('Error encountered during authorizeCapture: ' . $respMsg);
@@ -768,6 +769,7 @@ class Api
             }
         }
 
+        $order->setData('taxcloud_captured', true);
         return true;
     }
 
@@ -937,6 +939,119 @@ class Api
             } else {
                 $this->tclogger->info('returnOrder: re-create as exempt lookup failed; return was successful');
             }
+        }
+
+        return true;
+    }
+
+    /**
+     * Return canceled order using TaxCloud web services (no invoice; reverses capture)
+     * @param $order
+     * @return bool
+     */
+    public function returnOrderCancellation($order)
+    {
+        $this->tclogger->info('Calling returnOrderCancellation');
+
+        $client = $this->getClient();
+
+        if (!$client) {
+            $this->tclogger->info('Error encountered during returnOrderCancellation: Cannot get SoapClient');
+            return false;
+        }
+
+        $cartItems = $this->buildCartItemsFromOrder($order);
+
+        if (empty($cartItems)) {
+            $this->tclogger->info('returnOrderCancellation: no cart items for order ' . $order->getIncrementId());
+            return false;
+        }
+
+        $params = array(
+            'apiLoginID' => $this->getApiId(),
+            'apiKey' => $this->getApiKey(),
+            'orderID' => $order->getIncrementId(),
+            'cartItems' => $cartItems,
+            'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00'
+            'returnCoDeliveryFeeWhenNoCartItems' => false
+        );
+
+        // Call before event
+        $obj = $this->objectFactory->create();
+        $obj->setParams($params);
+
+        $this->eventManager->dispatch('taxcloud_returned_before', array(
+            'obj' => $obj,
+            'order' => $order,
+            'items' => $order->getAllVisibleItems(),
+            'creditmemo' => null,
+        ));
+
+        $params = $obj->getParams();
+
+        // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
+        if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
+            $params['returnCoDeliveryFeeWhenNoCartItems'] = false;
+        }
+
+        $this->tclogger->info('returnOrderCancellation PARAMS:');
+        $this->tclogger->info(print_r($params, true));
+
+        // Ensure all required parameters are properly set for SOAP call
+        $soapParams = array(
+            'apiLoginID' => $params['apiLoginID'],
+            'apiKey' => $params['apiKey'],
+            'orderID' => $params['orderID'],
+            'cartItems' => $params['cartItems'],
+            'returnedDate' => $params['returnedDate'],
+            'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
+        );
+
+        $this->tclogger->info('returnOrderCancellation SOAP PARAMS:');
+        $this->tclogger->info(print_r($soapParams, true));
+
+        try {
+            $returnResponse = $client->Returned($soapParams);
+        } catch (Throwable $e) {
+            $this->tclogger->info('First attempt failed: ' . $e->getMessage());
+            // Retry
+            try {
+                $returnResponse = $client->Returned($soapParams);
+            } catch (Throwable $e) {
+                $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $e->getMessage());
+                $this->tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
+                return false;
+            }
+        }
+
+        // Force into array
+        $returnResponse = json_decode(json_encode($returnResponse), true);
+
+        $this->tclogger->info('returnOrderCancellation RESPONSE:');
+        $this->tclogger->info(print_r($returnResponse, true));
+
+        $returnResult = $returnResponse['ReturnedResult'];
+
+        // Call after event
+        $obj = $this->objectFactory->create();
+        $obj->setResult($returnResult);
+
+        $this->eventManager->dispatch('taxcloud_returned_after', array(
+            'obj' => $obj,
+            'order' => $order,
+            'items' => $order->getAllVisibleItems(),
+            'creditmemo' => null,
+        ));
+
+        $returnResult = $obj->getResult();
+
+        if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
+            $errorMessage = 'Unknown error';
+            if ($returnResult && isset($returnResult['Messages']['ResponseMessage']['Message'])) {
+                $errorMessage = $returnResult['Messages']['ResponseMessage']['Message'];
+            }
+            $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $errorMessage);
+            return false;
         }
 
         return true;

@@ -62,6 +62,40 @@ namespace Magento\Catalog\Model {
     }
 }
 
+// Mock Magento Sales API
+namespace Magento\Sales\Api {
+    interface OrderRepositoryInterface
+    {
+        public function save($order);
+        public function get($id);
+    }
+}
+
+// Mock Magento Sales Model (main Order used by returnOrderCancellation and Cancel)
+namespace Magento\Sales\Model\ResourceModel\Order\Invoice {
+    class Collection
+    {
+        public function getSize() { return 0; }
+    }
+}
+
+namespace Magento\Sales\Model {
+    class Order
+    {
+        const STATE_CANCELED = 'canceled';
+
+        public function getId() { return null; }
+        public function getIncrementId() { return null; }
+        public function getState() { return null; }
+        public function getData($key = null) { return null; }
+        public function setData($key, $value = null) { return $this; }
+        public function getAllVisibleItems() { return []; }
+        public function getBaseShippingAmount() { return 0; }
+        public function getBaseTaxAmount() { return 0; }
+        public function getInvoiceCollection() { return new \Magento\Sales\Model\ResourceModel\Order\Invoice\Collection(); }
+    }
+}
+
 // Mock Magento Sales Classes
 namespace Magento\Sales\Model\Order {
     class Item
@@ -70,6 +104,9 @@ namespace Magento\Sales\Model\Order {
         public function setSku($sku) { return $this; }
         public function getProduct() { return null; }
         public function setProduct($product) { return $this; }
+        public function getQtyOrdered() { return 0; }
+        public function getPrice() { return 0; }
+        public function getDiscountAmount() { return 0; }
     }
 
     class Order
@@ -77,7 +114,9 @@ namespace Magento\Sales\Model\Order {
         public function getIncrementId() { return null; }
         public function setIncrementId($id) { return $this; }
         public function getAllItems() { return []; }
+        public function getAllVisibleItems() { return []; }
         public function setItems($items) { return $this; }
+        public function getBaseTaxAmount() { return 0; }
     }
 
     class Creditmemo
@@ -88,6 +127,8 @@ namespace Magento\Sales\Model\Order {
         public function setItems($items) { return $this; }
         public function getShippingAmount() { return 0; }
         public function setShippingAmount($amount) { return $this; }
+        public function getBaseGrandTotal() { return 0; }
+        public function getBaseTaxAmount() { return 0; }
     }
 }
 
@@ -155,13 +196,35 @@ namespace Magento\Framework\Exception {
     class NoSuchEntityException extends \Exception { }
 }
 
+// Mock Magento Framework Event
+namespace Magento\Framework {
+    class Event
+    {
+        public function getName() { return ''; }
+        public function getOrder() { return null; }
+    }
+}
+
 // Mock Magento Framework Event Classes
 namespace Magento\Framework\Event {
+    interface ObserverInterface
+    {
+        public function execute(\Magento\Framework\Event\Observer $observer);
+    }
+
+    class Observer
+    {
+        protected $event;
+
+        public function getEvent() { return $this->event; }
+        public function setEvent($event) { $this->event = $event; return $this; }
+    }
+
     interface ManagerInterface
     {
         public function dispatch($eventName, array $data = []);
     }
-    
+
     class Manager implements ManagerInterface
     {
         public function dispatch($eventName, array $data = []) { /* do nothing */ }
