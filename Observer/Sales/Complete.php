@@ -45,27 +45,17 @@ class Complete implements ObserverInterface
     protected $tclogger;
 
     /**
-     * Order repository for saving order (persists TaxCloud flags)
-     *
-     * @var \Magento\Sales\Api\OrderRepositoryInterface
-     */
-    protected $orderRepository;
-
-    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Taxcloud\Magento2\Model\Api $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
-     * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
      */
     public function __construct(
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger,
-        \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
+        \Taxcloud\Magento2\Logger\Logger $tclogger
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->tcapi = $tcapi;
-        $this->orderRepository = $orderRepository;
 
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->tclogger = $tclogger;
@@ -95,8 +85,6 @@ class Complete implements ObserverInterface
 
         $order = $observer->getEvent()->getOrder();
 
-        if ($this->tcapi->authorizeCapture($order)) {
-            $this->orderRepository->save($order);
-        }
+        $this->tcapi->authorizeCapture($order);
     }
 }

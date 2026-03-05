@@ -223,7 +223,7 @@ When an order is canceled before any invoice is created, the extension automatic
 2. **Conditions**: Returned is only called when:
    - The order state is canceled (entire order canceled, not partial).
    - The order has no invoices (unpaid; refunds continue to use the credit memo flow).
-   - The order was previously captured in TaxCloud (AuthorizedWithCapture had succeeded).
+   - TaxCloud reports the order as captured: the extension calls TaxCloud's **OrderDetails** API and only calls Returned when the response includes a non-empty **CapturedDate**. This uses TaxCloud as the source of truth and works for existing orders captured before the extension was installed or after database migrations.
 
 3. **TaxCloud API call**: The extension calls the `Returned` API for the full order (all items and shipping), using the same `taxcloud_returned_before` and `taxcloud_returned_after` events (with `creditmemo` null for cancellation).
 

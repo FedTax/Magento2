@@ -761,7 +761,6 @@ class Api
             if (trim(substr($respMsg, 0, strlen($dup))) === $dup) {
                 // Duplicate means the the previous call was good. Therefore, consider this to be good
                 $this->tclogger->info('Warning encountered during authorizeCapture: Duplicate transaction');
-                $order->setData('taxcloud_captured', true);
                 return true;
             } else {
                 $this->tclogger->info('Error encountered during authorizeCapture: ' . $respMsg);
@@ -769,7 +768,6 @@ class Api
             }
         }
 
-        $order->setData('taxcloud_captured', true);
         return true;
     }
 
@@ -942,6 +940,50 @@ class Api
         }
 
         return true;
+    }
+
+    /**
+     * Get order details from TaxCloud (includes CapturedDate when order was captured).
+     * Used to determine whether to call Returned on cancel (only if TaxCloud has the sale).
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return array|null OrderDetailsResult as array, or null on failure / order not found
+     */
+    public function getOrderDetails($order)
+    {
+        $this->tclogger->info('Calling getOrderDetails for order ' . $order->getIncrementId());
+
+        $client = $this->getClient();
+        if (!$client) {
+            $this->tclogger->info('Error in getOrderDetails: Cannot get SoapClient');
+            return null;
+        }
+
+        $params = array(
+            'apiLoginID' => $this->getApiId(),
+            'apiKey' => $this->getApiKey(),
+            'orderID' => $order->getIncrementId(),
+        );
+
+        try {
+            $response = $client->OrderDetails($params);
+        } catch (Throwable $e) {
+            $this->tclogger->info('getOrderDetails failed: ' . $e->getMessage());
+            return null;
+        }
+
+        $response = json_decode(json_encode($response), true);
+        if (empty($response['OrderDetailsResult'])) {
+            return null;
+        }
+
+        $result = $response['OrderDetailsResult'];
+        if (isset($result['ResponseType']) && $result['ResponseType'] !== 'OK') {
+            $this->tclogger->info('getOrderDetails returned non-OK: ' . ($result['ResponseType'] ?? 'unknown'));
+            return null;
+        }
+
+        return $result;
     }
 
     /**

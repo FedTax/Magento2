@@ -132,10 +132,11 @@ class Cancel implements ObserverInterface
             return;
         }
 
-        if (!$order->getData('taxcloud_captured')) {
+        $details = $this->tcapi->getOrderDetails($order);
+        if (!$details || empty($details['CapturedDate'])) {
             $this->tclogger->info(
                 'TaxCloud Cancel: skipping order ' . $order->getIncrementId()
-                . ' (order was not captured in TaxCloud)'
+                . ' (order was not captured in TaxCloud or OrderDetails unavailable)'
             );
             return;
         }

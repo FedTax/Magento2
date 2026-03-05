@@ -64,7 +64,7 @@ class ApiTest extends TestCase
         $this->productTicService = $this->createMock(ProductTicService::class);
         $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
             ->disableOriginalConstructor()
-            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture'])
+            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails'])
             ->getMock();
         $this->mockDataObject = $this->getMockBuilder(DataObject::class)
             ->disableOriginalConstructor()
@@ -565,5 +565,67 @@ class ApiTest extends TestCase
 
         $result = $this->api->returnOrderCancellation($order);
         $this->assertFalse($result, 'returnOrderCancellation should return false when SOAP call fails');
+    }
+
+    /**
+     * getOrderDetails: success path returns OrderDetailsResult array with CapturedDate.
+     */
+    public function testGetOrderDetailsReturnsResultWhenCaptured()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+            ]);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('ORDER_100');
+
+        $mockResponse = new \stdClass();
+        $mockResponse->OrderDetailsResult = new \stdClass();
+        $mockResponse->OrderDetailsResult->ResponseType = 'OK';
+        $mockResponse->OrderDetailsResult->CapturedDate = '2024-01-15T12:00:00';
+
+        $this->mockSoapClient->method('OrderDetails')
+            ->with($this->callback(function ($params) {
+                return isset($params['apiLoginID'], $params['apiKey'], $params['orderID'])
+                    && $params['orderID'] === 'ORDER_100';
+            }))
+            ->willReturn($mockResponse);
+
+        $result = $this->api->getOrderDetails($order);
+
+        $this->assertIsArray($result, 'getOrderDetails should return array on success');
+        $this->assertSame('OK', $result['ResponseType']);
+        $this->assertSame('2024-01-15T12:00:00', $result['CapturedDate']);
+    }
+
+    /**
+     * getOrderDetails: returns null when ResponseType is not OK or order not found.
+     */
+    public function testGetOrderDetailsReturnsNullWhenNotOkOrError()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+            ]);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('ORDER_101');
+
+        $mockResponse = new \stdClass();
+        $mockResponse->OrderDetailsResult = new \stdClass();
+        $mockResponse->OrderDetailsResult->ResponseType = 'Error';
+
+        $this->mockSoapClient->method('OrderDetails')->willReturn($mockResponse);
+
+        $result = $this->api->getOrderDetails($order);
+
+        $this->assertNull($result, 'getOrderDetails should return null when ResponseType is not OK');
     }
 } 
