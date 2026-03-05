@@ -46,27 +46,17 @@ class Cancel implements ObserverInterface
     protected $tclogger;
 
     /**
-     * Order repository for saving order (persists TaxCloud flags)
-     *
-     * @var \Magento\Sales\Api\OrderRepositoryInterface
-     */
-    protected $orderRepository;
-
-    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Taxcloud\Magento2\Model\Api $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
-     * @param \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
      */
     public function __construct(
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger,
-        \Magento\Sales\Api\OrderRepositoryInterface $orderRepository
+        \Taxcloud\Magento2\Logger\Logger $tclogger
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->tcapi = $tcapi;
-        $this->orderRepository = $orderRepository;
 
         if ($scopeConfig->getValue(
             'tax/taxcloud_settings/logging',
@@ -123,7 +113,6 @@ class Cancel implements ObserverInterface
 
     /**
      * If the order was captured in TaxCloud and has no invoices, call Returned to reverse the sale.
-     * Deduplication: only runs when taxcloud_return_sent is not set; sets it after success.
      *
      * @param Order $order
      */
@@ -151,22 +140,13 @@ class Cancel implements ObserverInterface
             return;
         }
 
-        if ($order->getData('taxcloud_return_sent')) {
-            $this->tclogger->info(
-                'TaxCloud Cancel: skipping order ' . $order->getIncrementId() . ' (Returned already sent)'
-            );
-            return;
-        }
-
         $this->tclogger->info(
             'TaxCloud Cancel: calling Returned for canceled unpaid order ' . $order->getIncrementId()
         );
 
         if ($this->tcapi->returnOrderCancellation($order)) {
-            $order->setData('taxcloud_return_sent', true);
-            $this->orderRepository->save($order);
             $this->tclogger->info(
-                'TaxCloud Cancel: Returned completed and flag set for order ' . $order->getIncrementId()
+                'TaxCloud Cancel: Returned completed for order ' . $order->getIncrementId()
             );
         }
     }

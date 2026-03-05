@@ -19,7 +19,5 @@
     <table name="sales_order" resource="sales">
         <column xsi:type="smallint" name="taxcloud_captured" nullable="true" unsigned="true"
                 comment="Whether order was captured in TaxCloud (AuthorizedWithCapture succeeded)"/>
-        <column xsi:type="smallint" name="taxcloud_return_sent" nullable="true" unsigned="true"
-                comment="Whether Returned was sent for this order (e.g. canceled unpaid)"/>
     </table>
 </schema>

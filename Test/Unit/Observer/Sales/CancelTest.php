@@ -31,10 +31,8 @@ class CancelTest extends TestCase
         $tcapi->expects($this->never())->method('returnOrderCancellation');
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
-        $orderRepository = $this->createMock(\Magento\Sales\Api\OrderRepositoryInterface::class);
-        $orderRepository->expects($this->never())->method('save');
 
-        $observer = new Cancel($scopeConfig, $tcapi, $logger, $orderRepository);
+        $observer = new Cancel($scopeConfig, $tcapi, $logger);
 
         $event = $this->createMock(\Magento\Framework\Event::class);
         $event->method('getName')->willReturn('order_cancel_after');
@@ -63,10 +61,8 @@ class CancelTest extends TestCase
         $tcapi->expects($this->never())->method('returnOrderCancellation');
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
-        $orderRepository = $this->createMock(\Magento\Sales\Api\OrderRepositoryInterface::class);
-        $orderRepository->expects($this->never())->method('save');
 
-        $observer = new Cancel($scopeConfig, $tcapi, $logger, $orderRepository);
+        $observer = new Cancel($scopeConfig, $tcapi, $logger);
 
         $order = $this->createMock(Order::class);
         $order->method('getIncrementId')->willReturn('10001');
@@ -75,7 +71,6 @@ class CancelTest extends TestCase
         $invoiceCollection->method('getSize')->willReturn(1);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
         $order->method('getData')->with('taxcloud_captured')->willReturn(true);
-        $order->method('getData')->with('taxcloud_return_sent')->willReturn(false);
 
         $event = $this->createMock(\Magento\Framework\Event::class);
         $event->method('getName')->willReturn('order_cancel_after');
@@ -102,10 +97,8 @@ class CancelTest extends TestCase
         $tcapi->expects($this->never())->method('returnOrderCancellation');
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
-        $orderRepository = $this->createMock(\Magento\Sales\Api\OrderRepositoryInterface::class);
-        $orderRepository->expects($this->never())->method('save');
 
-        $observer = new Cancel($scopeConfig, $tcapi, $logger, $orderRepository);
+        $observer = new Cancel($scopeConfig, $tcapi, $logger);
 
         $order = $this->createMock(Order::class);
         $order->method('getIncrementId')->willReturn('10002');
@@ -114,8 +107,7 @@ class CancelTest extends TestCase
         $invoiceCollection->method('getSize')->willReturn(0);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
         $order->method('getData')->willReturnMap([
-            [['taxcloud_captured'], null],
-            [['taxcloud_return_sent'], false]
+            [['taxcloud_captured'], null]
         ]);
 
         $event = $this->createMock(\Magento\Framework\Event::class);
@@ -129,50 +121,9 @@ class CancelTest extends TestCase
     }
 
     /**
-     * When taxcloud_return_sent is already true, returnOrderCancellation is not called (deduplication).
+     * When all conditions are met, returnOrderCancellation is called.
      */
-    public function testProcessOrderCancelSkipsWhenReturnAlreadySent()
-    {
-        $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
-        $scopeConfig->method('getValue')->willReturnMap([
-            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
-            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0']
-        ]);
-
-        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
-        $tcapi->expects($this->never())->method('returnOrderCancellation');
-
-        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
-        $orderRepository = $this->createMock(\Magento\Sales\Api\OrderRepositoryInterface::class);
-        $orderRepository->expects($this->never())->method('save');
-
-        $observer = new Cancel($scopeConfig, $tcapi, $logger, $orderRepository);
-
-        $order = $this->createMock(Order::class);
-        $order->method('getIncrementId')->willReturn('10003');
-        $order->method('getState')->willReturn(Order::STATE_CANCELED);
-        $invoiceCollection = $this->createMock(\Magento\Sales\Model\ResourceModel\Order\Invoice\Collection::class);
-        $invoiceCollection->method('getSize')->willReturn(0);
-        $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
-        $order->method('getData')->willReturnMap([
-            [['taxcloud_captured'], true],
-            [['taxcloud_return_sent'], true]
-        ]);
-
-        $event = $this->createMock(\Magento\Framework\Event::class);
-        $event->method('getName')->willReturn('order_cancel_after');
-        $event->method('getOrder')->willReturn($order);
-
-        $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
-        $observerObj->method('getEvent')->willReturn($event);
-
-        $observer->execute($observerObj);
-    }
-
-    /**
-     * When all conditions are met, returnOrderCancellation is called and order is saved with flag.
-     */
-    public function testProcessOrderCancelCallsReturnAndSavesOrderWhenConditionsMet()
+    public function testProcessOrderCancelCallsReturnWhenConditionsMet()
     {
         $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap([
@@ -184,28 +135,17 @@ class CancelTest extends TestCase
         $tcapi->expects($this->once())->method('returnOrderCancellation')->willReturn(true);
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
-        $orderRepository = $this->createMock(\Magento\Sales\Api\OrderRepositoryInterface::class);
-        $orderRepository->expects($this->once())->method('save');
 
-        $observer = new Cancel($scopeConfig, $tcapi, $logger, $orderRepository);
+        $observer = new Cancel($scopeConfig, $tcapi, $logger);
 
         $order = $this->createMock(Order::class);
         $order->method('getId')->willReturn(1);
         $order->method('getIncrementId')->willReturn('10004');
         $order->method('getState')->willReturn(Order::STATE_CANCELED);
-        $order->expects($this->once())->method('setData')->with('taxcloud_return_sent', true);
         $invoiceCollection = $this->createMock(\Magento\Sales\Model\ResourceModel\Order\Invoice\Collection::class);
         $invoiceCollection->method('getSize')->willReturn(0);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
-        $order->method('getData')->willReturnCallback(function ($key) {
-            if ($key === 'taxcloud_captured') {
-                return true;
-            }
-            if ($key === 'taxcloud_return_sent') {
-                return false;
-            }
-            return null;
-        });
+        $order->method('getData')->with('taxcloud_captured')->willReturn(true);
 
         $event = $this->createMock(\Magento\Framework\Event::class);
         $event->method('getName')->willReturn('order_cancel_after');
