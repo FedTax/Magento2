@@ -23,6 +23,14 @@ use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 class Complete implements ObserverInterface
 {
+    /** @var string Magento event: order placed */
+    const EVENT_ORDER_PLACE_AFTER = 'sales_order_place_after';
+
+    /** @var string Magento event: invoice paid */
+    const EVENT_INVOICE_PAY = 'sales_order_invoice_pay';
+
+    /** @var string Magento event: shipment saved */
+    const EVENT_SHIPMENT_SAVE_AFTER = 'sales_order_shipment_save_after';
 
     /**
      * Core store config
@@ -73,9 +81,9 @@ class Complete implements ObserverInterface
      * Event names that correspond to each capture trigger option.
      */
     private static $triggerToEvent = [
-        CaptureTrigger::ORDER_CREATION => 'sales_order_place_after',
-        CaptureTrigger::PAYMENT => 'sales_order_invoice_pay',
-        CaptureTrigger::SHIPMENT => 'sales_order_shipment_save_after',
+        CaptureTrigger::ORDER_CREATION => self::EVENT_ORDER_PLACE_AFTER,
+        CaptureTrigger::PAYMENT => self::EVENT_INVOICE_PAY,
+        CaptureTrigger::SHIPMENT => self::EVENT_SHIPMENT_SAVE_AFTER,
     ];
 
     /**
@@ -131,11 +139,11 @@ class Complete implements ObserverInterface
     {
         $event = $observer->getEvent();
 
-        if ($eventName === 'sales_order_place_after') {
+        if ($eventName === self::EVENT_ORDER_PLACE_AFTER) {
             return $event->getOrder();
         }
 
-        if ($eventName === 'sales_order_invoice_pay') {
+        if ($eventName === self::EVENT_INVOICE_PAY) {
             $order = $event->getInvoice()->getOrder();
             if ($order->getInvoiceCollection()->getSize() > 1) {
                 return null;
@@ -143,7 +151,7 @@ class Complete implements ObserverInterface
             return $order;
         }
 
-        if ($eventName === 'sales_order_shipment_save_after') {
+        if ($eventName === self::EVENT_SHIPMENT_SAVE_AFTER) {
             $order = $event->getShipment()->getOrder();
             if ($order->getShipmentCollection()->getSize() > 1) {
                 return null;
