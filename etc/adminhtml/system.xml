@@ -139,6 +139,16 @@
           </depends>
         </field>
 
+        <field id="capture_trigger" translate="label" type="select" sortOrder="110" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Capture in TaxCloud</label>
+          <source_model>Taxcloud\Magento2\Model\Config\Source\CaptureTrigger</source_model>
+          <config_path>tax/taxcloud_settings/capture_trigger</config_path>
+          <tooltip>On order creation: at checkout (default; canceled orders may reach TaxCloud). On payment: when invoice is paid (recommended to avoid canceled orders). On shipment: when shipment is created.</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
       </group>
     </section>
   </system>
