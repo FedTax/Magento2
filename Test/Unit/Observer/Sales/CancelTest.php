@@ -70,7 +70,6 @@ class CancelTest extends TestCase
         $invoiceCollection = $this->createMock(\Magento\Sales\Model\ResourceModel\Order\Invoice\Collection::class);
         $invoiceCollection->method('getSize')->willReturn(1);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
-        // getOrderDetails is never called when order has invoices (we skip before that)
 
         $event = $this->createMock(\Magento\Framework\Event::class);
         $event->method('getName')->willReturn('order_cancel_after');

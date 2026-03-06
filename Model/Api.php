@@ -943,8 +943,8 @@ class Api
     }
 
     /**
-     * Get order details from TaxCloud (includes CapturedDate when order was captured).
-     * Used to determine whether to call Returned on cancel (only if TaxCloud has the sale).
+     * Get order details from TaxCloud (OrderDetails API).
+     * Returns OrderDetailsResult with LookupDate, AuthorizedDate, CapturedDate, ReturnedDate, etc.
      *
      * @param \Magento\Sales\Model\Order $order
      * @return array|null OrderDetailsResult as array, or null on failure / order not found
