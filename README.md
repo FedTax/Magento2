@@ -212,6 +212,25 @@ When a credit memo is refunded in Magento, the extension automatically processes
 - Provides event hooks for extension customization
 - Ensures all required parameters are present for API calls
 
+#### Order Cancellation (Unpaid Orders)
+
+When an order is canceled before any invoice is created, the extension automatically sends TaxCloud's `Returned` API so the sale is not reported. This ensures you do not remit tax on orders that were never paid (e.g. Check/Money Order, Bank Transfer, COD, or any order canceled with no invoice).
+
+##### How Canceled Unpaid Orders Are Handled
+
+1. **Cancellation detected**: The extension listens to `order_cancel_after` and, as a fallback, to `sales_order_save_after` when the order state changes to canceled (e.g. when a payment gateway uses `registerCancellation()`).
+
+2. **Conditions**: Returned is only called when:
+   - The order state is canceled (entire order canceled, not partial).
+   - The order has no invoices (unpaid; refunds continue to use the credit memo flow).
+   - TaxCloud reports the order as captured: the extension calls TaxCloud's **OrderDetails** API and only calls Returned when the response includes a non-empty **CapturedDate**. This uses TaxCloud as the source of truth and works for existing orders captured before the extension was installed or after database migrations.
+
+3. **TaxCloud API call**: The extension calls the `Returned` API for the full order (all items and shipping), using the same `taxcloud_returned_before` and `taxcloud_returned_after` events (with `creditmemo` null for cancellation).
+
+4. **Refunds unchanged**: Orders that have been invoiced and then refunded via credit memo are not affected; they continue to use the refund flow described above.
+
+**Note:** This behavior applies to all merchants. It is especially relevant if you use offline or deferred payment methods where orders can be created and later canceled before payment.
+
 ## Extending the TaxCloud Module
 
 In certain cases, a store owner may need to extend this module. Specific use cases might include: needing to adjust the shipping cost for a shipment containing both taxable and non-taxable items, fetching exemption certificates from an external source, or changing the shipping origin for multi-warehouse fulfillment.
@@ -226,9 +245,10 @@ Each of these situations can be accomplished using an event observer. For every 
 | `taxcloud_verify_address_after` | Emitted after the `VerifyAddress` call during checkout | `$result` |
 | `taxcloud_authorized_with_capture_before` | Emitted before the `AuthorizedWithCapture` call when an order is placed | `$params`, `$order` |
 | `taxcloud_authorized_with_capture_after` | Emitted after the `AuthorizedWithCapture` call when an order is placed | `$result`, `$order` |
-| `taxcloud_returned_before` | Emitted before the `Returned` call when a credit memo is created | `$params`, `$order`, `$items`, `$creditmemo` |
-| `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created | `$result`, `$order`, `$items`, `$creditmemo` |
+| `taxcloud_returned_before` | Emitted before the `Returned` call when a credit memo is created or when a canceled unpaid order is reversed | `$params`, `$order`, `$items`, `$creditmemo` |
+| `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created or when a canceled unpaid order is reversed | `$result`, `$order`, `$items`, `$creditmemo` |
 
+For order cancellation, `$creditmemo` is null and `$items` are the order items.
 
 ## Automated Deployment
 
