@@ -390,7 +390,7 @@ class Api
                     'ItemID' => 'shipping',
                     'Index' => $index++,
                     'TIC' => $this->productTicService->getShippingTic(),
-                    'Price' => $itemTaxDetail[self::KEY_ITEM]->getRowTotal(),
+                    'Price' => ($itemTaxDetail[self::KEY_ITEM]->getRowTotal() ?: (float) $address->getShippingAmount()),
                     'Qty' => 1,
                 );
             }
@@ -429,7 +429,22 @@ class Api
             ),
         );
 
-        // hash, check cache
+        // Call before event (observers may modify $params, e.g. address verification)
+        $obj = $this->objectFactory->create();
+        $obj->setParams($params);
+
+        $this->eventManager->dispatch('taxcloud_lookup_before', array(
+            'obj' => $obj,
+            'customer' => $customer,
+            'address' => $address,
+            'quote' => $quote,
+            'itemsByType' => $itemsByType,
+            'shippingAssignment' => $shippingAssignment,
+        ));
+
+        $params = $obj->getParams();
+
+        // hash, check cache (use post-observer params so cache key matches what we send to TaxCloud)
         $cacheKeyApi = 'taxcloud_rates_' . hash('sha256', json_encode($params));
         $cacheResult = null;
         if ($this->cacheType->load($cacheKeyApi)) {
@@ -447,21 +462,6 @@ class Api
             $this->tclogger->info('Error encountered during lookupTaxes: Cannot get SoapClient');
             return $result;
         }
-
-        // Call before event
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_lookup_before', array(
-            'obj' => $obj,
-            'customer' => $customer,
-            'address' => $address,
-            'quote' => $quote,
-            'itemsByType' => $itemsByType,
-            'shippingAssignment' => $shippingAssignment,
-        ));
-
-        $params = $obj->getParams();
 
         // Call the TaxCloud web service
 

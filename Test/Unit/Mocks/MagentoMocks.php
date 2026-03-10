@@ -202,6 +202,7 @@ namespace Magento\Framework {
     {
         public function getName() { return ''; }
         public function getOrder() { return null; }
+        public function getObj() { return null; }
     }
 }
 
@@ -446,11 +447,16 @@ namespace Magento\Tax\Api\Data {
 }
 
 namespace Magento\Customer\Api\Data {
+    interface CustomerInterface
+    {
+        public function getId();
+    }
+
     interface AddressInterfaceFactory
     {
         public function create();
     }
-    
+
     interface RegionInterfaceFactory
     {
         public function create();
