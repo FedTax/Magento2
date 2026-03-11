@@ -202,6 +202,7 @@ namespace Magento\Framework {
     {
         public function getName() { return ''; }
         public function getOrder() { return null; }
+        public function getObj() { return null; }
     }
 }
 
@@ -335,6 +336,8 @@ namespace Taxcloud\Magento2\Logger {
 namespace Magento\Quote\Model {
     class Quote
     {
+        public function getId() { return null; }
+        public function getCustomer() { return null; }
         public function getCustomerTaxClassId() { return null; }
         public function getStoreId() { return 1; }
     }
@@ -446,11 +449,16 @@ namespace Magento\Tax\Api\Data {
 }
 
 namespace Magento\Customer\Api\Data {
+    interface CustomerInterface
+    {
+        public function getId();
+    }
+
     interface AddressInterfaceFactory
     {
         public function create();
     }
-    
+
     interface RegionInterfaceFactory
     {
         public function create();

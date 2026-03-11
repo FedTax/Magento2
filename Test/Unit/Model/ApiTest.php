@@ -628,4 +628,212 @@ class ApiTest extends TestCase
 
         $this->assertNull($result, 'getOrderDetails should return null when ResponseType is not OK');
     }
+
+    /**
+     * lookupTaxes: when shipping row total is 0, uses address getShippingAmount() for shipping price sent to TaxCloud.
+     */
+    public function testLookupTaxesUsesAddressShippingAmountWhenShippingRowTotalIsZero()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/cache_lifetime', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
+                ['shipping/origin/postcode', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '60005'],
+                ['shipping/origin/street_line1', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '71 W Seegers Rd'],
+                ['shipping/origin/street_line2', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, ''],
+                ['shipping/origin/city', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'Arlington Heights'],
+                ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $region = $this->createMock(\Magento\Directory\Model\Region::class);
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn('GA');
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(1);
+
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+
+        $address = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $address->method('getPostcode')->willReturn('30097');
+        $address->method('getStreet')->willReturn(['405 Victorian Ln']);
+        $address->method('getCity')->willReturn('Duluth');
+        $address->method('getRegionId')->willReturn(1);
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getShippingAmount')->willReturn(13.85);
+
+        $shipping = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $shipping->method('getAddress')->willReturn($address);
+
+        $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getShipping')->willReturn($shipping);
+        $shippingAssignment->method('getItems')->willReturn([]);
+
+        $shippingTaxDetailItem = $this->createMock(\Magento\Tax\Api\Data\QuoteDetailsItemInterface::class);
+        $shippingTaxDetailItem->method('getRowTotal')->willReturn(0);
+
+        $itemsByType = [
+            Api::ITEM_TYPE_SHIPPING => [
+                'shipping' => [Api::KEY_ITEM => $shippingTaxDetailItem],
+            ],
+        ];
+
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        $this->cacheType->method('load')->willReturn(false);
+
+        $capturedParams = null;
+        $this->mockDataObject->method('setParams')->willReturnCallback(function ($p) use (&$capturedParams) {
+            $capturedParams = $p;
+            return $this->mockDataObject;
+        });
+        $this->mockDataObject->method('getParams')->willReturnCallback(function () use (&$capturedParams) {
+            return $capturedParams;
+        });
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->mockDataObject->method('getResult')->willReturn([
+            'ResponseType' => 'OK',
+            'CartItemsResponse' => ['CartItemResponse' => [['CartItemIndex' => 0, 'TaxAmount' => 0]]],
+        ]);
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+
+        $lookupParams = null;
+        $mockLookupResponse = new \stdClass();
+        $mockLookupResponse->LookupResult = new \stdClass();
+        $mockLookupResponse->LookupResult->ResponseType = 'OK';
+        $mockLookupResponse->LookupResult->CartItemsResponse = new \stdClass();
+        $mockLookupResponse->LookupResult->CartItemsResponse->CartItemResponse = [
+            (object)['CartItemIndex' => 0, 'TaxAmount' => 0],
+        ];
+        $this->mockSoapClient->method('lookup')->willReturnCallback(function ($params) use (&$lookupParams, $mockLookupResponse) {
+            $lookupParams = $params;
+            return $mockLookupResponse;
+        });
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $cartItems = $lookupParams['cartItems'] ?? [];
+        $shippingItem = null;
+        foreach ($cartItems as $item) {
+            if (isset($item['ItemID']) && $item['ItemID'] === 'shipping') {
+                $shippingItem = $item;
+                break;
+            }
+        }
+        $this->assertNotNull($shippingItem, 'cartItems should contain shipping');
+        $this->assertSame(13.85, (float) $shippingItem['Price'], 'lookupTaxes should send address getShippingAmount() when shipping row total is 0');
+    }
+
+    /**
+     * lookupTaxes: cache key is computed from params after taxcloud_lookup_before event.
+     */
+    public function testLookupTaxesCacheKeyUsesParamsAfterEvent()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/cache_lifetime', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '3600'],
+                ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
+                ['shipping/origin/postcode', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '60005'],
+                ['shipping/origin/street_line1', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '71 W Seegers Rd'],
+                ['shipping/origin/street_line2', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, ''],
+                ['shipping/origin/city', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'Arlington Heights'],
+                ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $region = $this->createMock(\Magento\Directory\Model\Region::class);
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn('GA');
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(1);
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+
+        $address = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $address->method('getPostcode')->willReturn('30097');
+        $address->method('getStreet')->willReturn(['405 Victorian Ln']);
+        $address->method('getCity')->willReturn('Duluth');
+        $address->method('getRegionId')->willReturn(1);
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getShippingAmount')->willReturn(0);
+
+        $shipping = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $shipping->method('getAddress')->willReturn($address);
+        $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getShipping')->willReturn($shipping);
+        $shippingAssignment->method('getItems')->willReturn([]);
+
+        $shippingTaxDetailItem = $this->createMock(\Magento\Tax\Api\Data\QuoteDetailsItemInterface::class);
+        $shippingTaxDetailItem->method('getRowTotal')->willReturn(0);
+        $itemsByType = [
+            Api::ITEM_TYPE_SHIPPING => [
+                'shipping' => [Api::KEY_ITEM => $shippingTaxDetailItem],
+            ],
+        ];
+
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+        $this->cacheType->method('load')->willReturn(false);
+
+        $modifiedDestination = [
+            'Address1' => 'Modified Street By Observer',
+            'Address2' => '',
+            'City' => 'Duluth',
+            'State' => 'GA',
+            'Zip5' => '30097',
+            'Zip4' => '',
+        ];
+        $this->mockDataObject->method('setParams')->willReturnSelf();
+        $this->mockDataObject->method('getParams')->willReturnCallback(function () use ($modifiedDestination) {
+            $base = [
+                'apiLoginID' => 'test_api_id',
+                'apiKey' => 'test_api_key',
+                'customerID' => 1,
+                'cartID' => null,
+                'cartItems' => [['ItemID' => 'shipping', 'Index' => 0, 'TIC' => '11010', 'Price' => 0, 'Qty' => 1]],
+                'origin' => ['Address1' => '71 W Seegers Rd', 'City' => 'Arlington Heights', 'State' => 'GA', 'Zip5' => '60005', 'Zip4' => null],
+                'destination' => $modifiedDestination,
+                'deliveredBySeller' => false,
+                'exemptCert' => ['CertificateID' => null],
+            ];
+            return $base;
+        });
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->mockDataObject->method('getResult')->willReturn([
+            'ResponseType' => 'OK',
+            'CartItemsResponse' => ['CartItemResponse' => [['CartItemIndex' => 0, 'TaxAmount' => 0]]],
+        ]);
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+
+        $cacheKeyUsed = null;
+        $this->cacheType->method('load')->willReturnCallback(function ($key) use (&$cacheKeyUsed) {
+            $cacheKeyUsed = $key;
+            return false;
+        });
+
+        $mockLookupResponse = new \stdClass();
+        $mockLookupResponse->LookupResult = new \stdClass();
+        $mockLookupResponse->LookupResult->ResponseType = 'OK';
+        $mockLookupResponse->LookupResult->CartItemsResponse = new \stdClass();
+        $mockLookupResponse->LookupResult->CartItemsResponse->CartItemResponse = [
+            (object)['CartItemIndex' => 0, 'TaxAmount' => 0],
+        ];
+        $this->mockSoapClient->method('lookup')->willReturn($mockLookupResponse);
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $expectedKey = 'taxcloud_rates_' . hash('sha256', json_encode($this->mockDataObject->getParams()));
+        $this->assertSame($expectedKey, $cacheKeyUsed, 'lookupTaxes cache key should be computed from params after taxcloud_lookup_before event');
+    }
 } 
