@@ -96,10 +96,8 @@ class Address implements ObserverInterface
         $result = $this->tcapi->verifyAddress($params['destination']);
 
         if ($result) {
-            if (empty($result['Address1'])) {
-                $result['Address1'] = $params['destination']['Address1'] ?? '';
-                $result['Address2'] = $params['destination']['Address2'] ?? '';
-            }
+            $result['Address1'] = $result['Address1'] ?: ($params['destination']['Address1'] ?? '');
+            $result['Address2'] = $result['Address2'] ?: ($params['destination']['Address2'] ?? '');
             $params['destination'] = $result;
             $obj->setParams($params);
         }

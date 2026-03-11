@@ -384,13 +384,15 @@ class Api
         }
 
         if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
+            $addressShippingAmount = (float) $address->getShippingAmount();
             foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
                 // Shipping as a cart item - shipping needs to be taxed
+                $shippingRowTotal = $itemTaxDetail[self::KEY_ITEM]->getRowTotal();
                 $cartItems[] = array(
                     'ItemID' => 'shipping',
                     'Index' => $index++,
                     'TIC' => $this->productTicService->getShippingTic(),
-                    'Price' => ($itemTaxDetail[self::KEY_ITEM]->getRowTotal() ?: (float) $address->getShippingAmount()),
+                    'Price' => ($shippingRowTotal ?: $addressShippingAmount),
                     'Qty' => 1,
                 );
             }
@@ -430,11 +432,11 @@ class Api
         );
 
         // Call before event (observers may modify $params, e.g. address verification)
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
+        $lookupParamsHolder = $this->objectFactory->create();
+        $lookupParamsHolder->setParams($params);
 
         $this->eventManager->dispatch('taxcloud_lookup_before', array(
-            'obj' => $obj,
+            'obj' => $lookupParamsHolder,
             'customer' => $customer,
             'address' => $address,
             'quote' => $quote,
@@ -442,7 +444,7 @@ class Api
             'shippingAssignment' => $shippingAssignment,
         ));
 
-        $params = $obj->getParams();
+        $params = $lookupParamsHolder->getParams();
 
         // hash, check cache (use post-observer params so cache key matches what we send to TaxCloud)
         $cacheKeyApi = 'taxcloud_rates_' . hash('sha256', json_encode($params));

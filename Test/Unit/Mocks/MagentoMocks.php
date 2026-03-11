@@ -336,6 +336,8 @@ namespace Taxcloud\Magento2\Logger {
 namespace Magento\Quote\Model {
     class Quote
     {
+        public function getId() { return null; }
+        public function getCustomer() { return null; }
         public function getCustomerTaxClassId() { return null; }
         public function getStoreId() { return 1; }
     }
