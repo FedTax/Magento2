@@ -18,7 +18,7 @@
 namespace Taxcloud\Magento2\Model;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Catalog\Model\ProductFactory;
+use Magento\Catalog\Api\ProductRepositoryInterface;
 use Taxcloud\Magento2\Logger\Logger;
 
 /**
@@ -42,9 +42,9 @@ class ProductTicService
     private $scopeConfig;
 
     /**
-     * @var ProductFactory
+     * @var ProductRepositoryInterface
      */
-    private $productFactory;
+    private $productRepository;
 
     /**
      * @var Logger
@@ -53,16 +53,16 @@ class ProductTicService
 
     /**
      * @param ScopeConfigInterface $scopeConfig
-     * @param ProductFactory $productFactory
+     * @param ProductRepositoryInterface $productRepository
      * @param Logger $logger
      */
     public function __construct(
         ScopeConfigInterface $scopeConfig,
-        ProductFactory $productFactory,
+        ProductRepositoryInterface $productRepository,
         Logger $logger
     ) {
         $this->scopeConfig = $scopeConfig;
-        $this->productFactory = $productFactory;
+        $this->productRepository = $productRepository;
         $this->logger = $logger;
     }
 
@@ -86,7 +86,14 @@ class ProductTicService
             return $this->getDefaultTic();
         }
         
-        $productModel = $this->productFactory->create()->load($product->getId());
+        try {
+            $productModel = $this->productRepository->getById($product->getId());
+        } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+            $this->logger->info(
+                'Product ID ' . $product->getId() . ' not found in repository for ' . $context . ', using default TIC'
+            );
+            return $this->getDefaultTic();
+        }
         $tic = $productModel->getCustomAttribute('taxcloud_tic');
         
         return $tic ? $tic->getValue() : $this->getDefaultTic();

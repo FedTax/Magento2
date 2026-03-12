@@ -18,7 +18,9 @@
 namespace Taxcloud\Magento2\Model;
 
 use Magento\Framework\Serialize\SerializerInterface;
+use Magento\Directory\Model\RegionFactory;
 use Taxcloud\Magento2\Model\PostalCodeParser;
+use Throwable;
 
 /**
  * Tax Calculation Model
@@ -125,6 +127,36 @@ class Api
     private $productTicService;
 
     /**
+     * @var \Magento\Tax\Api\TaxCalculationInterface
+     */
+    private $taxCalculationService;
+
+    /**
+     * @var \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory
+     */
+    private $quoteDetailsFactory;
+
+    /**
+     * @var \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory
+     */
+    private $quoteDetailsItemFactory;
+
+    /**
+     * @var \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory
+     */
+    private $taxClassKeyFactory;
+
+    /**
+     * @var \Magento\Customer\Api\Data\AddressInterfaceFactory
+     */
+    private $customerAddressFactory;
+
+    /**
+     * @var \Magento\Customer\Api\Data\RegionInterfaceFactory
+     */
+    private $customerAddressRegionFactory;
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Magento\Framework\App\CacheInterface $cacheType
      * @param \Magento\Framework\Event\ManagerInterface $eventManager
@@ -136,6 +168,12 @@ class Api
      * @param SerializerInterface $serializer
      * @param \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler
      * @param \Taxcloud\Magento2\Model\ProductTicService $productTicService
+     * @param \Magento\Tax\Api\TaxCalculationInterface $taxCalculationService
+     * @param \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory $quoteDetailsFactory
+     * @param \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory $quoteDetailsItemFactory
+     * @param \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory
+     * @param \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory
+     * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
      * @SuppressWarnings(PHPMD.ExcessiveParameterList)
      */
     public function __construct(
@@ -149,7 +187,13 @@ class Api
         \Taxcloud\Magento2\Logger\Logger $tclogger,
         SerializerInterface $serializer,
         \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler,
-        \Taxcloud\Magento2\Model\ProductTicService $productTicService
+        \Taxcloud\Magento2\Model\ProductTicService $productTicService,
+        \Magento\Tax\Api\TaxCalculationInterface $taxCalculationService,
+        \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory $quoteDetailsFactory,
+        \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory $quoteDetailsItemFactory,
+        \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory,
+        \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
+        \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->cacheType = $cacheType;
@@ -161,6 +205,12 @@ class Api
         $this->serializer = $serializer;
         $this->cartItemResponseHandler = $cartItemResponseHandler;
         $this->productTicService = $productTicService;
+        $this->taxCalculationService = $taxCalculationService;
+        $this->quoteDetailsFactory = $quoteDetailsFactory;
+        $this->quoteDetailsItemFactory = $quoteDetailsItemFactory;
+        $this->taxClassKeyFactory = $taxClassKeyFactory;
+        $this->customerAddressFactory = $customerAddressFactory;
+        $this->customerAddressRegionFactory = $customerAddressRegionFactory;
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->tclogger = $tclogger;
         } else {
@@ -568,44 +618,13 @@ class Api
             return $result;
         }
         
-        // Get the tax calculation service from the Tax model
-        $taxCalculationService = $this->objectFactory->create(\Magento\Tax\Api\TaxCalculationInterface::class);
-        
-        if (!$taxCalculationService) {
-            $this->tclogger->info('Could not get Magento tax calculation service');
-            return $result;
-        }
-        
         try {
-            // Create quote details for tax calculation
-            $quoteDetailsFactory = $this->objectFactory->create(
-                \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory::class
-            );
-            $quoteDetailsItemFactory = $this->objectFactory->create(
-                \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory::class
-            );
-            $taxClassKeyFactory = $this->objectFactory->create(
-                \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory::class
-            );
-            $customerAddressFactory = $this->objectFactory->create(
-                \Magento\Customer\Api\Data\AddressInterfaceFactory::class
-            );
-            $customerAddressRegionFactory = $this->objectFactory->create(
-                \Magento\Customer\Api\Data\RegionInterfaceFactory::class
-            );
-            
-            if (!$quoteDetailsFactory || !$quoteDetailsItemFactory || !$taxClassKeyFactory ||
-                !$customerAddressFactory || !$customerAddressRegionFactory) {
-                $this->tclogger->info('Could not create required factories for Magento tax calculation');
-                return $result;
-            }
-            
             // Build customer address for tax calculation
-            $customerAddress = $customerAddressFactory->create();
+            $customerAddress = $this->customerAddressFactory->create();
             $this->setFromAddress($customerAddress, $address);
             
             // Create quote details
-            $quoteDetails = $quoteDetailsFactory->create();
+            $quoteDetails = $this->quoteDetailsFactory->create();
             $quoteDetails->setBillingAddress($customerAddress);
             $quoteDetails->setShippingAddress($customerAddress);
             $quoteDetails->setCustomerTaxClassId($quote->getCustomerTaxClassId());
@@ -624,10 +643,10 @@ class Api
                         continue;
                     }
                     
-                    $quoteDetailsItem = $quoteDetailsItemFactory->create();
+                    $quoteDetailsItem = $this->quoteDetailsItemFactory->create();
                     $quoteDetailsItem->setCode($code);
                     $quoteDetailsItem->setType(self::ITEM_TYPE_PRODUCT);
-                    $taxClassKey = $taxClassKeyFactory->create();
+                    $taxClassKey = $this->taxClassKeyFactory->create();
                     $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
                     $taxClassKey->setValue($item->getProduct()->getTaxClassId());
                     $quoteDetailsItem->setTaxClassKey($taxClassKey);
@@ -642,10 +661,10 @@ class Api
             
             if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
                 foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
-                    $quoteDetailsItem = $quoteDetailsItemFactory->create();
+                    $quoteDetailsItem = $this->quoteDetailsItemFactory->create();
                     $quoteDetailsItem->setCode($code);
                     $quoteDetailsItem->setType(self::ITEM_TYPE_SHIPPING);
-                    $taxClassKey = $taxClassKeyFactory->create();
+                    $taxClassKey = $this->taxClassKeyFactory->create();
                     $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
                     $taxClassKey->setValue(0); // Default tax class for shipping
                     $quoteDetailsItem->setTaxClassKey($taxClassKey);
@@ -661,7 +680,7 @@ class Api
             $quoteDetails->setItems($items);
             
             // Calculate tax using Magento's service
-            $taxDetails = $taxCalculationService->calculateTax($quoteDetails, $quote->getStoreId());
+            $taxDetails = $this->taxCalculationService->calculateTax($quoteDetails, $quote->getStoreId());
             
             // Process results
             foreach ($taxDetails->getItems() as $item) {
@@ -1163,12 +1182,12 @@ class Api
         $street = $address->getStreet();
         $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
         $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
-        $region = $this->regionFactory->create()->load($address->getRegionId());
+        $regionCode = $address->getRegionCode() ?? '';
         return array(
             'Address1' => $street1,
             'Address2' => $street2,
             'City' => $address->getCity() ?? '',
-            'State' => $region->getCode() ?? '',
+            'State' => $regionCode ?? '',
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
         );

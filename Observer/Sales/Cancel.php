@@ -64,11 +64,7 @@ class Cancel implements ObserverInterface
         )) {
             $this->tclogger = $tclogger;
         } else {
-            $this->tclogger = new class {
-                public function info()
-                {
-                }
-            };
+            $this->tclogger = new \Psr\Log\NullLogger();
         }
     }
 
