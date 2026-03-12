@@ -70,7 +70,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
         \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
         \Magento\Tax\Helper\Data $taxData,
-        \Magento\Framework\Serialize\Serializer\Json $serializer = null,
+        ?\Magento\Framework\Serialize\Serializer\Json $serializer = null,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger
