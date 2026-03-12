@@ -56,10 +56,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
      * @param \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory
      * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
      * @param \Magento\Tax\Helper\Data $taxData
-     * @param \Magento\Framework\Serialize\Serializer\Json $serializer
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Taxcloud\Magento2\Api $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
+     * @param \Magento\Framework\Serialize\Serializer\Json $serializer
      */
     public function __construct(
         \Magento\Tax\Model\Config $taxConfig,
@@ -70,10 +70,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
         \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
         \Magento\Tax\Helper\Data $taxData,
-        ?\Magento\Framework\Serialize\Serializer\Json $serializer = null,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger
+        \Taxcloud\Magento2\Logger\Logger $tclogger,
+        ?\Magento\Framework\Serialize\Serializer\Json $serializer = null
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->tcapi = $tcapi;
