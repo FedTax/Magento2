@@ -1,0 +1,45 @@
+# .editorconfig — Shared editor settings for TaxCloud repos.
+#
+# Installed by .dev-kit/install.sh as .editorconfig in the repo root.
+# Most editors (VS Code, JetBrains, vim, etc.) respect this natively
+# or via plugin. See https://editorconfig.org
+#
+# Like .gitattributes, this is committed and applies to all contributors.
+
+root = true
+
+# Default: 2-space indent, UTF-8, LF, trim trailing whitespace
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Makefiles require tabs
+[Makefile]
+indent_style = tab
+
+[*.mk]
+indent_style = tab
+
+# Awk: tabs (idiomatic)
+[*.awk]
+indent_style = tab
+
+# Go: tabs (gofmt standard)
+[*.go]
+indent_style = tab
+
+# Shell scripts: 4-space indent (Google style, widely adopted)
+[*.sh]
+indent_size = 4
+
+# YAML: 2-space (standard)
+[*.{yml,yaml}]
+indent_size = 2
+
+# Markdown: preserve trailing whitespace (line breaks)
+[*.md]
+trim_trailing_whitespace = false
