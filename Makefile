@@ -1,23 +1,18 @@
-.PHONY: test test-local test-unit test-compatibility lint lint-fix help
+include .dev-kit/mk/common.mk
 
-# Default target
-help:
-	@echo "Available commands:"
-	@echo "  make test              - Run all tests using Docker"
-	@echo "  make test-local        - Run all tests locally (requires PHP)"
-	@echo "  make test-unit         - Run unit tests only"
-	@echo "  make test-compatibility - Run Adobe Commerce 2.4.8-p1 compatibility tests"
-	@echo "  make lint              - Run PHP CodeSniffer linting"
-	@echo "  make lint-fix          - Auto-fix linting issues where possible"
-	@echo "  make help              - Show this help message"
+.PHONY: _test _lint test-local test-unit test-compatibility lint-fix
 
-# Run all tests using Docker
-test:
+# --------------------------------------------------------------------------
+# Standard interface implementations
+# --------------------------------------------------------------------------
+
+##@ Testing
+
+_test: ## Run all tests using Docker
 	@echo "Running all tests with Docker..."
 	@./run-test.sh
 
-# Run tests locally (requires PHP)
-test-local:
+test-local: ## Run all tests locally (requires PHP)
 	@echo "Running all tests locally..."
 	@vendor/bin/phpunit Test/Unit/ --testdox
 	@for test_file in Test/Integration/*.php; do \
@@ -25,18 +20,17 @@ test-local:
 		php "$$test_file"; \
 	done
 
-# Run unit tests only
-test-unit:
+test-unit: ## Run unit tests only
 	@echo "Running unit tests..."
 	@vendor/bin/phpunit Test/Unit/ --testdox
 
-# Run Adobe Commerce 2.4.8-p1 compatibility tests
-test-compatibility:
+test-compatibility: ## Run Adobe Commerce 2.4.8-p1 compatibility tests
 	@echo "Running Adobe Commerce 2.4.8-p1 compatibility tests..."
 	@php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
 
-# Run PHP CodeSniffer linting
-lint:
+##@ Code Quality
+
+_lint: ## Run PHP CodeSniffer linting
 	@echo "Running PHP CodeSniffer..."
 	@lint_output=$$(phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/ 2>&1 || true); \
 	if echo "$$lint_output" | grep -q "FOUND [1-9][0-9]* ERROR"; then \
@@ -48,7 +42,6 @@ lint:
 		echo "$$lint_output"; \
 	fi
 
-# Auto-fix PHP CodeSniffer issues where possible
-lint-fix:
+lint-fix: ## Auto-fix PHP CodeSniffer issues where possible
 	@echo "Auto-fixing PHP CodeSniffer issues..."
 	@phpcbf --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
