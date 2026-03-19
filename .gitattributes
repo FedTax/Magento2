@@ -89,6 +89,22 @@ Makefile         text eol=lf
 *.eot            binary
 *.otf            binary
 
+# Compiled binaries (extensionless)
+# Go, Rust, and C projects typically output to bin/ or dist/.
+# Mark these directories as binary to prevent line-ending corruption.
+bin/** binary
+dist/** binary
+out/** binary
+
+# Other binary formats that lack common extensions
+*.wasm binary
+*.pb binary
+*.pyc binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.exe binary
+
 # =============================================================================
 # Generated Files
 # =============================================================================
