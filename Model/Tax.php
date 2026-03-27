@@ -167,7 +167,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 // This ensures tax is available when quote is converted to order
                 $quoteItem->setTaxAmount($taxAmount);
                 $quoteItem->setBaseTaxAmount($taxAmount);
-                $quoteItem->setTaxPercent($taxDetail->getRowTotal() > 0 ? round(100 * $taxAmount / $taxDetail->getRowTotal(), 2) : 0);
+                $quoteItem->setTaxPercent($taxDetail->getRowTotal() > 0 ? round(100 * $taxAmount / $taxDetail->getRowTotal(), 3) : 0);
                 $quoteItem->setPriceInclTax($quoteItem->getPrice() + $taxAmountPer);
                 $quoteItem->setBasePriceInclTax($quoteItem->getBasePrice() + $taxAmountPer);
                 $quoteItem->setRowTotalInclTax($quoteItem->getRowTotal() + $taxAmount);
@@ -178,7 +178,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 $taxDetail->setRowTotalInclTax($taxDetail->getRowTotal() + $taxAmount);
                 $taxDetail->setAppliedTaxes([]);
                 if ($taxDetail->getRowTotal() > 0) {
-                    $taxDetail->setTaxPercent(round(100 * $taxDetail->getRowTax() / $taxDetail->getRowTotal(), 2));
+                    $taxDetail->setTaxPercent(round(100 * $taxDetail->getRowTax() / $taxDetail->getRowTotal(), 3));
                 } else {
                     $taxDetail->setTaxPercent(0);
                 }
@@ -189,7 +189,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 $baseTaxDetail->setAppliedTaxes([]);
                 if ($baseTaxDetail->getRowTotal() > 0) {
                     $baseTaxDetail->setTaxPercent(
-                        round(100 * $baseTaxDetail->getRowTax() / $baseTaxDetail->getRowTotal(), 2)
+                        round(100 * $baseTaxDetail->getRowTax() / $baseTaxDetail->getRowTotal(), 3)
                     );
                 } else {
                     $baseTaxDetail->setTaxPercent(0);
@@ -214,7 +214,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $shippingTaxDetails->setAppliedTaxes([]);
             if ($shippingTaxDetails->getRowTotal() > 0) {
                 $shippingTaxDetails->setTaxPercent(
-                    round(100 * $shippingTaxDetails->getRowTax() / $shippingTaxDetails->getRowTotal(), 2)
+                    round(100 * $shippingTaxDetails->getRowTax() / $shippingTaxDetails->getRowTotal(), 3)
                 );
             } else {
                 $shippingTaxDetails->setTaxPercent(0);
@@ -226,7 +226,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $baseShippingTaxDetails->setAppliedTaxes([]);
             if ($baseShippingTaxDetails->getRowTotal() > 0) {
                 $baseShippingTaxDetails->setTaxPercent(
-                    round(100 * $baseShippingTaxDetails->getRowTax() / $baseShippingTaxDetails->getRowTotal(), 2)
+                    round(100 * $baseShippingTaxDetails->getRowTax() / $baseShippingTaxDetails->getRowTotal(), 3)
                 );
             } else {
                 $baseShippingTaxDetails->setTaxPercent(0);
