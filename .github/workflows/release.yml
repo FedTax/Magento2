@@ -21,8 +21,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: true
+
+      - name: Fetch .dev-kit submodule
+        if: hashFiles('.gitmodules') != ''
+        env:
+          DEVKIT_DEPLOY_KEY: ${{ secrets.DEVKIT_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEVKIT_DEPLOY_KEY" > ~/.ssh/devkit_key
+          chmod 600 ~/.ssh/devkit_key
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/devkit_key -o StrictHostKeyChecking=accept-new" \
+            git submodule update --init --recursive
+          rm ~/.ssh/devkit_key
 
       - name: Build
         run: make build
