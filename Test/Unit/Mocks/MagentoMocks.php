@@ -62,6 +62,13 @@ namespace Magento\Catalog\Model {
     }
 }
 
+namespace Magento\Catalog\Api {
+    interface ProductRepositoryInterface
+    {
+        public function getById($productId);
+    }
+}
+
 // Mock Magento Sales API
 namespace Magento\Sales\Api {
     interface OrderRepositoryInterface
@@ -89,9 +96,14 @@ namespace Magento\Sales\Model {
         public function getState() { return null; }
         public function getData($key = null) { return null; }
         public function setData($key, $value = null) { return $this; }
+        public function getAllItems() { return []; }
         public function getAllVisibleItems() { return []; }
         public function getBaseShippingAmount() { return 0; }
         public function getBaseTaxAmount() { return 0; }
+        public function getShippingAmount() { return 0; }
+        public function getShippingRefunded() { return 0; }
+        public function getSubtotal() { return 0; }
+        public function getTaxAmount() { return 0; }
         public function getInvoiceCollection() { return new \Magento\Sales\Model\ResourceModel\Order\Invoice\Collection(); }
     }
 }
@@ -105,8 +117,10 @@ namespace Magento\Sales\Model\Order {
         public function getProduct() { return null; }
         public function setProduct($product) { return $this; }
         public function getQtyOrdered() { return 0; }
+        public function getQtyRefunded() { return 0; }
         public function getPrice() { return 0; }
         public function getDiscountAmount() { return 0; }
+        public function getParentItem() { return null; }
     }
 
     class Order
@@ -117,6 +131,11 @@ namespace Magento\Sales\Model\Order {
         public function getAllVisibleItems() { return []; }
         public function setItems($items) { return $this; }
         public function getBaseTaxAmount() { return 0; }
+        public function getBaseShippingAmount() { return 0; }
+        public function getShippingAmount() { return 0; }
+        public function getShippingRefunded() { return 0; }
+        public function getSubtotal() { return 0; }
+        public function getTaxAmount() { return 0; }
     }
 
     class Creditmemo
@@ -322,6 +341,22 @@ namespace {
     }
 }
 
+// Mock PSR-3 Logger (used by Cancel observer when logging is disabled)
+namespace Psr\Log {
+    class NullLogger
+    {
+        public function info($message, array $context = []) { /* no-op */ }
+        public function emergency($message, array $context = []) { /* no-op */ }
+        public function alert($message, array $context = []) { /* no-op */ }
+        public function critical($message, array $context = []) { /* no-op */ }
+        public function error($message, array $context = []) { /* no-op */ }
+        public function warning($message, array $context = []) { /* no-op */ }
+        public function notice($message, array $context = []) { /* no-op */ }
+        public function debug($message, array $context = []) { /* no-op */ }
+        public function log($level, $message, array $context = []) { /* no-op */ }
+    }
+}
+
 // Mock TaxCloud Logger
 namespace Taxcloud\Magento2\Logger {
     class Logger
@@ -361,6 +396,18 @@ namespace Magento\Quote\Model\Quote {
         public function setRowTotalInclTax($total) { return $this; }
         public function setBaseRowTotalInclTax($total) { return $this; }
     }
+
+    class Address
+    {
+        public function getPostcode() { return null; }
+        public function getStreet() { return []; }
+        public function getCity() { return null; }
+        public function getRegionId() { return null; }
+        public function getRegionCode() { return null; }
+        public function getCountryId() { return null; }
+        public function getShippingAmount() { return 0; }
+        public function getAddress() { return null; }
+    }
 }
 
 namespace Magento\Quote\Model\Quote\Address {
@@ -379,6 +426,7 @@ namespace Magento\Quote\Api\Data {
     interface ShippingAssignmentInterface
     {
         public function getItems();
+        public function getShipping();
     }
 }
 
@@ -424,6 +472,7 @@ namespace Magento\Tax\Api\Data {
         public function getCode();
         public function getType();
         public function getRowTax();
+        public function getRowTotal();
     }
     interface TaxClassKeyInterface
     {
@@ -452,6 +501,7 @@ namespace Magento\Customer\Api\Data {
     interface CustomerInterface
     {
         public function getId();
+        public function getCustomAttribute($attributeCode);
     }
 
     interface AddressInterfaceFactory

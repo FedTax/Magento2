@@ -31,6 +31,13 @@ use Magento\Framework\Serialize\SerializerInterface;
 use Magento\Framework\DataObject;
 use Taxcloud\Magento2\Model\CartItemResponseHandler;
 use Taxcloud\Magento2\Model\ProductTicService;
+use Taxcloud\Magento2\Model\RefundDistributor;
+use Magento\Tax\Api\TaxCalculationInterface;
+use Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory;
+use Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory;
+use Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory;
+use Magento\Customer\Api\Data\AddressInterfaceFactory;
+use Magento\Customer\Api\Data\RegionInterfaceFactory;
 
 class ApiTest extends TestCase
 {
@@ -46,6 +53,13 @@ class ApiTest extends TestCase
     private $serializer;
     private $cartItemResponseHandler;
     private $productTicService;
+    private $taxCalculationService;
+    private $quoteDetailsFactory;
+    private $quoteDetailsItemFactory;
+    private $taxClassKeyFactory;
+    private $customerAddressFactory;
+    private $customerAddressRegionFactory;
+    private $refundDistributor;
     private $mockSoapClient;
     private $mockDataObject;
 
@@ -62,6 +76,20 @@ class ApiTest extends TestCase
         $this->serializer = $this->createMock(SerializerInterface::class);
         $this->cartItemResponseHandler = $this->createMock(CartItemResponseHandler::class);
         $this->productTicService = $this->createMock(ProductTicService::class);
+        $this->taxCalculationService = $this->createMock(TaxCalculationInterface::class);
+        $this->quoteDetailsFactory = $this->createMock(QuoteDetailsInterfaceFactory::class);
+        $this->quoteDetailsItemFactory = $this->createMock(QuoteDetailsItemInterfaceFactory::class);
+        $this->taxClassKeyFactory = $this->createMock(TaxClassKeyInterfaceFactory::class);
+        $this->customerAddressFactory = $this->createMock(AddressInterfaceFactory::class);
+        $this->customerAddressRegionFactory = $this->createMock(RegionInterfaceFactory::class);
+        $this->refundDistributor = $this->createMock(RefundDistributor::class);
+        // Default: behave like the original empty-cartItems path (full return) so existing
+        // tests that don't care about adjustment-only refunds continue to work as before.
+        $this->refundDistributor->method('distribute')->willReturn([
+            'action'    => RefundDistributor::ACTION_FULL_RETURN,
+            'cartItems' => [],
+            'reason'    => 'test default',
+        ]);
         $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
             ->disableOriginalConstructor()
             ->addMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails'])
@@ -82,7 +110,14 @@ class ApiTest extends TestCase
             $this->logger,
             $this->serializer,
             $this->cartItemResponseHandler,
-            $this->productTicService
+            $this->productTicService,
+            $this->taxCalculationService,
+            $this->quoteDetailsFactory,
+            $this->quoteDetailsItemFactory,
+            $this->taxClassKeyFactory,
+            $this->customerAddressFactory,
+            $this->customerAddressRegionFactory,
+            $this->refundDistributor
         );
         $this->injectMockSoapClientIntoApi();
     }

@@ -157,6 +157,13 @@ class Api
     private $customerAddressRegionFactory;
 
     /**
+     * Refund Distributor
+     *
+     * @var \Taxcloud\Magento2\Model\RefundDistributor
+     */
+    private $refundDistributor;
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Magento\Framework\App\CacheInterface $cacheType
      * @param \Magento\Framework\Event\ManagerInterface $eventManager
@@ -174,6 +181,7 @@ class Api
      * @param \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory
      * @param \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory
      * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
+     * @param \Taxcloud\Magento2\Model\RefundDistributor $refundDistributor
      * @SuppressWarnings(PHPMD.ExcessiveParameterList)
      */
     public function __construct(
@@ -193,7 +201,8 @@ class Api
         \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory $quoteDetailsItemFactory,
         \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory,
         \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
-        \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
+        \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
+        \Taxcloud\Magento2\Model\RefundDistributor $refundDistributor
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->cacheType = $cacheType;
@@ -211,6 +220,7 @@ class Api
         $this->taxClassKeyFactory = $taxClassKeyFactory;
         $this->customerAddressFactory = $customerAddressFactory;
         $this->customerAddressRegionFactory = $customerAddressRegionFactory;
+        $this->refundDistributor = $refundDistributor;
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->tclogger = $tclogger;
         } else {
@@ -858,6 +868,23 @@ class Api
             if ($isTaxOnlyRefund) {
                 $this->tclogger->info('returnOrder: tax-only refund detected; will re-create as exempt after Returned');
                 $wasTaxOnlyRefund = true;
+            } else {
+                // Adjustment-only credit memo (no items, no shipping, not tax-only).
+                // Without this guard, an empty cartItems array would tell TaxCloud
+                // to return the entire order. Instead, distribute the adjustment
+                // proportionally across remaining (unrefunded) items + shipping.
+                $distribution = $this->refundDistributor->distribute($creditmemo);
+                $this->tclogger->info(
+                    'returnOrder: adjustment-only refund; distributor action=' . $distribution['action']
+                    . ' (' . $distribution['reason'] . ')'
+                );
+                if ($distribution['action'] === \Taxcloud\Magento2\Model\RefundDistributor::ACTION_SKIP) {
+                    // Nothing meaningful to send to TaxCloud; treat as success.
+                    return true;
+                }
+                // ACTION_FULL_RETURN leaves cartItems empty (TaxCloud returns the remainder).
+                // ACTION_DISTRIBUTE replaces cartItems with the proportional distribution.
+                $cartItems = $distribution['cartItems'];
             }
         }
 

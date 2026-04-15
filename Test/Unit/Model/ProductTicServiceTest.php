@@ -26,7 +26,7 @@ require_once __DIR__ . '/../../../Model/ProductTicService.php';
 use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Catalog\Model\ProductFactory;
+use Magento\Catalog\Api\ProductRepositoryInterface;
 use Magento\Catalog\Model\Product;
 use Magento\Sales\Model\Order\Item;
 use Magento\Framework\Api\AttributeValue;
@@ -36,18 +36,18 @@ class ProductTicServiceTest extends TestCase
 {
     private $productTicService;
     private $scopeConfig;
-    private $productFactory;
+    private $productRepository;
     private $logger;
 
     protected function setUp(): void
     {
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
-        $this->productFactory = $this->createMock(ProductFactory::class);
+        $this->productRepository = $this->createMock(ProductRepositoryInterface::class);
         $this->logger = $this->createMock(Logger::class);
 
         $this->productTicService = new ProductTicService(
             $this->scopeConfig,
-            $this->productFactory,
+            $this->productRepository,
             $this->logger
         );
     }
@@ -67,12 +67,11 @@ class ProductTicServiceTest extends TestCase
 
         $product->method('getId')->willReturn(123);
 
-        $productModel->method('load')->with(123)->willReturnSelf();
         $productModel->method('getCustomAttribute')->with('taxcloud_tic')->willReturn($customAttribute);
 
         $customAttribute->method('getValue')->willReturn('20000');
 
-        $this->productFactory->method('create')->willReturn($productModel);
+        $this->productRepository->method('getById')->with(123)->willReturn($productModel);
 
         $result = $this->productTicService->getProductTic($item, 'testContext');
 
@@ -140,10 +139,9 @@ class ProductTicServiceTest extends TestCase
 
         $product->method('getId')->willReturn(456);
 
-        $productModel->method('load')->with(456)->willReturnSelf();
         $productModel->method('getCustomAttribute')->with('taxcloud_tic')->willReturn(null);
 
-        $this->productFactory->method('create')->willReturn($productModel);
+        $this->productRepository->method('getById')->with(456)->willReturn($productModel);
 
         $this->scopeConfig->method('getValue')
             ->with('tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
