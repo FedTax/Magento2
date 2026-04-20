@@ -1,10 +1,114 @@
-# Exclude dev/CI files from git archive (GitHub release ZIPs)
-.gitignore export-ignore
-.gitattributes export-ignore
-.github/ export-ignore
-.cursorrules export-ignore
-Test/ export-ignore
-Makefile export-ignore
-run-test.sh export-ignore
-scripts/ export-ignore
-docs/images/ export-ignore
+# .gitattributes — Shared line-ending, diff, and merge settings.
+#
+# Installed by .dev-kit/install.sh as .gitattributes in the repo root.
+# Committed to the repo, so these rules apply to all contributors
+# regardless of their local git config.
+#
+# This file makes core.autocrlf largely irrelevant: the rules below
+# override it on a per-path basis, which is more precise and portable.
+
+# =============================================================================
+# Line Endings
+# =============================================================================
+# Normalize to LF on commit, use platform-native on checkout.
+# This single rule prevents most cross-platform line-ending bugs.
+* text=auto
+
+# Force LF for files that break with CRLF (scripts, configs, Makefiles).
+# A Windows checkout with CRLF in a shell script is a runtime error.
+*.sh text eol=lf
+*.bash text eol=lf
+*.awk text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+
+# =============================================================================
+# Binary Files
+# =============================================================================
+# Prevent git from applying line-ending conversion or textual merge
+# to files that aren't text. Without these rules, git may corrupt
+# binaries by "fixing" line endings.
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.svg binary
+
+# Fonts
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+
+# Archives
+*.zip binary
+*.tar binary
+*.tar.gz binary
+*.tgz binary
+*.gz binary
+
+# Documents
+*.pdf binary
+
+# Compiled binaries (extensionless)
+# Go, Rust, and C projects typically output to bin/ or dist/.
+# Mark these directories as binary to prevent line-ending corruption.
+bin/** binary
+dist/** binary
+out/** binary
+
+# Other binary formats that lack common extensions
+*.wasm binary
+*.pb binary
+*.pyc binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.exe binary
+
+# =============================================================================
+# Better Diffs
+# =============================================================================
+# Tell git which language driver to use for diff hunk headers.
+# Instead of showing the nearest line, git shows the enclosing
+# function/class name — much easier to orient yourself in a diff.
+*.go diff=golang
+*.py diff=python
+*.rb diff=ruby
+*.html diff=html
+*.htm diff=html
+*.css diff=css
+*.md diff=markdown
+*.markdown diff=markdown
+
+# =============================================================================
+# Lock Files
+# =============================================================================
+# Generated lock files produce huge, unreadable diffs. Suppress the
+# diff output (they still show as changed, just without the noise).
+package-lock.json -diff
+yarn.lock -diff
+pnpm-lock.yaml -diff
+go.sum -diff
+Cargo.lock -diff
+Gemfile.lock -diff
+poetry.lock -diff
+composer.lock -diff
+
+# Merge strategy: lock files should be regenerated, not merged.
+# "ours" keeps the current branch's version; the developer then
+# re-runs the package manager to reconcile.
+package-lock.json merge=ours
+yarn.lock merge=ours
+pnpm-lock.yaml merge=ours
