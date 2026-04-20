@@ -15,8 +15,10 @@
  * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
  */
 
-\Magento\Framework\Component\ComponentRegistrar::register(
-    \Magento\Framework\Component\ComponentRegistrar::MODULE,
-    'Taxcloud_Magento2',
-    __DIR__
-);
+if (class_exists(\Magento\Framework\Component\ComponentRegistrar::class)) {
+    \Magento\Framework\Component\ComponentRegistrar::register(
+        \Magento\Framework\Component\ComponentRegistrar::MODULE,
+        'Taxcloud_Magento2',
+        __DIR__
+    );
+}
