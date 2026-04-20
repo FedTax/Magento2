@@ -63,7 +63,7 @@ class RefundDistributorTest extends TestCase
     /**
      * Build a mock Order with given items, shipping, tax, subtotal.
      */
-    private function makeOrder(array $items, float $shipping = 0.0, float $shippingRefunded = 0.0, float $tax = 0.0, float $subtotal = 0.0)
+    private function makeOrder(array $items, float $shipping = 0.0, float $shippingRefunded = 0.0, float $tax = 0.0, float $subtotal = 0.0, float $discount = 0.0)
     {
         $order = $this->createMock(Order::class);
         $order->method('getAllItems')->willReturn($items);
@@ -71,17 +71,19 @@ class RefundDistributorTest extends TestCase
         $order->method('getShippingRefunded')->willReturn($shippingRefunded);
         $order->method('getTaxAmount')->willReturn($tax);
         $order->method('getSubtotal')->willReturn($subtotal);
+        $order->method('getDiscountAmount')->willReturn($discount);
         return $order;
     }
 
     /**
-     * Build a mock Creditmemo bound to the given order with the given grand total.
+     * Build a mock Creditmemo bound to the given order with the given adjustment.
      */
-    private function makeCreditmemo($order, float $grandTotal)
+    private function makeCreditmemo($order, float $adjustmentPositive, float $adjustmentNegative = 0.0)
     {
         $cm = $this->createMock(Creditmemo::class);
         $cm->method('getOrder')->willReturn($order);
-        $cm->method('getBaseGrandTotal')->willReturn($grandTotal);
+        $cm->method('getAdjustmentPositive')->willReturn($adjustmentPositive);
+        $cm->method('getAdjustmentNegative')->willReturn($adjustmentNegative);
         return $cm;
     }
 
@@ -116,7 +118,7 @@ class RefundDistributorTest extends TestCase
     public function testTaxRatioReducesDistribution()
     {
         $item = $this->makeItem('SKU-A', 1, 0, 100.0);
-        // tax=10, subtotal=100 → taxRatio = 1 - (10/110) = 0.9091
+        // tax=10, subtotal=100, discount=0 → taxRatio = 1 - (10/110) = 0.9091
         $order = $this->makeOrder([$item], 0.0, 0.0, 10.0, 100.0);
         $cm = $this->makeCreditmemo($order, 10.0);
 
@@ -124,7 +126,24 @@ class RefundDistributorTest extends TestCase
 
         $this->assertSame(RefundDistributor::ACTION_DISTRIBUTE, $result['action']);
         // adjustmentPercent = (0.9091 * 10) / 100 = 0.0909
-        // qty = 1 * 0.0909 = 0.0909 → rounded to 0.0909
+        $this->assertEqualsWithDelta(0.0909, $result['cartItems'][0]['Qty'], 0.0001);
+    }
+
+    /**
+     * Tax ratio uses post-discount subtotal so discounts don't inflate the ratio.
+     */
+    public function testTaxRatioUsesPostDiscountSubtotal()
+    {
+        $item = $this->makeItem('SKU-A', 1, 0, 100.0);
+        // subtotal=100, discount=-20 → post-discount=80, tax=8
+        // taxRatio = 1 - (8 / (8 + 80)) = 1 - (8/88) = 0.9091
+        $order = $this->makeOrder([$item], 0.0, 0.0, 8.0, 100.0, -20.0);
+        $cm = $this->makeCreditmemo($order, 10.0);
+
+        $result = $this->distributor->distribute($cm);
+
+        $this->assertSame(RefundDistributor::ACTION_DISTRIBUTE, $result['action']);
+        // adjustmentPercent = (0.9091 * 10) / 100 = 0.0909
         $this->assertEqualsWithDelta(0.0909, $result['cartItems'][0]['Qty'], 0.0001);
     }
 
@@ -306,5 +325,22 @@ class RefundDistributorTest extends TestCase
         $this->assertSame(RefundDistributor::ACTION_DISTRIBUTE, $result['action']);
         $this->assertCount(1, $result['cartItems']);
         $this->assertEquals('PARENT', $result['cartItems'][0]['ItemID']);
+    }
+
+    /**
+     * Negative adjustment (restocking fee) reduces the net adjustment amount.
+     */
+    public function testAdjustmentNegativeReducesNetAdjustment()
+    {
+        $item = $this->makeItem('SKU-A', 1, 0, 100.0);
+        $order = $this->makeOrder([$item], 0.0, 0.0, 0.0, 100.0);
+        // adjustmentPositive=10, adjustmentNegative=3 → net = 7
+        $cm = $this->makeCreditmemo($order, 10.0, 3.0);
+
+        $result = $this->distributor->distribute($cm);
+
+        $this->assertSame(RefundDistributor::ACTION_DISTRIBUTE, $result['action']);
+        // adjustmentPercent = (1 * 7) / 100 = 0.07
+        $this->assertEqualsWithDelta(0.07, $result['cartItems'][0]['Qty'], 0.0001);
     }
 }

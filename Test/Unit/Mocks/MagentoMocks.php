@@ -103,6 +103,7 @@ namespace Magento\Sales\Model {
         public function getShippingAmount() { return 0; }
         public function getShippingRefunded() { return 0; }
         public function getSubtotal() { return 0; }
+        public function getDiscountAmount() { return 0; }
         public function getTaxAmount() { return 0; }
         public function getInvoiceCollection() { return new \Magento\Sales\Model\ResourceModel\Order\Invoice\Collection(); }
     }
@@ -135,6 +136,7 @@ namespace Magento\Sales\Model\Order {
         public function getShippingAmount() { return 0; }
         public function getShippingRefunded() { return 0; }
         public function getSubtotal() { return 0; }
+        public function getDiscountAmount() { return 0; }
         public function getTaxAmount() { return 0; }
     }
 
@@ -148,6 +150,8 @@ namespace Magento\Sales\Model\Order {
         public function setShippingAmount($amount) { return $this; }
         public function getBaseGrandTotal() { return 0; }
         public function getBaseTaxAmount() { return 0; }
+        public function getAdjustmentPositive() { return 0; }
+        public function getAdjustmentNegative() { return 0; }
     }
 }
 

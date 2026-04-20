@@ -91,7 +91,8 @@ class RefundDistributor
     public function distribute($creditmemo)
     {
         $order = $creditmemo->getOrder();
-        $adjustment = (float) $creditmemo->getBaseGrandTotal();
+        $adjustment = (float) $creditmemo->getAdjustmentPositive()
+            - (float) $creditmemo->getAdjustmentNegative();
 
         if ($adjustment < self::MIN_ADJUSTMENT) {
             return $this->result(
@@ -229,10 +230,14 @@ class RefundDistributor
     }
 
     /**
-     * taxRatio = 1 - (tax / (tax + subtotal))
+     * taxRatio = 1 - (tax / (tax + subtotalAfterDiscount))
      *
      * Mirrors the Shopify ETL formula. Without it, distributing a pre-tax
      * adjustment across pre-tax item prices would implicitly refund some tax.
+     *
+     * Uses the post-discount subtotal because tax is calculated on the
+     * discounted amount; using the pre-discount subtotal would inflate the
+     * ratio and over-distribute.
      *
      * @param \Magento\Sales\Model\Order $order
      * @return float
@@ -240,7 +245,8 @@ class RefundDistributor
     private function computeTaxRatio($order)
     {
         $tax = (float) $order->getTaxAmount();
-        $subtotal = (float) $order->getSubtotal();
+        // getDiscountAmount() is negative in Magento (e.g., -20.00 for a $20 coupon)
+        $subtotal = (float) $order->getSubtotal() + (float) $order->getDiscountAmount();
         $denom = $tax + $subtotal;
         if ($denom <= 0) {
             return 1.0;
