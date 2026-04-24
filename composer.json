@@ -24,7 +24,8 @@
       "Makefile",
       "run-test.sh",
       "scripts/",
-      "docs/images/"
+      "docs/images/",
+      "phpunit.xml.dist"
     ]
   }
 }

@@ -282,6 +282,26 @@ The deployment process will:
 - Execute Magento setup commands
 - Verify deployment success
 
+## Releasing to the Adobe Commerce Marketplace
+
+New versions of the extension are distributed through the [Adobe Commerce Marketplace](https://commercedeveloper.adobe.com/extensions/versions/taxcloud-magento2).
+
+Each GitHub release automatically produces a Marketplace-ready zip named `taxcloud_magento2-<version>.zip` via the `Build Marketplace Release Package` workflow. This zip respects `.gitattributes` `export-ignore` rules, so dev/CI files (`Test/`, `Makefile`, `scripts/`, `.github/`, `phpunit.xml.dist`, etc.) are excluded.
+
+**To cut a new release:**
+
+1. **Make sure `composer.json` `version` matches** the version you're about to tag (e.g. `1.1.2`). If it doesn't, bump it on `master` first — the Marketplace's EQP validation will reject a submission whose `composer.json` version doesn't match the tag.
+2. **Create a tag** on `master`:
+   ```bash
+   git tag -a v1.1.2 -m "v1.1.2"
+   git push origin v1.1.2
+   ```
+3. **Create a GitHub release** from the tag at [Releases → Draft a new release](https://github.com/FedTax/Magento2/releases/new). Auto-generate release notes or write them manually.
+4. The `Build Marketplace Release Package` workflow runs automatically on publish and attaches `taxcloud_magento2-<version>.zip` to the release. (If it ever fails, you can re-run it manually from *Actions → Build Marketplace Release Package → Run workflow* and pass the tag.)
+5. Go to the [Marketplace extension page](https://commercedeveloper.adobe.com/extensions/versions/taxcloud-magento2) and start a new version submission.
+6. **Attach the zip** from the GitHub release under *Attach package*, and **paste the release notes** from the GitHub release body into the submission form.
+7. **Submit for review.** Once Adobe approves the submission, the new version is published to the Marketplace automatically.
+
 ## License
 
 [![OSL 3.0](docs/images/osl-3.0.svg)](https://opensource.org/licenses/OSL-3.0)

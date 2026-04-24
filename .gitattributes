@@ -8,3 +8,4 @@ Makefile export-ignore
 run-test.sh export-ignore
 scripts/ export-ignore
 docs/images/ export-ignore
+phpunit.xml.dist export-ignore
