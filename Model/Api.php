@@ -294,6 +294,123 @@ class Api
     }
 
     /**
+     * Check whether an exemption certificate covers the destination state.
+     *
+     * Calls GetExemptCertificates via SOAP, caches the result, and returns
+     * the certificate ID only when the destination state appears in the
+     * certificate's ExemptStates list.  Returns null otherwise, so the
+     * lookup proceeds without an exemption.
+     *
+     * @param string $certificateID
+     * @param string $customerID
+     * @param string $destinationState  Two-letter state abbreviation
+     * @return string|null  The certificate ID if it covers the state, null otherwise
+     */
+    private function getValidatedCertificateID($certificateID, $customerID, $destinationState)
+    {
+        if (empty($certificateID) || empty($customerID) || empty($destinationState)) {
+            return null;
+        }
+
+        // Check cache first — keyed per certificate so it survives across quotes
+        $cacheKey = 'taxcloud_cert_states_' . $certificateID;
+        $cached = $this->cacheType->load($cacheKey);
+        if ($cached) {
+            $exemptStates = json_decode($cached, true);
+            if (is_array($exemptStates)) {
+                $match = in_array($destinationState, $exemptStates, true);
+                $this->tclogger->info(
+                    'Exemption cert ' . $certificateID . ' covers [' . implode(', ', $exemptStates) . ']'
+                    . ' — destination ' . $destinationState . ($match ? ' MATCHES' : ' does NOT match')
+                );
+                return $match ? $certificateID : null;
+            }
+        }
+
+        // Fetch certificate details from TaxCloud
+        $client = $this->getClient();
+        if (!$client) {
+            $this->tclogger->info('Cannot validate exemption cert: no SOAP client');
+            return null;
+        }
+
+        try {
+            $response = $client->GetExemptCertificates(array(
+                'apiLoginID' => $this->getApiId(),
+                'apiKey'     => $this->getApiKey(),
+                'customerID' => $customerID,
+            ));
+        } catch (Throwable $e) {
+            // Fail closed — don't apply an unverified exemption
+            $this->tclogger->info('GetExemptCertificates SOAP error: ' . $e->getMessage());
+            return null;
+        }
+
+        $exemptStates = $this->extractExemptStatesFromResponse($response, $certificateID);
+
+        // Cache for 1 hour so we don't hammer the SOAP endpoint on every page load
+        $this->cacheType->save(
+            json_encode($exemptStates),
+            $cacheKey,
+            [],
+            3600
+        );
+
+        $match = in_array($destinationState, $exemptStates, true);
+        $this->tclogger->info(
+            'Exemption cert ' . $certificateID . ' covers [' . implode(', ', $exemptStates) . ']'
+            . ' — destination ' . $destinationState . ($match ? ' MATCHES' : ' does NOT match')
+        );
+        return $match ? $certificateID : null;
+    }
+
+    /**
+     * Extract the list of exempt state abbreviations for a specific certificate
+     * from a GetExemptCertificates SOAP response.
+     *
+     * @param object $response  Raw SOAP response
+     * @param string $certificateID
+     * @return string[]  State abbreviations (e.g. ['NY', 'NJ'])
+     */
+    private function extractExemptStatesFromResponse($response, $certificateID)
+    {
+        $result = $response->GetExemptCertificatesResult ?? null;
+        if (!$result || ($result->ResponseType ?? '') !== 'OK') {
+            $this->tclogger->info('GetExemptCertificates returned non-OK response');
+            return [];
+        }
+
+        $certs = $result->ExemptCertificates->ExemptionCertificate ?? [];
+        // SOAP may return a single object instead of an array when there is only one cert
+        if (!is_array($certs)) {
+            $certs = [$certs];
+        }
+
+        foreach ($certs as $cert) {
+            if (($cert->CertificateID ?? '') !== $certificateID) {
+                continue;
+            }
+
+            $states = [];
+            $exemptStates = $cert->Detail->ExemptStates->ExemptState ?? [];
+            if (!is_array($exemptStates)) {
+                $exemptStates = [$exemptStates];
+            }
+            foreach ($exemptStates as $es) {
+                // The SOAP response uses StateAbbr or StateAbbreviation
+                $abbr = $es->StateAbbr ?? $es->StateAbbreviation ?? null;
+                if ($abbr) {
+                    $states[] = $abbr;
+                }
+            }
+            return $states;
+        }
+
+        $this->tclogger->info('Certificate ' . $certificateID . ' not found in GetExemptCertificates response');
+        return [];
+    }
+
+    /**
      * Set customer address data from quote address
      * @param \Magento\Customer\Api\Data\AddressInterface $customerAddress
      * @param \Magento\Quote\Model\Quote\Address $quoteAddress
@@ -466,8 +583,13 @@ class Api
         $certificateID = null;
         if ($customer) {
             $certificate = $customer->getCustomAttribute('taxcloud_cert');
-            if ($certificate) {
-                $certificateID = $certificate->getValue();
+            if ($certificate && $certificate->getValue()) {
+                // Only apply the exemption when the cert actually covers the destination state
+                $certificateID = $this->getValidatedCertificateID(
+                    $certificate->getValue(),
+                    $customer->getId(),
+                    $destination['State']
+                );
             }
         }
 

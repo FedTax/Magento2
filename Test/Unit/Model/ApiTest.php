@@ -92,7 +92,7 @@ class ApiTest extends TestCase
         ]);
         $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
             ->disableOriginalConstructor()
-            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails'])
+            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails', 'GetExemptCertificates'])
             ->getMock();
         $this->mockDataObject = $this->getMockBuilder(DataObject::class)
             ->disableOriginalConstructor()
@@ -870,5 +870,375 @@ class ApiTest extends TestCase
 
         $expectedKey = 'taxcloud_rates_' . hash('sha256', json_encode($this->mockDataObject->getParams()));
         $this->assertSame($expectedKey, $cacheKeyUsed, 'lookupTaxes cache key should be computed from params after taxcloud_lookup_before event');
+    }
+
+    // ─── Exemption Certificate State Filtering Tests ────────────────────
+
+    /**
+     * Build a mock GetExemptCertificates SOAP response.
+     *
+     * @param string   $certID       Certificate UUID
+     * @param string[] $stateAbbrs   e.g. ['NY', 'NJ']
+     * @return \stdClass
+     */
+    private function buildGetExemptCertsResponse(string $certID, array $stateAbbrs): \stdClass
+    {
+        $exemptStates = [];
+        foreach ($stateAbbrs as $abbr) {
+            $es = new \stdClass();
+            $es->StateAbbr = $abbr;
+            $es->StateAbbreviation = $abbr;
+            $es->ReasonForExemption = 'Resale';
+            $es->IdentificationNumber = '12345';
+            $exemptStates[] = $es;
+        }
+
+        $detail = new \stdClass();
+        $detail->ExemptStates = new \stdClass();
+        $detail->ExemptStates->ExemptState = $exemptStates;
+
+        $cert = new \stdClass();
+        $cert->CertificateID = $certID;
+        $cert->Detail = $detail;
+
+        $result = new \stdClass();
+        $result->ResponseType = 'OK';
+        $result->ExemptCertificates = new \stdClass();
+        $result->ExemptCertificates->ExemptionCertificate = [$cert];
+
+        $response = new \stdClass();
+        $response->GetExemptCertificatesResult = $result;
+        return $response;
+    }
+
+    /**
+     * Common setup for the exemption-certificate lookup tests.
+     *
+     * Returns an array [$itemsByType, $shippingAssignment, $quote, &$lookupParams]
+     * so each test can call lookupTaxes() and inspect what was sent to the SOAP lookup.
+     *
+     * @param string      $certID            Certificate UUID on the customer (empty string = no cert)
+     * @param string      $destinationState  Two-letter state code for the shipping address
+     * @return array
+     */
+    private function setUpLookupWithCert(string $certID, string $destinationState): array
+    {
+        $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->eventManager = $this->createMock(ManagerInterface::class);
+        $this->soapClientFactory = $this->createMock(ClientFactory::class);
+        $this->objectFactory = $this->createMock(DataObjectFactory::class);
+        $this->productFactory = $this->createMock(ProductFactory::class);
+        $this->regionFactory = $this->createMock(RegionFactory::class);
+        $this->logger = $this->createMock(Logger::class);
+        $this->serializer = $this->createMock(SerializerInterface::class);
+        $this->cartItemResponseHandler = $this->createMock(CartItemResponseHandler::class);
+        $this->productTicService = $this->createMock(ProductTicService::class);
+        $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails', 'GetExemptCertificates'])
+            ->getMock();
+        $this->mockDataObject = $this->getMockBuilder(DataObject::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['setParams', 'getParams', 'setResult', 'getResult'])
+            ->getMock();
+
+        $this->api = new Api(
+            $this->scopeConfig,
+            $this->cacheType,
+            $this->eventManager,
+            $this->soapClientFactory,
+            $this->objectFactory,
+            $this->productFactory,
+            $this->regionFactory,
+            $this->logger,
+            $this->serializer,
+            $this->cartItemResponseHandler,
+            $this->productTicService
+        );
+        $this->injectMockSoapClientIntoApi();
+
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/cache_lifetime', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
+                ['shipping/origin/postcode', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '60005'],
+                ['shipping/origin/street_line1', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '71 W Seegers Rd'],
+                ['shipping/origin/street_line2', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, ''],
+                ['shipping/origin/city', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'Arlington Heights'],
+                ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $region = $this->createMock(\Magento\Directory\Model\Region::class);
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn($destinationState);
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $certAttr = null;
+        if ($certID !== '') {
+            $certAttr = $this->createMock(\Magento\Framework\Api\AttributeValue::class);
+            $certAttr->method('getValue')->willReturn($certID);
+        }
+
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(42);
+        $customer->method('getCustomAttribute')
+            ->willReturnCallback(function ($attr) use ($certAttr) {
+                return $attr === 'taxcloud_cert' ? $certAttr : null;
+            });
+
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+        $quote->method('getId')->willReturn(999);
+
+        $address = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $address->method('getPostcode')->willReturn('30097');
+        $address->method('getStreet')->willReturn(['405 Victorian Ln']);
+        $address->method('getCity')->willReturn('Duluth');
+        $address->method('getRegionId')->willReturn(1);
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getShippingAmount')->willReturn(5.00);
+
+        $shipping = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $shipping->method('getAddress')->willReturn($address);
+
+        $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getShipping')->willReturn($shipping);
+        $shippingAssignment->method('getItems')->willReturn([]);
+
+        $shippingTaxDetailItem = $this->createMock(\Magento\Tax\Api\Data\QuoteDetailsItemInterface::class);
+        $shippingTaxDetailItem->method('getRowTotal')->willReturn(5.00);
+
+        $itemsByType = [
+            Api::ITEM_TYPE_SHIPPING => [
+                'shipping' => [Api::KEY_ITEM => $shippingTaxDetailItem],
+            ],
+        ];
+
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        // DataObject pass-through for event dispatch
+        $capturedParams = null;
+        $this->mockDataObject->method('setParams')->willReturnCallback(function ($p) use (&$capturedParams) {
+            $capturedParams = $p;
+            return $this->mockDataObject;
+        });
+        $this->mockDataObject->method('getParams')->willReturnCallback(function () use (&$capturedParams) {
+            return $capturedParams;
+        });
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->mockDataObject->method('getResult')->willReturn([
+            'ResponseType' => 'OK',
+            'CartItemsResponse' => ['CartItemResponse' => [['CartItemIndex' => 0, 'TaxAmount' => 0]]],
+        ]);
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+
+        // Standard lookup SOAP response
+        $lookupParams = null;
+        $mockLookupResponse = new \stdClass();
+        $mockLookupResponse->LookupResult = new \stdClass();
+        $mockLookupResponse->LookupResult->ResponseType = 'OK';
+        $mockLookupResponse->LookupResult->CartItemsResponse = new \stdClass();
+        $mockLookupResponse->LookupResult->CartItemsResponse->CartItemResponse = [
+            (object)['CartItemIndex' => 0, 'TaxAmount' => 0],
+        ];
+        $this->mockSoapClient->method('lookup')->willReturnCallback(
+            function ($params) use (&$lookupParams, $mockLookupResponse) {
+                $lookupParams = $params;
+                return $mockLookupResponse;
+            }
+        );
+
+        return [$itemsByType, $shippingAssignment, $quote, &$lookupParams];
+    }
+
+    /**
+     * @dataProvider exemptCertSoapProvider
+     */
+    public function testLookupTaxesExemptCertStateFilteringViaSoap(
+        string $description,
+        array $certExemptStates,
+        string $destinationState,
+        bool $expectCertSent
+    ) {
+        $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+            $this->setUpLookupWithCert($certID, $destinationState);
+
+        $this->mockSoapClient->method('GetExemptCertificates')
+            ->willReturn($this->buildGetExemptCertsResponse($certID, $certExemptStates));
+
+        $this->cacheType->method('load')->willReturn(false);
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        if ($expectCertSent) {
+            $this->assertSame($certID, $lookupParams['exemptCert']['CertificateID'], $description);
+        } else {
+            $this->assertNull($lookupParams['exemptCert']['CertificateID'], $description);
+        }
+    }
+
+    public static function exemptCertSoapProvider(): array
+    {
+        return [
+            'cert covers destination state (exact match)' => [
+                'Cert covering GA should be sent when shipping to GA',
+                ['GA'],
+                'GA',
+                true,
+            ],
+            'cert covers destination among multiple states' => [
+                'Cert covering GA+NY should be sent when shipping to GA',
+                ['GA', 'NY'],
+                'GA',
+                true,
+            ],
+            'cert does not cover destination state' => [
+                'Cert covering only NY must not be sent when shipping to GA',
+                ['NY'],
+                'GA',
+                false,
+            ],
+            'cert covers different states, none match destination' => [
+                'Cert covering NY+NJ must not be sent when shipping to TX',
+                ['NY', 'NJ'],
+                'TX',
+                false,
+            ],
+            'cert has no exempt states' => [
+                'Cert with empty exempt states must not be sent',
+                [],
+                'GA',
+                false,
+            ],
+        ];
+    }
+
+    /**
+     * @dataProvider exemptCertCacheProvider
+     */
+    public function testLookupTaxesExemptCertStateFilteringViaCache(
+        string $description,
+        array $cachedStates,
+        string $destinationState,
+        bool $expectCertSent
+    ) {
+        $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+            $this->setUpLookupWithCert($certID, $destinationState);
+
+        $certCacheKey = 'taxcloud_cert_states_' . $certID;
+        $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedStates) {
+            if ($key === $certCacheKey) {
+                return json_encode($cachedStates);
+            }
+            return false;
+        });
+
+        // Cache hit means no SOAP call needed
+        $this->mockSoapClient->expects($this->never())->method('GetExemptCertificates');
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        if ($expectCertSent) {
+            $this->assertSame($certID, $lookupParams['exemptCert']['CertificateID'], $description);
+        } else {
+            $this->assertNull($lookupParams['exemptCert']['CertificateID'], $description);
+        }
+    }
+
+    public static function exemptCertCacheProvider(): array
+    {
+        return [
+            'cached states include destination' => [
+                'Cached GA+NY should allow cert when shipping to GA',
+                ['GA', 'NY'],
+                'GA',
+                true,
+            ],
+            'cached states do not include destination' => [
+                'Cached NY must block cert when shipping to GA',
+                ['NY'],
+                'GA',
+                false,
+            ],
+        ];
+    }
+
+    /**
+     * GetExemptCertificates SOAP call fails → fail closed, cert not applied.
+     */
+    public function testLookupTaxesOmitsCertWhenGetExemptCertificatesFails()
+    {
+        $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+            $this->setUpLookupWithCert($certID, 'GA');
+
+        $this->mockSoapClient->method('GetExemptCertificates')
+            ->willThrowException(new \SoapFault('SOAP-ERROR', 'Service unavailable'));
+
+        $this->cacheType->method('load')->willReturn(false);
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertNull(
+            $lookupParams['exemptCert']['CertificateID'],
+            'CertificateID must be null when GetExemptCertificates SOAP call fails'
+        );
+    }
+
+    /**
+     * No cert on customer → CertificateID should be null (unchanged behavior).
+     */
+    public function testLookupTaxesNoCertOnCustomerSendsNullCertificateID()
+    {
+        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+            $this->setUpLookupWithCert('', 'GA');
+
+        $this->cacheType->method('load')->willReturn(false);
+        $this->mockSoapClient->expects($this->never())->method('GetExemptCertificates');
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertNull(
+            $lookupParams['exemptCert']['CertificateID'],
+            'CertificateID should be null when customer has no cert'
+        );
+    }
+
+    /**
+     * Single-cert SOAP response (SOAP returns object instead of array for one cert).
+     */
+    public function testLookupTaxesHandlesSingleCertSoapResponse()
+    {
+        $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+            $this->setUpLookupWithCert($certID, 'GA');
+
+        // Build response where ExemptionCertificate is a single object, not an array
+        $response = $this->buildGetExemptCertsResponse($certID, ['GA']);
+        $response->GetExemptCertificatesResult->ExemptCertificates->ExemptionCertificate =
+            $response->GetExemptCertificatesResult->ExemptCertificates->ExemptionCertificate[0];
+
+        $this->mockSoapClient->method('GetExemptCertificates')->willReturn($response);
+        $this->cacheType->method('load')->willReturn(false);
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertSame(
+            $certID,
+            $lookupParams['exemptCert']['CertificateID'],
+            'Should handle single-cert SOAP response (object instead of array)'
+        );
     }
 } 
