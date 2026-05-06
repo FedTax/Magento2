@@ -1,3 +1,9 @@
+# Guard: clear error when the submodule hasn't been initialized.
+ifeq (,$(wildcard .dev-kit/mk/common.mk))
+  $(error .dev-kit submodule not initialized — run: git submodule update --init)
+endif
+
+# Pull in shared infrastructure: help, hooks, standard targets, npm script discovery.
 include .dev-kit/mk/common.mk
 
 .PHONY: _test _lint test-local test-unit test-compatibility lint-fix
