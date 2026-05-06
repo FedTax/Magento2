@@ -36,6 +36,10 @@ indent_style = tab
 [*.sh]
 indent_size = 4
 
+# PHP: 4-space indent (PSR-2 standard)
+[*.php]
+indent_size = 4
+
 # YAML: 2-space (standard)
 [*.{yml,yaml}]
 indent_size = 2
