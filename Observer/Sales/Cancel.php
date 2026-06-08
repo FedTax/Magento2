@@ -46,6 +46,15 @@ class Cancel implements ObserverInterface
     protected $tclogger;
 
     /**
+     * Order IDs already processed by this observer instance. Guards against
+     * double-cancellation when both order_cancel_after and sales_order_save_after
+     * fire for the same order in the same request lifecycle.
+     *
+     * @var int[]
+     */
+    private $processedOrderIds = [];
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Taxcloud\Magento2\Model\Api $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
@@ -114,6 +123,14 @@ class Cancel implements ObserverInterface
      */
     protected function processOrderCancel(Order $order)
     {
+        if ($order->getId() && in_array($order->getId(), $this->processedOrderIds, true)) {
+            $this->tclogger->info(
+                'TaxCloud Cancel: skipping order ' . $order->getIncrementId()
+                . ' (already processed in this observer instance)'
+            );
+            return;
+        }
+
         if ($order->getState() !== Order::STATE_CANCELED) {
             $this->tclogger->info(
                 'TaxCloud Cancel: skipping order ' . $order->getIncrementId() . ' (state is not canceled)'
@@ -140,6 +157,10 @@ class Cancel implements ObserverInterface
         $this->tclogger->info(
             'TaxCloud Cancel: calling Returned for canceled unpaid order ' . $order->getIncrementId()
         );
+
+        if ($order->getId()) {
+            $this->processedOrderIds[] = $order->getId();
+        }
 
         if ($this->tcapi->returnOrderCancellation($order)) {
             $this->tclogger->info(

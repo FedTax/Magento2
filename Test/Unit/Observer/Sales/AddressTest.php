@@ -157,4 +157,101 @@ class AddressTest extends TestCase
         $observer = new Address($scopeConfig, $tcapi, $logger);
         $observer->execute($observerObj);
     }
+
+    /**
+     * Section 8.1: verifyAddress returns null/false — params must remain untouched and
+     * the observer must not throw. The if-result branch at Address.php:98 is the guard.
+     */
+    public function testVerificationFailureLeavesParamsUnchangedAndDoesNotBlockCheckout()
+    {
+        $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/verify_address', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $originalDestination = [
+            'Address1' => '405 Victorian Ln',
+            'Address2' => 'Apt 2',
+            'City' => 'Duluth',
+            'State' => 'GA',
+            'Zip5' => '30097',
+            'Zip4' => '',
+        ];
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        // Failure mode: TaxCloud could not verify the address.
+        $tcapi->method('verifyAddress')->with($originalDestination)->willReturn(null);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['setParams', 'getParams'])
+            ->getMock();
+        $obj->method('getParams')->willReturn(['destination' => $originalDestination]);
+        // Critical: setParams MUST NOT be called when verifyAddress returns null.
+        $obj->expects($this->never())->method('setParams');
+
+        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event->method('getObj')->willReturn($obj);
+        $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
+        $observerObj->method('getEvent')->willReturn($event);
+
+        $observer = new Address($scopeConfig, $tcapi, $logger);
+        $observer->execute($observerObj);
+    }
+
+    /**
+     * Section 8.2: verifyAddress throws SoapFault — observer must not let it escape.
+     *
+     * This test pins the INTENDED behavior. As of this writing, Address.php has no
+     * try/catch around verifyAddress, so the exception currently propagates — and this
+     * test will fail until the call site is wrapped. If it fails, that's a real
+     * checkout-blocking risk (file as a follow-up to add the try/catch).
+     */
+    public function testVerificationSoapExceptionDoesNotBlockCheckout()
+    {
+        $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/verify_address', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $originalDestination = [
+            'Address1' => '405 Victorian Ln',
+            'Address2' => '',
+            'City' => 'Duluth',
+            'State' => 'GA',
+            'Zip5' => '30097',
+            'Zip4' => '',
+        ];
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('verifyAddress')->willThrowException(
+            new \SoapFault('SOAP-ERROR', 'Service unavailable')
+        );
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['setParams', 'getParams'])
+            ->getMock();
+        $obj->method('getParams')->willReturn(['destination' => $originalDestination]);
+        $obj->expects($this->never())->method('setParams');
+
+        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event->method('getObj')->willReturn($obj);
+        $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
+        $observerObj->method('getEvent')->willReturn($event);
+
+        $observer = new Address($scopeConfig, $tcapi, $logger);
+
+        // Must not throw — checkout cannot be blocked by a TaxCloud address-verification SOAP error.
+        $observer->execute($observerObj);
+        $this->assertTrue(true, 'Observer must swallow SOAP errors so checkout proceeds');
+    }
 }

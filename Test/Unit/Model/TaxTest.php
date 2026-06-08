@@ -503,7 +503,332 @@ class TaxTest extends TestCase
 
         // Should not throw any errors
         $result = $this->tax->collect($quote, $shippingAssignment, $total);
-        
+
         $this->assertSame($this->tax, $result, "Failed for: $description");
+    }
+
+    /**
+     * Section 1.2: Two items with different effective taxability.
+     *
+     * Item A ($20 clothing — TaxCloud returns $0 tax because clothing is exempt in NY).
+     * Item B ($10 general — TaxCloud returns $1.00 tax).
+     *
+     * The Tax::collect path doesn't know about TICs, but it must faithfully apply whatever
+     * per-item amounts lookupTaxes returns. Verifies setTaxAmount / setTaxPercent for both
+     * items independently.
+     */
+    public function testCollectAppliesMixedTicsClothingExemptVsGeneral()
+    {
+        $this->configureTaxCloudEnabled();
+
+        $quote = $this->createMockQuote();
+        $itemA = $this->createMockQuoteItem('item-A', qty: 1, price: 20.00);
+        $itemB = $this->createMockQuoteItem('item-B', qty: 1, price: 10.00);
+
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$itemA, $itemB]);
+
+        $total = $this->createMock(Total::class);
+        $total->method('getTaxAmount')->willReturn(0);
+        $total->method('getBaseTaxAmount')->willReturn(0);
+
+        [$taxDetailA, $baseTaxDetailA] = $this->createMockTaxDetails(20.00, 20.00);
+        [$taxDetailB, $baseTaxDetailB] = $this->createMockTaxDetails(10.00, 10.00);
+
+        $itemsByType = [
+            Tax::ITEM_TYPE_PRODUCT => [
+                'item-A' => [Tax::KEY_ITEM => $taxDetailA, Tax::KEY_BASE_ITEM => $baseTaxDetailA],
+                'item-B' => [Tax::KEY_ITEM => $taxDetailB, Tax::KEY_BASE_ITEM => $baseTaxDetailB],
+            ],
+        ];
+
+        $this->setupParentMethodMocks($itemsByType);
+        $this->setupTaxCloudApiMock(['item-A' => 0.00, 'item-B' => 1.00], 0);
+
+        // Item A: clothing-exempt, zero tax
+        $itemA->expects($this->once())->method('setTaxAmount')->with($this->equalTo(0));
+        $itemA->expects($this->once())->method('setBaseTaxAmount')->with($this->equalTo(0));
+        $itemA->expects($this->once())->method('setTaxPercent')->with($this->equalTo(0));
+
+        // Item B: general, $1.00 tax on $10.00 row => 10% percent
+        $itemB->expects($this->once())->method('setTaxAmount')->with($this->equalTo(1.00));
+        $itemB->expects($this->once())->method('setBaseTaxAmount')->with($this->equalTo(1.00));
+        $itemB->expects($this->once())->method('setTaxPercent')->with($this->equalTo(10.0));
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
+     * Section 1.4 (DEV-7268 regression).
+     *
+     * setTaxPercent must preserve 3-decimal precision — never round to 2 decimals.
+     * Asserted at the boundary cases that motivated the original ticket.
+     *
+     * @dataProvider threeDecimalPrecisionProvider
+     */
+    public function testCollectPreservesThreeDecimalPrecisionInTaxPercent(
+        float $productTax,
+        float $rowTotal,
+        float $expectedTaxPercent
+    ) {
+        $this->configureTaxCloudEnabled();
+
+        $quote = $this->createMockQuote();
+        $quoteItem = $this->createMockQuoteItem('item-1', qty: 1, price: $rowTotal);
+
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+
+        $total = $this->createMock(Total::class);
+        $total->method('getTaxAmount')->willReturn(0);
+        $total->method('getBaseTaxAmount')->willReturn(0);
+
+        [$taxDetail, $baseTaxDetail] = $this->createMockTaxDetails($rowTotal, $rowTotal);
+        $itemsByType = $this->createItemsByTypeForProduct('item-1', $taxDetail, $baseTaxDetail);
+
+        $this->setupParentMethodMocks($itemsByType);
+        $this->setupTaxCloudApiMock(['item-1' => $productTax], 0);
+
+        $quoteItem->expects($this->once())
+            ->method('setTaxPercent')
+            ->with($this->equalTo($expectedTaxPercent));
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    public function threeDecimalPrecisionProvider(): array
+    {
+        return [
+            'tax 4.875 on rowTotal 100 -> 4.875 percent (exact 3rd decimal)' => [4.875, 100.00, 4.875],
+            'tax 4.8755 on rowTotal 100 -> 4.876 percent (rounds up at 4th decimal)' => [4.8755, 100.00, 4.876],
+        ];
+    }
+
+    // ─── Coverage section B: Tax.php gaps ─────────────────────────────────────
+
+    /**
+     * B1: cover the shipping branch — itemsByType has ITEM_TYPE_SHIPPING and the API
+     * returned a non-zero shipping tax. Verifies setRowTax/setTaxPercent on the shipping
+     * tax detail.
+     */
+    public function testCollectAppliesShippingTaxAndPercent()
+    {
+        $this->configureTaxCloudEnabled();
+
+        $quote = $this->createMockQuote();
+        $quoteItem = $this->createMockQuoteItem('item-1', qty: 1, price: 50.00);
+
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+
+        $total = $this->createMock(Total::class);
+        $total->method('getTaxAmount')->willReturn(0);
+        $total->method('getBaseTaxAmount')->willReturn(0);
+
+        [$taxDetail, $baseTaxDetail] = $this->createMockTaxDetails(50.00, 50.00);
+        [$shippingTaxDetail, $baseShippingTaxDetail] = $this->createMockTaxDetails(10.00, 10.00);
+        // Tax.php:217 reads getRowTax() to compute the percent — mocks don't carry state
+        // from setRowTax, so pin the expected value directly.
+        $shippingTaxDetail->method('getRowTax')->willReturn(1.50);
+        $baseShippingTaxDetail->method('getRowTax')->willReturn(1.50);
+
+        // Both the product entry (so collect's product loop runs) and a shipping entry.
+        $itemsByType = [
+            Tax::ITEM_TYPE_PRODUCT => [
+                'item-1' => [Tax::KEY_ITEM => $taxDetail, Tax::KEY_BASE_ITEM => $baseTaxDetail],
+            ],
+            Tax::ITEM_TYPE_SHIPPING => [
+                Tax::ITEM_CODE_SHIPPING => [
+                    Tax::KEY_ITEM => $shippingTaxDetail,
+                    Tax::KEY_BASE_ITEM => $baseShippingTaxDetail,
+                ],
+            ],
+        ];
+
+        $this->setupParentMethodMocks($itemsByType);
+        $this->setupTaxCloudApiMock(['item-1' => 5.00], 1.50);
+
+        // Shipping tax detail must receive the row tax + 15% (1.50 on rowTotal 10.00).
+        $shippingTaxDetail->expects($this->once())->method('setRowTax')->with($this->equalTo(1.50));
+        $shippingTaxDetail->expects($this->once())->method('setTaxPercent')->with($this->equalTo(15.0));
+
+        $baseShippingTaxDetail->expects($this->once())->method('setRowTax')->with($this->equalTo(1.50));
+        $baseShippingTaxDetail->expects($this->once())->method('setTaxPercent')->with($this->equalTo(15.0));
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
+     * B2: cover the constructor's logging=1 branch — the real Logger should be wired
+     * onto $this->tclogger, not the anonymous no-op stub.
+     */
+    public function testCollectConstructorRespectsLoggingEnabled()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $tcapi = $this->createMock(TaxCloudApi::class);
+        $logger = $this->createMock(Logger::class);
+
+        // Real constructor call — not the disabled-constructor partial mock used elsewhere.
+        $tax = new Tax(
+            $this->createMock(Config::class),
+            $this->createMock(TaxCalculationInterface::class),
+            $this->createMock(QuoteDetailsInterfaceFactory::class),
+            $this->createMock(QuoteDetailsItemInterfaceFactory::class),
+            $this->createMock(TaxClassKeyInterfaceFactory::class),
+            $this->createMock(AddressInterfaceFactory::class),
+            $this->createMock(RegionInterfaceFactory::class),
+            $this->createMock(Data::class),
+            $scopeConfig,
+            $tcapi,
+            $logger,
+            $this->createMock(Json::class)
+        );
+
+        $ref = new \ReflectionClass($tax);
+        $prop = $ref->getProperty('tclogger');
+        $prop->setAccessible(true);
+
+        $this->assertSame($logger, $prop->getValue($tax), 'When logging=1 the real Logger must be wired in');
+    }
+
+    /**
+     * B3: cover the extra-tax branch — includeExtraTax()=true must trigger
+     * total->addTotalAmount('extra_tax', ...).
+     */
+    public function testCollectIncludesExtraTaxWhenFlagged()
+    {
+        $this->configureTaxCloudEnabled();
+
+        $quote = $this->createMockQuote();
+        $quoteItem = $this->createMockQuoteItem('item-1', qty: 1, price: 50.00);
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+
+        $total = $this->getMockBuilder(Total::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getTaxAmount', 'getBaseTaxAmount', 'setTaxAmount', 'setBaseTaxAmount', 'addTotalAmount', 'addBaseTotalAmount'])
+            ->addMethods(['getExtraTaxAmount', 'getBaseExtraTaxAmount'])
+            ->getMock();
+        // Pre-set getTaxAmount to match (productTax + shippingTax) so the defensive
+        // safeguard at Tax.php:252 doesn't also call addTotalAmount('tax', ...).
+        $total->method('getTaxAmount')->willReturn(2.50);
+        $total->method('getBaseTaxAmount')->willReturn(2.50);
+        $total->method('getExtraTaxAmount')->willReturn(0.50);
+        $total->method('getBaseExtraTaxAmount')->willReturn(0.50);
+
+        [$taxDetail, $baseTaxDetail] = $this->createMockTaxDetails(50.00, 50.00);
+        $itemsByType = $this->createItemsByTypeForProduct('item-1', $taxDetail, $baseTaxDetail);
+
+        // Don't call setupParentMethodMocks — it locks includeExtraTax to false.
+        // Replicate it inline with includeExtraTax→true.
+        $this->tax->method('clearValues')->willReturnSelf();
+        $this->tax->method('getQuoteTaxDetails')->willReturn(null);
+        $this->tax->method('organizeItemTaxDetailsByType')->willReturn($itemsByType);
+        $this->tax->method('processProductItems')->willReturnSelf();
+        $this->tax->method('processShippingTaxInfo')->willReturnSelf();
+        $this->tax->method('processExtraTaxables')->willReturnSelf();
+        $this->tax->method('processAppliedTaxes')->willReturnSelf();
+        $this->tax->method('includeExtraTax')->willReturn(true);
+
+        $this->setupTaxCloudApiMock(['item-1' => 2.50], 0);
+
+        // Expect both extra_tax totals to be added.
+        $total->expects($this->once())->method('addTotalAmount')->with('extra_tax', 0.50);
+        $total->expects($this->once())->method('addBaseTotalAmount')->with('extra_tax', 0.50);
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
+     * B4: empty shippingAssignment items — collect must return early without calling
+     * the TaxCloud API.
+     */
+    public function testCollectSkipsPersistWhenShippingAssignmentHasNoItems()
+    {
+        $this->configureTaxCloudEnabled();
+
+        $quote = $this->createMockQuote();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([]);
+
+        $total = $this->createMock(Total::class);
+
+        // tcapi must never be called when there are no items to consider.
+        $this->tcapi->expects($this->never())->method('lookupTaxes');
+
+        // Parent's setup mocks aren't strictly needed (we return early before them) but
+        // clearValues runs first — guard it.
+        $this->tax->method('clearValues')->willReturnSelf();
+
+        $result = $this->tax->collect($quote, $shippingAssignment, $total);
+
+        $this->assertSame($this->tax, $result);
+    }
+
+    /**
+     * Section 11.1: enabled=0 — Tax::collect must defer to the Magento parent and never
+     * call lookupTaxes. The parent's return value is what Tax::collect returns.
+     */
+    public function testCollectDefersToParentWhenModuleDisabled()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+            ]);
+
+        $quote = $this->createMockQuote();
+        $quoteItem = $this->createMockQuoteItem();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+        $total = $this->createMock(Total::class);
+
+        // tcapi must NOT be called when the module is disabled — Tax::collect returns
+        // before reaching its TaxCloud path.
+        $this->tcapi->expects($this->never())->method('lookupTaxes');
+
+        $result = $this->tax->collect($quote, $shippingAssignment, $total);
+
+        // The mocked parent's collect() returns $this (see MagentoMocks Tax base class),
+        // so a successful defer should yield the Tax instance itself.
+        $this->assertSame($this->tax, $result);
+    }
+
+    /**
+     * Section 1.5: Zero rowTotal must not divide-by-zero — setTaxPercent gets 0.
+     *
+     * The ternary at Tax.php:170 is the protected branch.
+     */
+    public function testCollectSetsZeroTaxPercentWhenRowTotalIsZero()
+    {
+        $this->configureTaxCloudEnabled();
+
+        $quote = $this->createMockQuote();
+        // taxClassId='2' (taxable), qty=1 — bypasses the early-zero short-circuit at Tax.php:156
+        // and forces the divbyzero-guard branch at Tax.php:170
+        $quoteItem = $this->createMockQuoteItem('item-1', qty: 1, price: 0, taxClassId: '2');
+
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+
+        $total = $this->createMock(Total::class);
+        $total->method('getTaxAmount')->willReturn(0);
+        $total->method('getBaseTaxAmount')->willReturn(0);
+
+        [$taxDetail, $baseTaxDetail] = $this->createMockTaxDetails(0, 0);
+        $itemsByType = $this->createItemsByTypeForProduct('item-1', $taxDetail, $baseTaxDetail);
+
+        $this->setupParentMethodMocks($itemsByType);
+        $this->setupTaxCloudApiMock(['item-1' => 0], 0);
+
+        $quoteItem->expects($this->once())->method('setTaxPercent')->with($this->equalTo(0));
+
+        // No DivisionByZeroError must escape
+        $this->tax->collect($quote, $shippingAssignment, $total);
     }
 }

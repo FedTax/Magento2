@@ -53,6 +53,8 @@ namespace Magento\Catalog\Model {
 
     class Product
     {
+        const ENTITY = 'catalog_product';
+
         public function getId() { return null; }
         public function setId($id) { return $this; }
         public function load($id) { return $this; }
@@ -86,6 +88,13 @@ namespace Magento\Sales\Model\ResourceModel\Order\Invoice {
     }
 }
 
+namespace Magento\Sales\Model\ResourceModel\Order\Shipment {
+    class Collection
+    {
+        public function getSize() { return 0; }
+    }
+}
+
 namespace Magento\Sales\Model {
     class Order
     {
@@ -94,6 +103,7 @@ namespace Magento\Sales\Model {
         public function getId() { return null; }
         public function getIncrementId() { return null; }
         public function getState() { return null; }
+        public function getOrigData($key = null) { return null; }
         public function getData($key = null) { return null; }
         public function setData($key, $value = null) { return $this; }
         public function getAllItems() { return []; }
@@ -105,7 +115,22 @@ namespace Magento\Sales\Model {
         public function getSubtotal() { return 0; }
         public function getDiscountAmount() { return 0; }
         public function getTaxAmount() { return 0; }
+        public function getCustomerId() { return null; }
+        public function getQuoteId() { return null; }
+        public function getStoreId() { return 1; }
+        public function getShippingAddress() { return null; }
         public function getInvoiceCollection() { return new \Magento\Sales\Model\ResourceModel\Order\Invoice\Collection(); }
+        public function getShipmentCollection() { return new \Magento\Sales\Model\ResourceModel\Order\Shipment\Collection(); }
+    }
+
+    class Invoice
+    {
+        public function getOrder() { return null; }
+    }
+
+    class Shipment
+    {
+        public function getOrder() { return null; }
     }
 }
 
@@ -138,6 +163,10 @@ namespace Magento\Sales\Model\Order {
         public function getSubtotal() { return 0; }
         public function getDiscountAmount() { return 0; }
         public function getTaxAmount() { return 0; }
+        public function getCustomerId() { return null; }
+        public function getQuoteId() { return null; }
+        public function getStoreId() { return 1; }
+        public function getShippingAddress() { return null; }
     }
 
     class Creditmemo
@@ -175,6 +204,66 @@ namespace Magento\Framework\Api {
     {
         public function getValue() { return null; }
         public function setValue($value) { return $this; }
+    }
+}
+
+// Mock Magento Framework Data OptionSourceInterface (used by Config/Source classes)
+namespace Magento\Framework\Data {
+    interface OptionSourceInterface
+    {
+        public function toOptionArray();
+    }
+}
+
+// Mock Magento Setup Patch interfaces + classes (used by Setup/Patch/Data/InstallTaxcloudData)
+namespace Magento\Framework\Setup\Patch {
+    interface DataPatchInterface
+    {
+        public function apply();
+        public static function getDependencies();
+        public function getAliases();
+    }
+
+    interface PatchRevertableInterface
+    {
+        public function revert();
+    }
+}
+
+namespace Magento\Framework\Setup {
+    interface ModuleDataSetupInterface { }
+}
+
+namespace Magento\Customer\Setup {
+    class CustomerSetupFactory
+    {
+        public function create(array $data = []) { return null; }
+    }
+}
+
+namespace Magento\Customer\Model {
+    class Customer
+    {
+        const ENTITY = 'customer';
+    }
+}
+
+namespace Magento\Eav\Setup {
+    class EavSetupFactory
+    {
+        public function create(array $data = []) { return null; }
+    }
+}
+
+namespace Magento\Eav\Model\Entity\Attribute {
+    class Set { }
+    class SetFactory
+    {
+        public function create(array $data = []) { return null; }
+    }
+    interface ScopedAttributeInterface
+    {
+        const SCOPE_GLOBAL = 1;
     }
 }
 
@@ -324,6 +413,16 @@ namespace Magento\Framework\Webapi\Soap {
     }
 }
 
+// Mock Magento's global translation helper.
+namespace {
+    if (!function_exists('__')) {
+        function __($text, ...$args)
+        {
+            return $text;
+        }
+    }
+}
+
 // Mock SOAP Classes
 namespace {
     if (!class_exists('SoapClient')) {
@@ -450,7 +549,15 @@ namespace Magento\Tax\Model\Sales\Total\Quote {
         const ITEM_CODE_SHIPPING = 'shipping';
         const KEY_ITEM = 'item';
         const KEY_BASE_ITEM = 'base_item';
-        
+
+        public function __construct(...$args) { /* accept and ignore */ }
+        public function collect(
+            \Magento\Quote\Model\Quote $quote,
+            \Magento\Quote\Api\Data\ShippingAssignmentInterface $shippingAssignment,
+            \Magento\Quote\Model\Quote\Address\Total $total
+        ) {
+            return $this;
+        }
         protected function clearValues($total) { /* do nothing */ }
         protected function getQuoteTaxDetails($shippingAssignment, $total, $base) { return null; }
         protected function organizeItemTaxDetailsByType($taxDetails, $baseTaxDetails) { return []; }
