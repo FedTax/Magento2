@@ -484,6 +484,10 @@ namespace Magento\Quote\Model {
 namespace Magento\Quote\Model\Quote {
     class Item
     {
+        // Stateful storage so tests can exercise code that snapshots data
+        // onto the quote item via setData() / getData() (mirrors DataObject).
+        protected $data = [];
+
         public function getTaxCalculationItemId() { return null; }
         public function getProduct() { return null; }
         public function getQty() { return 1; }
@@ -498,6 +502,8 @@ namespace Magento\Quote\Model\Quote {
         public function setBasePriceInclTax($price) { return $this; }
         public function setRowTotalInclTax($total) { return $this; }
         public function setBaseRowTotalInclTax($total) { return $this; }
+        public function getData($key = null) { return $key === null ? $this->data : ($this->data[$key] ?? null); }
+        public function setData($key, $value = null) { $this->data[$key] = $value; return $this; }
     }
 
     class Address

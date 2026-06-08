@@ -163,15 +163,34 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
                 $productTaxTotal += (float) $taxAmount;
 
+                // Snapshot pre-tax values on first collect; reuse on subsequent passes.
+                // Without this, any 3rd-party collector that mutates getPrice()/getRowTotal()
+                // between collect() invocations causes incl-tax to compound (see order #2000543282).
+                // Snapshot invalidates on qty change so genuine cart edits are picked up.
+                $currentQty = (float) $quoteItem->getQty();
+                if ($quoteItem->getData('taxcloud_pretax_price') === null
+                    || (float) $quoteItem->getData('taxcloud_pretax_qty') !== $currentQty
+                ) {
+                    $quoteItem->setData('taxcloud_pretax_price', (float) $quoteItem->getPrice());
+                    $quoteItem->setData('taxcloud_pretax_base_price', (float) $quoteItem->getBasePrice());
+                    $quoteItem->setData('taxcloud_pretax_row_total', (float) $quoteItem->getRowTotal());
+                    $quoteItem->setData('taxcloud_pretax_base_row_total', (float) $quoteItem->getBaseRowTotal());
+                    $quoteItem->setData('taxcloud_pretax_qty', $currentQty);
+                }
+                $snapPrice        = (float) $quoteItem->getData('taxcloud_pretax_price');
+                $snapBasePrice    = (float) $quoteItem->getData('taxcloud_pretax_base_price');
+                $snapRowTotal     = (float) $quoteItem->getData('taxcloud_pretax_row_total');
+                $snapBaseRowTotal = (float) $quoteItem->getData('taxcloud_pretax_base_row_total');
+
                 // Persist tax onto quote item so tax does not get lost downstream
                 // This ensures tax is available when quote is converted to order
                 $quoteItem->setTaxAmount($taxAmount);
                 $quoteItem->setBaseTaxAmount($taxAmount);
                 $quoteItem->setTaxPercent($taxDetail->getRowTotal() > 0 ? round(100 * $taxAmount / $taxDetail->getRowTotal(), 3) : 0);
-                $quoteItem->setPriceInclTax($quoteItem->getPrice() + $taxAmountPer);
-                $quoteItem->setBasePriceInclTax($quoteItem->getBasePrice() + $taxAmountPer);
-                $quoteItem->setRowTotalInclTax($quoteItem->getRowTotal() + $taxAmount);
-                $quoteItem->setBaseRowTotalInclTax($quoteItem->getBaseRowTotal() + $taxAmount);
+                $quoteItem->setPriceInclTax($snapPrice + $taxAmountPer);
+                $quoteItem->setBasePriceInclTax($snapBasePrice + $taxAmountPer);
+                $quoteItem->setRowTotalInclTax($snapRowTotal + $taxAmount);
+                $quoteItem->setBaseRowTotalInclTax($snapBaseRowTotal + $taxAmount);
 
                 $taxDetail->setRowTax($taxAmount);
                 $taxDetail->setPriceInclTax($taxDetail->getPrice() + $taxAmountPer);
