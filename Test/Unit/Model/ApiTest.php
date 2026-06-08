@@ -62,6 +62,7 @@ class ApiTest extends TestCase
     private $refundDistributor;
     private $mockSoapClient;
     private $mockDataObject;
+    private $capturedLookupParams;
 
     protected function setUp(): void
     {
@@ -914,8 +915,9 @@ class ApiTest extends TestCase
     /**
      * Common setup for the exemption-certificate lookup tests.
      *
-     * Returns an array [$itemsByType, $shippingAssignment, $quote, &$lookupParams]
-     * so each test can call lookupTaxes() and inspect what was sent to the SOAP lookup.
+     * Returns an array [$itemsByType, $shippingAssignment, $quote] so each test can
+     * call lookupTaxes(); the params sent to the SOAP lookup are captured into
+     * $this->capturedLookupParams for inspection.
      *
      * @param string      $certID            Certificate UUID on the customer (empty string = no cert)
      * @param string      $destinationState  Two-letter state code for the shipping address
@@ -954,7 +956,14 @@ class ApiTest extends TestCase
             $this->logger,
             $this->serializer,
             $this->cartItemResponseHandler,
-            $this->productTicService
+            $this->productTicService,
+            $this->taxCalculationService,
+            $this->quoteDetailsFactory,
+            $this->quoteDetailsItemFactory,
+            $this->taxClassKeyFactory,
+            $this->customerAddressFactory,
+            $this->customerAddressRegionFactory,
+            $this->refundDistributor
         );
         $this->injectMockSoapClientIntoApi();
 
@@ -1038,7 +1047,7 @@ class ApiTest extends TestCase
         $this->objectFactory->method('create')->willReturn($this->mockDataObject);
 
         // Standard lookup SOAP response
-        $lookupParams = null;
+        $this->capturedLookupParams = null;
         $mockLookupResponse = new \stdClass();
         $mockLookupResponse->LookupResult = new \stdClass();
         $mockLookupResponse->LookupResult->ResponseType = 'OK';
@@ -1047,13 +1056,13 @@ class ApiTest extends TestCase
             (object)['CartItemIndex' => 0, 'TaxAmount' => 0],
         ];
         $this->mockSoapClient->method('lookup')->willReturnCallback(
-            function ($params) use (&$lookupParams, $mockLookupResponse) {
-                $lookupParams = $params;
+            function ($params) use ($mockLookupResponse) {
+                $this->capturedLookupParams = $params;
                 return $mockLookupResponse;
             }
         );
 
-        return [$itemsByType, $shippingAssignment, $quote, &$lookupParams];
+        return [$itemsByType, $shippingAssignment, $quote];
     }
 
     /**
@@ -1066,8 +1075,9 @@ class ApiTest extends TestCase
         bool $expectCertSent
     ) {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote] =
             $this->setUpLookupWithCert($certID, $destinationState);
+        $lookupParams = &$this->capturedLookupParams;
 
         $this->mockSoapClient->method('GetExemptCertificates')
             ->willReturn($this->buildGetExemptCertsResponse($certID, $certExemptStates));
@@ -1130,8 +1140,9 @@ class ApiTest extends TestCase
         bool $expectCertSent
     ) {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote] =
             $this->setUpLookupWithCert($certID, $destinationState);
+        $lookupParams = &$this->capturedLookupParams;
 
         $certCacheKey = 'taxcloud_cert_states_' . $certID;
         $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedStates) {
@@ -1178,8 +1189,9 @@ class ApiTest extends TestCase
     public function testLookupTaxesOmitsCertWhenGetExemptCertificatesFails()
     {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote] =
             $this->setUpLookupWithCert($certID, 'GA');
+        $lookupParams = &$this->capturedLookupParams;
 
         $this->mockSoapClient->method('GetExemptCertificates')
             ->willThrowException(new \SoapFault('SOAP-ERROR', 'Service unavailable'));
@@ -1200,8 +1212,9 @@ class ApiTest extends TestCase
      */
     public function testLookupTaxesNoCertOnCustomerSendsNullCertificateID()
     {
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote] =
             $this->setUpLookupWithCert('', 'GA');
+        $lookupParams = &$this->capturedLookupParams;
 
         $this->cacheType->method('load')->willReturn(false);
         $this->mockSoapClient->expects($this->never())->method('GetExemptCertificates');
@@ -1221,8 +1234,9 @@ class ApiTest extends TestCase
     public function testLookupTaxesHandlesSingleCertSoapResponse()
     {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote] =
             $this->setUpLookupWithCert($certID, 'GA');
+        $lookupParams = &$this->capturedLookupParams;
 
         // Build response where ExemptionCertificate is a single object, not an array
         $response = $this->buildGetExemptCertsResponse($certID, ['GA']);
