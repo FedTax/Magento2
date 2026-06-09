@@ -24,3 +24,12 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
   (the `taxcloud_cert` Magento attribute is user-editable) to inherit the
   rightful holder's cached state list at checkout. Each customer now gets
   their own cache slot, validated against TaxCloud independently.
+
+### Documentation
+
+- Document the 1-hour propagation window for exemption-certificate changes.
+  At checkout the extension caches the list of states covered by a
+  certificate for 1 hour, so revocations or covered-state edits made in the
+  TaxCloud dashboard may take up to an hour to be reflected in this
+  extension's checkout decisions. Operators who need a change reflected
+  immediately can flush Magento's cache.
