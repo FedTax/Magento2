@@ -18,3 +18,9 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
   exports). The field names still appear in the log so operators can
   confirm the params were sent; their values are replaced with
   `***REDACTED***`.
+- Scope the exempt-states cache for exemption certificates per
+  `(customer, certificate)` instead of per certificate alone. The previous
+  key allowed a customer who learned another customer's certificate UUID
+  (the `taxcloud_cert` Magento attribute is user-editable) to inherit the
+  rightful holder's cached state list at checkout. Each customer now gets
+  their own cache slot, validated against TaxCloud independently.

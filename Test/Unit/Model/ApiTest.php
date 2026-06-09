@@ -1159,7 +1159,9 @@ class ApiTest extends TestCase
             $this->setUpLookupWithCert($certID, $destinationState);
         $lookupParams = &$this->capturedLookupParams;
 
-        $certCacheKey = 'taxcloud_cert_states_' . $certID;
+        // Cache key is scoped per (customer, certificate); customer ID is 42
+        // in setUpLookupWithCert().
+        $certCacheKey = 'taxcloud_cert_states_42_' . $certID;
         $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedStates) {
             if ($key === $certCacheKey) {
                 return json_encode($cachedStates);

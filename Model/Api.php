@@ -312,8 +312,10 @@ class Api
             return null;
         }
 
-        // Check cache first — keyed per certificate so it survives across quotes
-        $cacheKey = 'taxcloud_cert_states_' . $certificateID;
+        // Keyed per (customer, certificate) so a customer who pastes another
+        // customer's certificate UUID into their own profile cannot reuse the
+        // other customer's cached state list.
+        $cacheKey = 'taxcloud_cert_states_' . $customerID . '_' . $certificateID;
         $cached = $this->cacheType->load($cacheKey);
         if ($cached) {
             $exemptStates = json_decode($cached, true);
