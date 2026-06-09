@@ -1452,8 +1452,8 @@ class Api
         $client = $this->getClient();
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during lookupTaxes: Cannot get SoapClient');
-            return $result;
+            $this->tclogger->info('Error encountered during verifyAddress: Cannot get SoapClient');
+            return false;
         }
 
         // Call before event
@@ -1481,7 +1481,7 @@ class Api
                 $verifyResponse = $client->verifyAddress($params);
             } catch (Throwable $e) {
                 $this->tclogger->info('Error encountered during verifyAddress: ' . $e->getMessage());
-                return $result;
+                return false;
             }
         }
 
