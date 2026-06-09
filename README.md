@@ -110,7 +110,7 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 ![TaxCloud Settings](docs/images/configuration-admin-settings.png)
 
 * **Enabled** - Select `Enabled` in order to enable the TaxCloud module.
-* **Logging Enabled** - Useful for debugging and testing, select `Enabled` in order to log all TaxCloud API calls into `var/log/taxcloud.log`. Make sure to set up log rotation if you keep this option enabled during production!
+* **Logging Enabled** - Useful for debugging and testing, select `Enabled` in order to log all TaxCloud API calls into `var/log/taxcloud.log`. Make sure to set up log rotation if you keep this option enabled during production! Your TaxCloud `apiLoginID` and `apiKey` are redacted in the log file: the field names still appear, but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.).
 * **Verify Address** - Select `Enabled` to turn on TaxCloud's address verification API calls. You may want to disable this if you have another module that validates shipping addresses.
 * **API ID** - Enter your API ID from your TaxCloud account.
 * **API Key** - Enter your API Key from your TaxCloud account.
@@ -290,11 +290,11 @@ Each GitHub release automatically produces a Marketplace-ready zip named `taxclo
 
 **To cut a new release:**
 
-1. **Make sure `composer.json` `version` matches** the version you're about to tag (e.g. `1.1.2`). If it doesn't, bump it on `master` first — the Marketplace's EQP validation will reject a submission whose `composer.json` version doesn't match the tag.
+1. **Make sure `composer.json` `version` matches** the version you're about to tag (e.g. `1.1.1.1`). If it doesn't, bump it on `master` first — the Marketplace's EQP validation will reject a submission whose `composer.json` version doesn't match the tag.
 2. **Create a tag** on `master`:
    ```bash
-   git tag -a v1.1.2 -m "v1.1.2"
-   git push origin v1.1.2
+   git tag -a v1.1.1.1 -m "v1.1.1.1"
+   git push origin v1.1.1.1
    ```
 3. **Create a GitHub release** from the tag at [Releases → Draft a new release](https://github.com/FedTax/Magento2/releases/new). Auto-generate release notes or write them manually.
 4. The `Build Marketplace Release Package` workflow runs automatically on publish and attaches `taxcloud_magento2-<version>.zip` to the release. (If it ever fails, you can re-run it manually from *Actions → Build Marketplace Release Package → Run workflow* and pass the tag.)

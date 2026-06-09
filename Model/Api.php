@@ -651,7 +651,7 @@ class Api
 
         $this->tclogger->info('Calling lookupTaxes LIVE API');
         $this->tclogger->info('lookupTaxes PARAMS:');
-        $this->tclogger->info(print_r($params, true));
+        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
 
         try {
             $lookupResponse = $client->lookup($params);
@@ -876,7 +876,7 @@ class Api
         $params = $obj->getParams();
 
         $this->tclogger->info('authorizedWithCapture PARAMS:');
-        $this->tclogger->info(print_r($params, true));
+        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
 
         try {
             $authorizedResponse = $client->authorizedWithCapture($params);
@@ -1038,7 +1038,7 @@ class Api
         }
 
         $this->tclogger->info('returnOrder PARAMS:');
-        $this->tclogger->info(print_r($params, true));
+        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
         $soapParams = array(
@@ -1051,7 +1051,7 @@ class Api
         );
 
         $this->tclogger->info('returnOrder SOAP PARAMS:');
-        $this->tclogger->info(print_r($soapParams, true));
+        $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
             $returnResponse = $client->Returned($soapParams);
@@ -1062,7 +1062,7 @@ class Api
                 $returnResponse = $client->Returned($soapParams);
             } catch (Throwable $e) {
                 $this->tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
-                $this->tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
+                $this->tclogger->info('SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true));
                 return false;
             }
         }
@@ -1207,7 +1207,7 @@ class Api
         }
 
         $this->tclogger->info('returnOrderCancellation PARAMS:');
-        $this->tclogger->info(print_r($params, true));
+        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
         $soapParams = array(
@@ -1220,7 +1220,7 @@ class Api
         );
 
         $this->tclogger->info('returnOrderCancellation SOAP PARAMS:');
-        $this->tclogger->info(print_r($soapParams, true));
+        $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
             $returnResponse = $client->Returned($soapParams);
@@ -1231,7 +1231,7 @@ class Api
                 $returnResponse = $client->Returned($soapParams);
             } catch (Throwable $e) {
                 $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $e->getMessage());
-                $this->tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
+                $this->tclogger->info('SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true));
                 return false;
             }
         }
@@ -1471,7 +1471,7 @@ class Api
 
         $this->tclogger->info('Calling verifyAddress LIVE API');
         $this->tclogger->info('verifyAddress PARAMS:');
-        $this->tclogger->info(print_r($params, true));
+        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
 
         try {
             $verifyResponse = $client->verifyAddress($params);
@@ -1526,5 +1526,31 @@ class Api
             $this->tclogger->info('Error encountered during verifyAddress: ' . $verifyResult['ErrDescription']);
             return false;
         }
+    }
+
+    /**
+     * Placeholder substituted for credential values in log output.
+     */
+    const REDACTED_PLACEHOLDER = '***REDACTED***';
+
+    /**
+     * Return a copy of a SOAP params array with TaxCloud credentials masked
+     * so they are not written to var/log/taxcloud.log.
+     *
+     * Keys (apiLoginID, apiKey) are preserved so operators can still confirm
+     * the fields were sent; their values are replaced with REDACTED_PLACEHOLDER.
+     *
+     * @param array $params
+     * @return array
+     */
+    private function redactParamsForLog(array $params)
+    {
+        if (array_key_exists('apiLoginID', $params)) {
+            $params['apiLoginID'] = self::REDACTED_PLACEHOLDER;
+        }
+        if (array_key_exists('apiKey', $params)) {
+            $params['apiKey'] = self::REDACTED_PLACEHOLDER;
+        }
+        return $params;
     }
 }
