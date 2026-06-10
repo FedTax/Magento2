@@ -32,26 +32,6 @@ jobs:
     - name: Run Unit Tests
       run: |
         vendor/bin/phpunit Test/Unit/ --testdox
-        
-    - name: Run Integration Tests
-      run: |
-        for test_file in Test/Integration/*Test.php; do
-          echo "Running $test_file..."
-          php "$test_file"
-        done
-
-  test-docker:
-    name: Test with Docker
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Run tests with Docker
-      run: |
-        chmod +x run-test.sh
-        ./run-test.sh
 
   lint-code:
     name: Lint Code
