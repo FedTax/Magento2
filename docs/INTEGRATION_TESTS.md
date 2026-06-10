@@ -57,7 +57,7 @@ re-prepared so tests run against a known state.
 
 ```bash
 make integration-test MAGENTO_EDITION=community  MAGENTO_VERSION=2.4.7-p3
-make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p1
+make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5
 ```
 
 ### Other targets
@@ -72,7 +72,7 @@ make integration-clean   # tear down containers + volumes
 manually if you want a truly fresh start:
 
 ```bash
-rm -rf ../magento-community-2.4.8-p1     # adjust to match your matrix row
+rm -rf ../magento-community-2.4.8-p5     # adjust to match your matrix row
 ```
 
 ---
@@ -106,11 +106,11 @@ You generate a dump once per Magento version and commit it. The procedure:
 2. Wipe the existing Magento install dir for the target version (the
    install script will recreate it cleanly):
    ```bash
-   rm -rf ../magento-community-2.4.8-p1
+   rm -rf ../magento-community-2.4.8-p5
    ```
 3. Stand up just the stack services (no install yet):
    ```bash
-   MAGENTO_EDITION=community MAGENTO_VERSION=2.4.8-p1 docker compose up -d --wait
+   MAGENTO_EDITION=community MAGENTO_VERSION=2.4.8-p5 docker compose up -d --wait
    ```
 4. Get a shell in the app container and run the install steps from
    `scripts/install-magento.sh` manually, **skipping** the dump-restore
@@ -118,7 +118,7 @@ You generate a dump once per Magento version and commit it. The procedure:
    ```bash
    docker compose exec -w /var/www/html app bash
    composer create-project --repository-url=https://repo.magento.com/ \
-     magento/project-community-edition=2.4.8-p1 .
+     magento/project-community-edition=2.4.8-p5 .
    bin/magento setup:install ...            # use the same flags as the script
    bin/magento sampledata:deploy            # optional, adds sample products
    bin/magento setup:upgrade
@@ -129,7 +129,7 @@ You generate a dump once per Magento version and commit it. The procedure:
    ```bash
    docker compose exec -T db \
      mariadb-dump -uroot -pmagento --single-transaction --no-tablespaces magento \
-     | gzip -9 > fixtures/db/magento-fixture-community-2.4.8-p1.sql.gz
+     | gzip -9 > fixtures/db/magento-fixture-community-2.4.8-p5.sql.gz
    ```
 7. Commit the resulting file. Expect 5-30 MB depending on whether you
    loaded sample data. See `fixtures/db/README.md` for more notes on
@@ -163,7 +163,7 @@ From the GitHub UI:
 
 1. Actions tab → **Integration Tests** workflow.
 2. **Run workflow** → choose the branch.
-3. Optional: set **Comma-separated versions** (e.g. `2.4.8-p1` to run only
+3. Optional: set **Comma-separated versions** (e.g. `2.4.8-p5` to run only
    that version's matrix rows). Empty = full matrix.
 4. Watch the per-row jobs. On failure, the **debug-\<edition\>-\<version\>**
    artifact contains `docker compose logs` and Magento's `var/log/*.log`
@@ -173,7 +173,7 @@ From the CLI:
 
 ```bash
 gh workflow run integration-tests.yml --ref main
-gh workflow run integration-tests.yml --ref main -f magento_versions=2.4.8-p1
+gh workflow run integration-tests.yml --ref main -f magento_versions=2.4.8-p5
 ```
 
 The workflow also runs automatically on `push` to release tags (`v*`).
@@ -280,6 +280,6 @@ Magento install still has stale `app/etc/env.php` pointing at the old DB
 credentials. Easiest fix: wipe the install dir and re-run:
 
 ```bash
-rm -rf ../magento-community-2.4.8-p1
+rm -rf ../magento-community-2.4.8-p5
 make integration-test
 ```

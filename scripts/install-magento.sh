@@ -9,8 +9,8 @@
 # guarantee clean schema state.
 #
 # Usage:  ./scripts/install-magento.sh <edition> <version>
-# Example: ./scripts/install-magento.sh community 2.4.8-p1
-#          ./scripts/install-magento.sh enterprise 2.4.8-p1
+# Example: ./scripts/install-magento.sh community 2.4.8-p5
+#          ./scripts/install-magento.sh enterprise 2.4.8-p5
 #
 # Required env vars (sourced from .env, or exported in CI):
 #   TAXCLOUD_API_ID, TAXCLOUD_API_KEY
@@ -29,7 +29,7 @@ VERSION="${2:-}"
 
 if [[ -z "$EDITION" || -z "$VERSION" ]]; then
     echo "Usage: $0 <community|enterprise> <version>"
-    echo "Example: $0 community 2.4.8-p1"
+    echo "Example: $0 community 2.4.8-p5"
     exit 2
 fi
 
@@ -100,9 +100,12 @@ docker compose up -d --wait
 
 # --- 2. Composer auth ------------------------------------------------------
 
-# Write auth.json into the composer-cache volume so it persists across re-runs.
+# The container's app user (uid 1000) can't write to /var/www/.composer (owned
+# by root), so we write the auth file as root and leave it world-readable. It
+# only contains the Marketplace public/private keys, which already exist in the
+# environment of every process in this container anyway.
 echo "==> Writing repo.magento.com auth..."
-docker compose exec -T app sh -c "mkdir -p /var/www/.composer && cat > /var/www/.composer/auth.json" <<EOF
+docker compose exec -T -u root app sh -c "cat > /var/www/.composer/auth.json" <<EOF
 {
   "http-basic": {
     "repo.magento.com": {
@@ -112,7 +115,7 @@ docker compose exec -T app sh -c "mkdir -p /var/www/.composer && cat > /var/www/
   }
 }
 EOF
-docker compose exec -T app chmod 600 /var/www/.composer/auth.json
+docker compose exec -T -u root app chmod 644 /var/www/.composer/auth.json
 
 # --- 3. Composer create-project (idempotent) ------------------------------
 
@@ -133,15 +136,51 @@ else
 fi
 
 # --- 4. Mount this module under app/code/Taxcloud/Magento2 ----------------
+#
+# Symlink only the production-runtime subtree, mirroring composer.json's
+# archive.exclude. A flat `ln -s /srv/module` would pull in Test/ — and
+# Test/Unit/Mocks/MagentoMocks.php redeclares Magento\* interfaces, which
+# bin/magento setup:di:compile explodes on as it autoload-walks the module.
 
-echo "==> Linking module into app/code/Taxcloud/Magento2..."
+echo "==> Linking module into app/code/Taxcloud/Magento2 (production paths only)..."
 docker compose exec -T app sh -c '
+    set -e
     mkdir -p /var/www/html/app/code/Taxcloud
     rm -rf /var/www/html/app/code/Taxcloud/Magento2
-    ln -s /srv/module /var/www/html/app/code/Taxcloud/Magento2
+    mkdir -p /var/www/html/app/code/Taxcloud/Magento2
+    cd /var/www/html/app/code/Taxcloud/Magento2
+    for d in Logger Model Observer Setup etc; do
+        ln -s /srv/module/$d $d
+    done
+    for f in registration.php composer.json LICENSE.txt CHANGELOG.md README.md; do
+        [ -e /srv/module/$f ] && ln -s /srv/module/$f $f
+    done
+    # Test/Integration is exposed so PHPUnit can discover + PSR-4 autoload
+    # the smoke tests. Test/Unit (containing MagentoMocks.php) is intentionally
+    # NOT exposed — its mock declarations of real Magento interfaces would
+    # collide with Magento'"'"'s own autoloader at di:compile time.
+    mkdir -p Test
+    ln -s /srv/module/Test/Integration Test/Integration
 '
 
-# --- 5. setup:install (schema baseline before dump restore) ---------------
+# --- 5. Reset Magento install state ---------------------------------------
+#
+# setup:install refuses to run if env.php exists, and Magento's own data
+# patches leave the DB in a half-state if interrupted (admin user inserted
+# but Administrators role missing, for example). We always start with a
+# clean slate — the composer install on disk is preserved, but the DB and
+# generated config are nuked.
+
+echo "==> Resetting Magento install state (DB + env.php + generated/)..."
+docker compose exec -T db sh -c \
+    'MYSQL_PWD=magento mariadb -uroot -e "DROP DATABASE IF EXISTS magento; CREATE DATABASE magento; GRANT ALL PRIVILEGES ON magento.* TO '"'"'magento'"'"'@'"'"'%'"'"'; FLUSH PRIVILEGES;"'
+docker compose exec -T -u root app sh -c '
+    rm -f /var/www/html/app/etc/env.php /var/www/html/app/etc/config.php
+    rm -rf /var/www/html/generated/code /var/www/html/generated/metadata
+    rm -rf /var/www/html/var/cache/* /var/www/html/var/page_cache/* /var/www/html/var/view_preprocessed/*
+'
+
+# --- 6. setup:install (schema baseline before dump restore) ---------------
 
 echo "==> bin/magento setup:install (schema baseline)..."
 docker compose exec -T app bin/magento setup:install \
@@ -160,7 +199,7 @@ docker compose exec -T app bin/magento setup:install \
     --page-cache=redis  --page-cache-redis-server=redis  --page-cache-redis-db=1 \
     --no-interaction
 
-# --- 6. Restore committed DB fixture --------------------------------------
+# --- 7. Restore committed DB fixture --------------------------------------
 
 echo "==> Dropping schema and restoring fixture: $FIXTURE_REL"
 docker compose exec -T db sh -c \
@@ -168,14 +207,14 @@ docker compose exec -T db sh -c \
 gunzip -c "$FIXTURE_ABS" \
     | docker compose exec -T db mariadb -uroot -pmagento magento
 
-# --- 7. Module enable, DI compile, indexers -------------------------------
+# --- 8. Module enable, DI compile, indexers -------------------------------
 
 echo "==> bin/magento module:enable / setup:upgrade / di:compile..."
 docker compose exec -T app bin/magento module:enable Taxcloud_Magento2 || true
 docker compose exec -T app bin/magento setup:upgrade --no-interaction
 docker compose exec -T app bin/magento setup:di:compile
 
-# --- 8. Inject TaxCloud credentials ---------------------------------------
+# --- 9. Inject TaxCloud credentials ---------------------------------------
 
 echo "==> Injecting TaxCloud credentials into core_config_data..."
 docker compose exec -T app bin/magento config:set tax/taxcloud_settings/api_id "$TAXCLOUD_API_ID"
@@ -184,7 +223,7 @@ docker compose exec -T app bin/magento config:set tax/taxcloud_settings/enabled 
 
 docker compose exec -T app bin/magento cache:flush
 
-# --- 9. Configure Magento integration test framework ---------------------
+# --- 10. Configure Magento integration test framework ---------------------
 #
 # Magento's dev/tests/integration/ framework runs against its own dedicated
 # database (which it installs and tears down itself). It's separate from the

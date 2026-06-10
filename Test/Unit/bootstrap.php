@@ -1,11 +1,11 @@
 <?php
 /**
- * Bootstrap file for unit tests
- * This file loads the Magento mocks before any other classes
+ * Bootstrap file for unit tests.
+ *
+ * MagentoMocks.php lives outside the module's PSR-4 root (under dev/) so the
+ * Composer classmap and Magento's setup:di:compile can never accidentally pick
+ * it up in a real Magento install. It is loaded here only for unit-test runs.
  */
 
-// Load Magento mocks first to prevent registration.php errors
-require_once __DIR__ . '/Mocks/MagentoMocks.php';
-
-// Now it's safe to load the autoloader
+require_once __DIR__ . '/../../dev/test-bootstrap/MagentoMocks.php';
 require_once __DIR__ . '/../../vendor/autoload.php';

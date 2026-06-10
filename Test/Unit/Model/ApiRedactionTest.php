@@ -251,7 +251,7 @@ class ApiRedactionTest extends TestCase
  * Logger stand-in that records every message routed through info(). The
  * SUT calls $this->tclogger->info(...) on a Taxcloud\Magento2\Logger\Logger
  * instance; in the unit-test environment that class is a plain stub
- * (see Test/Unit/Mocks/MagentoMocks.php), so subclassing it gives us a
+ * (see dev/test-bootstrap/MagentoMocks.php), so subclassing it gives us a
  * truthful capture of exactly what would have been written to disk.
  */
 class CapturingLogger extends Logger

@@ -17,9 +17,6 @@
 
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
-// Load Magento mocks before any other includes
-require_once __DIR__ . '/../Mocks/MagentoMocks.php';
-
 // Load the ProductTicService class directly
 require_once __DIR__ . '/../../../Model/ProductTicService.php';
 

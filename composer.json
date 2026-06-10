@@ -10,7 +10,11 @@
     ],
     "psr-4": {
       "Taxcloud\\Magento2\\": ""
-    }
+    },
+    "exclude-from-classmap": [
+      "/Test/",
+      "/dev/"
+    ]
   },
   "require-dev": {
     "phpunit/phpunit": "^9.5"
@@ -23,6 +27,7 @@
       ".env",
       ".env.example",
       "Test/",
+      "dev/",
       "Makefile",
       "run-test.sh",
       "scripts/",

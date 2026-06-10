@@ -1,4 +1,10 @@
 # Integration test stack for Taxcloud_Magento2.
+#
+# Project name is set explicitly so containers are easy to tell apart from
+# anyone's local Warden / dev Magento stack (avoids `magento2-app-1` collisions).
+name: taxcloud-integration
+
+# ---------------------------------------------------------------------------
 # Local dev:  read ./.env (cp .env.example .env first) and run `make integration-test`.
 # CI:         workflow exports the same vars; install script orchestrates the lifecycle.
 #
@@ -12,14 +18,14 @@ services:
     command: ["sleep", "infinity"]
     working_dir: /var/www/html
     volumes:
-      - "${MAGENTO_INSTALL_DIR:-../magento-${MAGENTO_EDITION:-community}-${MAGENTO_VERSION:-2.4.8-p1}}:/var/www/html:delegated"
+      - "${MAGENTO_INSTALL_DIR:-../magento-${MAGENTO_EDITION:-community}-${MAGENTO_VERSION:-2.4.8-p5}}:/var/www/html:delegated"
       - "./:/srv/module:delegated"
       - "${COMPOSER_CACHE_DIR:-./.composer-cache}:/var/www/.composer/cache"
     environment:
       COMPOSER_HOME: /var/www/.composer
       MAGENTO_ROOT: /var/www/html
       MAGENTO_EDITION: "${MAGENTO_EDITION:-community}"
-      MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.8-p1}"
+      MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.8-p5}"
       MAGENTO_PUBLIC_KEY: "${MAGENTO_PUBLIC_KEY:-}"
       MAGENTO_PRIVATE_KEY: "${MAGENTO_PRIVATE_KEY:-}"
       TAXCLOUD_API_ID: "${TAXCLOUD_API_ID:-}"

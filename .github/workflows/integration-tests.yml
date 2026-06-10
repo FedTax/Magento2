@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       magento_versions:
-        description: 'Comma-separated versions to run (e.g. "2.4.8-p1,2.4.7-p3"). Leave empty for the full matrix.'
+        description: 'Comma-separated versions to run (e.g. "2.4.8-p5,2.4.7-p3"). Leave empty for the full matrix.'
         required: false
         default: ''
   push:
@@ -49,10 +49,10 @@ jobs:
             magento-version: '2.4.7-p3'
             php-version: '8.2'
           - magento-edition: community
-            magento-version: '2.4.8-p1'
+            magento-version: '2.4.8-p5'
             php-version: '8.3'
           - magento-edition: enterprise
-            magento-version: '2.4.8-p1'
+            magento-version: '2.4.8-p5'
             php-version: '8.3'
 
     env:

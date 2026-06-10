@@ -2,9 +2,9 @@
         integration-test integration-shell integration-clean
 
 # Defaults — override on the command line, e.g.:
-#   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p1
+#   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5
 MAGENTO_EDITION ?= community
-MAGENTO_VERSION ?= 2.4.8-p1
+MAGENTO_VERSION ?= 2.4.8-p5
 
 # Default target
 help:
@@ -82,5 +82,9 @@ integration-shell:
 integration-clean:
 	@echo "Tearing down integration test stack (containers + volumes)..."
 	@docker compose down -v --remove-orphans
-	@echo "Done. To wipe the Magento install dir as well, remove:"
+	@echo
+	@echo "Containers and volumes removed. The Magento install on disk is kept"
+	@echo "so the next 'make integration-test' can re-use composer downloads."
+	@echo "For a truly fresh install, also remove:"
 	@echo "  $${MAGENTO_INSTALL_DIR:-../magento-$(MAGENTO_EDITION)-$(MAGENTO_VERSION)}"
+	@echo "  ./.composer-cache"

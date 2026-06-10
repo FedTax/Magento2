@@ -17,7 +17,6 @@
 
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
-require_once __DIR__ . '/../Mocks/MagentoMocks.php';
 require_once __DIR__ . '/../../../Model/ProductTicService.php';
 
 use PHPUnit\Framework\TestCase;
