@@ -1,15 +1,16 @@
-.PHONY: test test-local test-unit test-compatibility lint lint-fix help
+.PHONY: test test-local test-unit lint lint-fix help
 
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  make test              - Run all tests using Docker"
-	@echo "  make test-local        - Run all tests locally (requires PHP)"
+	@echo "  make test              - Run unit tests using Docker"
+	@echo "  make test-local        - Run unit tests locally (requires PHP)"
 	@echo "  make test-unit         - Run unit tests only"
-	@echo "  make test-compatibility - Run Adobe Commerce 2.4.8-p1 compatibility tests"
 	@echo "  make lint              - Run PHP CodeSniffer linting"
 	@echo "  make lint-fix          - Auto-fix linting issues where possible"
 	@echo "  make help              - Show this help message"
+	@echo ""
+	@echo "Integration tests are documented in docs/INTEGRATION_TESTS.md."
 
 # Run all tests using Docker
 test:
@@ -18,22 +19,13 @@ test:
 
 # Run tests locally (requires PHP)
 test-local:
-	@echo "Running all tests locally..."
+	@echo "Running unit tests locally..."
 	@vendor/bin/phpunit Test/Unit/ --testdox
-	@for test_file in Test/Integration/*.php; do \
-		echo "Running $$test_file..."; \
-		php "$$test_file"; \
-	done
 
 # Run unit tests only
 test-unit:
 	@echo "Running unit tests..."
 	@vendor/bin/phpunit Test/Unit/ --testdox
-
-# Run Adobe Commerce 2.4.8-p1 compatibility tests
-test-compatibility:
-	@echo "Running Adobe Commerce 2.4.8-p1 compatibility tests..."
-	@php Test/Integration/AdobeCommerce248p1CompatibilityTest.php
 
 # Run PHP CodeSniffer linting
 lint:

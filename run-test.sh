@@ -1,6 +1,8 @@
 #!/bin/bash
 
-echo "Running all tests..."
+set -e
+
+echo "Running unit tests..."
 
 # Check if Docker is available
 if ! command -v docker &> /dev/null; then
@@ -8,13 +10,10 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# Run all tests in a PHP container
+# Run unit tests in a PHP container
 docker run --rm -v "$(pwd):/app" -w /app php:8.1-cli bash -c "
-    echo 'Running Integration Tests...'
-    for test_file in Test/Integration/*.php; do
-        echo \"Running \$test_file...\"
-        php \"\$test_file\"
-    done
+    composer install --no-interaction --prefer-dist --optimize-autoloader
+    vendor/bin/phpunit Test/Unit/ --testdox
 "
 
 echo "Tests completed!"
