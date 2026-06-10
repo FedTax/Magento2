@@ -1,0 +1,144 @@
+# Integration test workflow.
+#
+# Runs the real Magento integration test suite against a matrix of editions and
+# versions. This is EXPENSIVE (10-15 min per matrix row, hits Adobe Marketplace,
+# pulls multi-hundred-MB Docker images) and intentionally NOT triggered on every
+# push or PR. It exists to gate big releases — invoke it manually before cutting
+# one, and let release tags re-run it as a tripwire.
+#
+# Triggers:
+#   - workflow_dispatch  -> manual; optional input to filter matrix rows
+#   - push: tags v*      -> release tags only
+#
+# Required repo secrets:
+#   TAXCLOUD_API_ID, TAXCLOUD_API_KEY        - sandbox creds from taxcloud.com/sandbox
+#   MAGENTO_PUBLIC_KEY, MAGENTO_PRIVATE_KEY  - Marketplace keys; required for both
+#                                              editions today (see docs/INTEGRATION_TESTS.md)
+#
+# Enterprise rows are skipped (not failed) when MAGENTO_PUBLIC_KEY is unset, so
+# forks without a paid Commerce contract can still exercise the community rows.
+
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      magento_versions:
+        description: 'Comma-separated versions to run (e.g. "2.4.8-p1,2.4.7-p3"). Leave empty for the full matrix.'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    name: ${{ matrix.magento-edition }} ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - magento-edition: community
+            magento-version: '2.4.7-p3'
+            php-version: '8.2'
+          - magento-edition: community
+            magento-version: '2.4.8-p1'
+            php-version: '8.3'
+          - magento-edition: enterprise
+            magento-version: '2.4.8-p1'
+            php-version: '8.3'
+
+    env:
+      MAGENTO_EDITION: ${{ matrix.magento-edition }}
+      MAGENTO_VERSION: ${{ matrix.magento-version }}
+      PHP_VERSION: ${{ matrix.php-version }}
+      MAGENTO_INSTALL_DIR: ${{ github.workspace }}/../magento-install
+      TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
+      TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
+      MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
+      MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gate matrix row
+        id: gate
+        env:
+          REQUESTED_VERSIONS: ${{ github.event.inputs.magento_versions }}
+        run: |
+          # Skip rows the dispatcher excluded via the magento_versions input.
+          if [[ -n "${REQUESTED_VERSIONS}" ]] && [[ ",${REQUESTED_VERSIONS}," != *",${MAGENTO_VERSION},"* ]]; then
+            echo "::notice::Row ${MAGENTO_EDITION} ${MAGENTO_VERSION} excluded by workflow_dispatch input."
+            echo "skip=true"   >> "$GITHUB_OUTPUT"
+            echo "reason=filtered" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Gracefully skip enterprise rows when Marketplace creds are absent.
+          if [[ "${MAGENTO_EDITION}" == "enterprise" && -z "${MAGENTO_PUBLIC_KEY}" ]]; then
+            echo "::warning::Skipping enterprise row — MAGENTO_PUBLIC_KEY secret not set."
+            echo "skip=true"   >> "$GITHUB_OUTPUT"
+            echo "reason=missing-commerce-secrets" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Verify required secrets
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          missing=()
+          [[ -z "$TAXCLOUD_API_ID"     ]] && missing+=(TAXCLOUD_API_ID)
+          [[ -z "$TAXCLOUD_API_KEY"    ]] && missing+=(TAXCLOUD_API_KEY)
+          [[ -z "$MAGENTO_PUBLIC_KEY"  ]] && missing+=(MAGENTO_PUBLIC_KEY)
+          [[ -z "$MAGENTO_PRIVATE_KEY" ]] && missing+=(MAGENTO_PRIVATE_KEY)
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Cache Composer downloads
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer-cache
+          key: composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-
+            composer-${{ matrix.magento-edition }}-
+
+      - name: Install Magento + module
+        if: steps.gate.outputs.skip != 'true'
+        run: ./scripts/install-magento.sh "${MAGENTO_EDITION}" "${MAGENTO_VERSION}"
+
+      - name: Run integration test suite
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          docker compose exec -T -w /var/www/html app \
+            vendor/bin/phpunit -c /srv/module/phpunit.integration.xml.dist --testdox
+
+      - name: Collect debug logs on failure
+        if: failure() && steps.gate.outputs.skip != 'true'
+        run: |
+          mkdir -p ./debug-logs
+          docker compose logs --no-color > ./debug-logs/docker-compose.log 2>&1 || true
+          docker compose exec -T app sh -c \
+            'tail -n 500 var/log/exception.log var/log/system.log var/log/debug.log 2>/dev/null' \
+            > ./debug-logs/magento.log 2>&1 || true
+          docker compose exec -T app php -v > ./debug-logs/php-version.txt 2>&1 || true
+
+      - name: Upload debug logs
+        if: failure() && steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
+          path: ./debug-logs/
+          retention-days: 7
