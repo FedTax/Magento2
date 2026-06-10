@@ -20,12 +20,17 @@
       ".gitignore",
       ".github/",
       ".cursorrules",
+      ".env",
+      ".env.example",
       "Test/",
       "Makefile",
       "run-test.sh",
       "scripts/",
       "docs/images/",
-      "phpunit.xml.dist"
+      "docker-compose.yml",
+      "fixtures/",
+      "phpunit.xml.dist",
+      "phpunit.integration.xml.dist"
     ]
   }
 }

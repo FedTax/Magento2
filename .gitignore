@@ -14,4 +14,8 @@ Thumbs.db
 
 # Test artifacts
 phpunit.xml
+phpunit.integration.xml
 .phpunit.result.cache
+
+# Integration test environment
+.env

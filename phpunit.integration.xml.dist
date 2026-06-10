@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Wrapper PHPUnit config for the Taxcloud_Magento2 integration test suite.
+  Boots the standard Magento integration framework (dev/tests/integration/)
+  and points its discovery at this module's Test/Integration/ tree.
+
+  Paths are resolved relative to PHPUnit's CWD, which must be the Magento
+  install root (/var/www/html in the integration test stack). Driven by
+  `make integration-test`, which sets the working directory correctly:
+
+    docker compose exec -T -w /var/www/html app \
+      vendor/bin/phpunit -c /srv/module/phpunit.integration.xml.dist
+-->
+<phpunit
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.6/phpunit.xsd"
+    bootstrap="dev/tests/integration/framework/bootstrap.php"
+    colors="true"
+    columns="max"
+    stopOnFailure="false"
+    cacheResultFile=".phpunit.integration.result.cache"
+    beStrictAboutTestsThatDoNotTestAnything="false"
+>
+    <testsuites>
+        <testsuite name="Taxcloud_Magento2 Integration">
+            <directory suffix="Test.php">app/code/Taxcloud/Magento2/Test/Integration</directory>
+        </testsuite>
+    </testsuites>
+
+    <php>
+        <ini name="memory_limit" value="2G"/>
+        <ini name="date.timezone" value="America/Chicago"/>
+        <const name="TESTS_INSTALL_CONFIG_FILE" value="dev/tests/integration/etc/install-config-mysql.php"/>
+        <const name="TESTS_GLOBAL_CONFIG_FILE" value="dev/tests/integration/etc/config-global.php"/>
+        <env name="MAGE_MODE" value="default"/>
+    </php>
+</phpunit>

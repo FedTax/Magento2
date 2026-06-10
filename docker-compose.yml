@@ -1,0 +1,71 @@
+# Integration test stack for Taxcloud_Magento2.
+# Local dev:  read ./.env (cp .env.example .env first) and run `make integration-test`.
+# CI:         workflow exports the same vars; install script orchestrates the lifecycle.
+#
+# MAGENTO_INSTALL_DIR is the host path where Magento gets installed (the "sibling project"
+# from the design doc). It must exist before `docker compose up`. The install script
+# mkdir -p's it. Defaults to ../magento-<edition>-<version> so a fresh clone Just Works.
+
+services:
+  app:
+    image: "markoshust/magento-php:${PHP_VERSION:-8.3}-fpm"
+    command: ["sleep", "infinity"]
+    working_dir: /var/www/html
+    volumes:
+      - "${MAGENTO_INSTALL_DIR:-../magento-${MAGENTO_EDITION:-community}-${MAGENTO_VERSION:-2.4.8-p1}}:/var/www/html:delegated"
+      - "./:/srv/module:delegated"
+      - "composer-cache:/var/www/.composer/cache"
+    environment:
+      COMPOSER_HOME: /var/www/.composer
+      MAGENTO_ROOT: /var/www/html
+      MAGENTO_EDITION: "${MAGENTO_EDITION:-community}"
+      MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.8-p1}"
+      MAGENTO_PUBLIC_KEY: "${MAGENTO_PUBLIC_KEY:-}"
+      MAGENTO_PRIVATE_KEY: "${MAGENTO_PRIVATE_KEY:-}"
+      TAXCLOUD_API_ID: "${TAXCLOUD_API_ID:-}"
+      TAXCLOUD_API_KEY: "${TAXCLOUD_API_KEY:-}"
+    depends_on:
+      db:
+        condition: service_healthy
+      opensearch:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks: [magento]
+
+  db:
+    image: mariadb:10.6
+    environment:
+      MARIADB_ROOT_PASSWORD: magento
+      MARIADB_DATABASE: magento
+      MARIADB_USER: magento
+      MARIADB_PASSWORD: magento
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [magento]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.12.0
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    networks: [magento]
+
+  redis:
+    image: redis:7-alpine
+    networks: [magento]
+
+volumes:
+  composer-cache:
+
+networks:
+  magento:
