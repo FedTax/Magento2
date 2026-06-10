@@ -60,6 +60,7 @@ jobs:
       MAGENTO_VERSION: ${{ matrix.magento-version }}
       PHP_VERSION: ${{ matrix.php-version }}
       MAGENTO_INSTALL_DIR: ${{ github.workspace }}/../magento-install
+      COMPOSER_CACHE_DIR: ${{ github.workspace }}/.composer-cache
       TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
       TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
       MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
@@ -109,7 +110,11 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         uses: actions/cache@v4
         with:
-          path: ~/.composer-cache
+          # This path matches the COMPOSER_CACHE_DIR env above, which is the
+          # host side of a bind mount into /var/www/.composer/cache in the app
+          # container (see docker-compose.yml). Cache hits genuinely accelerate
+          # composer create-project on re-runs.
+          path: ${{ env.COMPOSER_CACHE_DIR }}
           key: composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-${{ hashFiles('composer.json') }}
           restore-keys: |
             composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-

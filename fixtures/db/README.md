@@ -5,6 +5,10 @@ with a known state (sample products, sample customers, tax-relevant config)
 without paying the cost of running the Magento installer + sample data
 import on every test run.
 
+> See [docs/INTEGRATION_TESTS.md](../../docs/INTEGRATION_TESTS.md) for the
+> full integration test workflow. This file documents the fixture file
+> format and the regeneration procedure specifically.
+
 ## Naming convention
 
 ```

@@ -80,16 +80,18 @@ bin/magento setup:di:compile
 ### Running Tests
 
 ```bash
-# Run all tests using Docker (recommended)
+# Unit tests in a disposable PHP container (recommended)
 make test
 
-# Run all tests locally (requires PHP)
+# Unit tests locally (requires PHP + composer install)
 make test-local
-
-# Or run individual tests
-./run-test.sh
-php Test/Integration/PostalCodeParserTest.php
 ```
+
+Integration tests live in their own pipeline — they boot the full Magento
+application against a real database and run via PHPUnit. They are expensive
+and run on demand (or on release tags), not on every push. See
+[docs/INTEGRATION_TESTS.md](docs/INTEGRATION_TESTS.md) for the 5-minute
+local setup and the matrix of supported editions/versions.
 
 ## Configuring the TaxCloud Module
 

@@ -90,6 +90,11 @@ fi
 
 mkdir -p "$MAGENTO_INSTALL_DIR"
 
+COMPOSER_CACHE_DIR_RESOLVED="${COMPOSER_CACHE_DIR:-$MODULE_ROOT/.composer-cache}"
+mkdir -p "$COMPOSER_CACHE_DIR_RESOLVED"
+# The container runs as a non-root user; relax host perms so it can write.
+chmod 777 "$COMPOSER_CACHE_DIR_RESOLVED"
+
 echo "==> Bringing up integration test stack (PHP $PHP_VERSION, Magento $EDITION $VERSION)..."
 docker compose up -d --wait
 

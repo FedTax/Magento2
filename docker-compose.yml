@@ -14,7 +14,7 @@ services:
     volumes:
       - "${MAGENTO_INSTALL_DIR:-../magento-${MAGENTO_EDITION:-community}-${MAGENTO_VERSION:-2.4.8-p1}}:/var/www/html:delegated"
       - "./:/srv/module:delegated"
-      - "composer-cache:/var/www/.composer/cache"
+      - "${COMPOSER_CACHE_DIR:-./.composer-cache}:/var/www/.composer/cache"
     environment:
       COMPOSER_HOME: /var/www/.composer
       MAGENTO_ROOT: /var/www/html
@@ -63,9 +63,6 @@ services:
   redis:
     image: redis:7-alpine
     networks: [magento]
-
-volumes:
-  composer-cache:
 
 networks:
   magento:
