@@ -3,7 +3,10 @@
 This module ships a real integration test pipeline: it boots the full Magento
 application (Open Source or Commerce) against a working MariaDB + OpenSearch +
 Redis stack, registers `Taxcloud_Magento2` into `app/code/`, and runs PHPUnit
-through Magento's own `dev/tests/integration/` framework.
+against a small custom bootstrap that loads the same installed Magento. We
+do **not** wrap Magento's `dev/tests/integration/` framework — that's for
+testing Magento core, and brings far more machinery than a single module
+needs.
 
 > **The unit suite (`Test/Unit/`) is the fast feedback loop and runs on every
 > PR. The integration suite documented here is expensive, manual, and exists
@@ -45,9 +48,8 @@ That's it. On the first run, the install script will:
 6. Run `setup:upgrade`, `setup:di:compile`, enable the module.
 7. Inject TaxCloud credentials into `core_config_data` via `bin/magento
    config:set tax/taxcloud_settings/{api_id,api_key,enabled}`.
-8. Configure Magento's integration framework against a separate test DB
-   (`magento_integration_test`).
-9. Run the PHPUnit integration suite.
+8. Run the PHPUnit integration suite via our custom bootstrap
+   (`Test/Integration/bootstrap.php`).
 
 Re-runs are idempotent — composer create-project is skipped if Magento is
 already installed at the target path; the schema and DB are always
@@ -77,26 +79,52 @@ rm -rf ../magento-community-2.4.8-p5     # adjust to match your matrix row
 
 ---
 
-## How fixtures work
+## How the test runtime is wired
 
-The integration framework manages its own database
-(`magento_integration_test`) — it installs Magento there on first bootstrap
-and tears it down at the end. Magento's standard fixture annotations
-(`@magentoDataFixture`, `@magentoDbIsolation`) work against that database.
+Tests boot the actual installed Magento via a custom bootstrap at
+[`Test/Integration/bootstrap.php`](../Test/Integration/bootstrap.php). That
+bootstrap calls Magento's `Bootstrap::create()`, grabs the ObjectManager,
+and stashes it in
+[`Taxcloud\Magento2\Test\Integration\TestEnvironment`](../Test/Integration/TestEnvironment.php).
+Tests pull it back via `TestEnvironment::getObjectManager()` (or the
+shorthand `TestEnvironment::get(SomeClass::class)`).
 
-Separately, the install script seeds the **main** `magento` database from a
-committed SQL dump under `fixtures/db/`. That DB is useful for:
+We deliberately do **not** use Magento's `dev/tests/integration/` framework.
+That framework exists to test Magento core — it installs a second Magento
+into a separate DB and wires up annotation-driven fixtures and isolation. For
+exercising one module against an already-installed Magento, it adds nothing
+and makes the install pipeline far more fragile.
 
-- Browsing the storefront manually after install (`http://localhost/` when
-  nginx is in front; not configured in this stack by default).
-- Tests that want pre-loaded sample products, customers, or tax zones
-  without paying the cost of running sample-data import on every run.
+### How fixtures work
 
-A missing fixture is a **fail-fast error**: the install script will refuse to
+The install script restores a committed SQL dump under `fixtures/db/` into
+the `magento` database. Tests run against that same database, so the
+restored state is your test fixture. If a future test needs custom seed
+data, either bake it into the dump (run `make-fixture.sh` against a Magento
+you've prepped) or `INSERT` it from within the test via Magento's
+`ResourceConnection`.
+
+A missing dump is a **fail-fast error**: the install script will refuse to
 run if `fixtures/db/magento-fixture-<edition>-<version>.sql.gz` is not
 present. This is deliberate — silently falling back to a clean install
 would hide schema/data drift bugs that fixture-based tests are meant to
 catch.
+
+> Magento's per-test annotations (`@magentoDataFixture`,
+> `@magentoDbIsolation`, `@magentoConfigFixture`) **do not work** here —
+> they're framework features. If you need that style of isolation, you can
+> wrap a test in a manual transaction:
+>
+> ```php
+> $conn = TestEnvironment::get(\Magento\Framework\App\ResourceConnection::class)
+>     ->getConnection();
+> $conn->beginTransaction();
+> try {
+>     // ... test work ...
+> } finally {
+>     $conn->rollBack();
+> }
+> ```
 
 ### Generating a fresh DB dump
 
@@ -139,21 +167,43 @@ You generate a dump once per Magento version and commit it. The procedure:
 
 ## Adding a new Magento version to the matrix
 
-1. Add a row to `.github/workflows/integration-tests.yml`:
+The install script **fail-fasts** on missing fixtures, so the order matters
+— fixture first, matrix row second. Follow these steps in order:
+
+1. **Generate the fixture for the new version.** This requires either an
+   already-installed Magento at that version (e.g. a local Warden install)
+   or a one-off provision via `make integration-test MAGENTO_VERSION=2.4.9`
+   (which would have to skip the dump-restore step — easiest is to comment
+   out that block in `scripts/install-magento.sh` for the one-off run).
+   Then run `scripts/make-fixture.sh community 2.4.9`. See "Generating a
+   fresh DB dump" above for the longer procedure.
+2. **Commit the fixture file.** Verify the safety greps in
+   `make-fixture.sh`'s closing notice show no leaked PII/credentials.
+3. **Add a row to `.github/workflows/integration-tests.yml`:**
    ```yaml
    - magento-edition: community
      magento-version: '2.4.9'
      php-version: '8.3'
    ```
-2. Generate and commit a DB fixture for the new version (see above).
-3. Run the workflow manually (Actions tab → Integration Tests → Run
-   workflow) with `magento_versions=2.4.9` to test just the new row before
-   merging.
-4. Once green, merge the matrix row + fixture together.
+4. **Test the row before merging:** Actions tab → Integration Tests → Run
+   workflow → set `magento_versions=2.4.9`.
+5. **Merge** the fixture + matrix row together as one commit.
 
 If a row needs a different PHP version than the others, the compose stack
 already supports it — the `PHP_VERSION` env var is honored both locally and
 in CI. The image is `markoshust/magento-php:<PHP_VERSION>-fpm`.
+
+### Re-expanding to a full matrix from this PR's starting point
+
+The workflow currently ships with one active row (`community 2.4.8-p5`).
+Two future rows are commented out in
+`.github/workflows/integration-tests.yml` as a punch-list:
+
+- `community 2.4.7-p3` / PHP 8.2
+- `enterprise 2.4.8-p5` / PHP 8.3
+
+Each one becomes active by generating its fixture (step 1 above) and
+uncommenting the matrix block.
 
 ---
 
@@ -224,17 +274,24 @@ through HTTP.
 
 Both paths drive the same `scripts/install-magento.sh` and `docker-compose.yml`.
 
-### Why a separate test DB?
+### Why a custom bootstrap instead of Magento's framework?
 
-Magento's integration framework boots a clean install at the start of each
-test run and tears it down at the end. It owns its own DB. We give it
-`magento_integration_test`, separate from the `magento` DB our install
-script seeds from a fixture.
+Magento's `dev/tests/integration/` framework installs a second Magento into
+a separate DB (`magento_integration_test`), wires up
+`@magentoDataFixture` / `@magentoDbIsolation` / `@magentoConfigFixture`
+annotations, and otherwise reproduces the full test-isolation model used by
+Magento core's own test suite.
 
-If you find yourself wanting fixture data inside an integration test, use
-Magento's `@magentoDataFixture` annotation pointed at a fixture PHP file —
-that's the framework's canonical pattern. The dump on disk is for manual
-inspection and for future tests that load it via fixture annotations.
+For one third-party module, that machinery is pure cost:
+- A second Magento install means a second `setup:install` to maintain.
+- A second DB means a second source of truth for fixture data.
+- Every PHPUnit constant (`TESTS_INSTALL_CONFIG_FILE` etc.) is another
+  file you have to write into Magento's tree at install time.
+
+Our custom bootstrap is ~20 lines, boots the installed Magento, and lets
+tests share state. If you ever need per-test isolation, you can wrap a test
+in a manual transaction (see "How fixtures work" earlier). If you need
+fixture data, bake it into the dump or `INSERT` it from the test.
 
 ---
 
@@ -273,11 +330,13 @@ docker compose exec -w /var/www/html app rm -rf generated/code generated/metadat
 make integration-test
 ```
 
-### "magento_integration_test" DB connection refused
+### Connection refused / "Unknown database 'magento'" after `make integration-clean`
 
-You ran `make integration-clean` (which wipes the DB volume) but the
-Magento install still has stale `app/etc/env.php` pointing at the old DB
-credentials. Easiest fix: wipe the install dir and re-run:
+`make integration-clean` wipes the DB volume, but the Magento install on
+disk still has a stale `app/etc/env.php` pointing at the old DB. The
+install script's defensive reset re-creates the DB but env.php gets
+written by setup:install, so you just need to let the script run. If
+something gets really wedged:
 
 ```bash
 rm -rf ../magento-community-2.4.8-p5

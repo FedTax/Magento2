@@ -230,42 +230,6 @@ docker compose exec -T app bin/magento config:set tax/taxcloud_settings/enabled 
 
 docker compose exec -T app bin/magento cache:flush
 
-# --- 10. Configure Magento integration test framework ---------------------
-#
-# Magento's dev/tests/integration/ framework runs against its own dedicated
-# database (which it installs and tears down itself). It's separate from the
-# main `magento` DB our install script seeded — that DB exists for manual
-# browsing and for tests that load it via fixture annotations.
-
-echo "==> Configuring Magento integration test framework..."
-
-docker compose exec -T db sh -c \
-    'mariadb -uroot -pmagento -e "CREATE DATABASE IF NOT EXISTS magento_integration_test; GRANT ALL PRIVILEGES ON magento_integration_test.* TO '"'"'magento'"'"'@'"'"'%'"'"'; FLUSH PRIVILEGES;"'
-
-docker compose exec -T app sh -c 'cat > /var/www/html/dev/tests/integration/etc/install-config-mysql.php' <<'PHPEOF'
-<?php
-return [
-    'db-host'              => 'db',
-    'db-user'              => 'magento',
-    'db-password'          => 'magento',
-    'db-name'              => 'magento_integration_test',
-    'db-prefix'            => '',
-    'backend-frontname'    => 'backend',
-    'admin-user'           => 'admin',
-    'admin-password'       => 'Admin123!',
-    'admin-email'          => 'admin@example.com',
-    'admin-firstname'      => 'Admin',
-    'admin-lastname'       => 'User',
-    'amqp-host'            => '',
-    'amqp-user'            => '',
-    'amqp-password'        => '',
-    'console-logger'       => 'null',
-    'search-engine'        => 'opensearch',
-    'opensearch-host'      => 'opensearch',
-    'opensearch-port'      => '9200',
-];
-PHPEOF
-
 echo
 echo "==> Install complete."
 echo "    Magento $EDITION $VERSION at $MAGENTO_INSTALL_DIR"
