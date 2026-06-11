@@ -13,8 +13,8 @@ use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Observer\Sales\Complete;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 use Magento\Sales\Model\Order;
-use Magento\Sales\Model\Invoice;
-use Magento\Sales\Model\Shipment;
+use Magento\Sales\Model\Order\Invoice;
+use Magento\Sales\Model\Order\Shipment;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 
 /**
@@ -47,10 +47,12 @@ class CompleteTest extends TestCase
      */
     private function buildObserver(string $eventName, array $eventConfig): \Magento\Framework\Event\Observer
     {
+        // getName() is a real method on Event; getOrder/getInvoice/getShipment
+        // are magic DataObject accessors and need addMethods().
         $event = $this->getMockBuilder(\Magento\Framework\Event::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getInvoice', 'getShipment'])
-            ->onlyMethods(['getName', 'getOrder'])
+            ->onlyMethods(['getName'])
+            ->addMethods(['getInvoice', 'getOrder', 'getShipment'])
             ->getMock();
         $event->method('getName')->willReturn($eventName);
         if (isset($eventConfig['order'])) {
@@ -80,7 +82,7 @@ class CompleteTest extends TestCase
 
         $shipmentCollection = $this->createMock(\Magento\Sales\Model\ResourceModel\Order\Shipment\Collection::class);
         $shipmentCollection->method('getSize')->willReturn($shipmentCollectionSize);
-        $order->method('getShipmentCollection')->willReturn($shipmentCollection);
+        $order->method('getShipmentsCollection')->willReturn($shipmentCollection);
 
         return $order;
     }

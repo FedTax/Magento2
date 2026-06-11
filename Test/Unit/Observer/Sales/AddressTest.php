@@ -82,7 +82,7 @@ class AddressTest extends TestCase
 
         $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
             ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams'])
+            ->addMethods(['getParams', 'setParams'])
             ->getMock();
         $obj->method('getParams')->willReturn($params);
         $obj->expects($this->once())->method('setParams')->with($this->callback(function ($updated) use ($originalDestination) {
@@ -92,7 +92,10 @@ class AddressTest extends TestCase
                 && $updated['destination']['Address2'] === $originalDestination['Address2'];
         }))->willReturnSelf();
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getObj'])
+            ->getMock();
         $event->method('getObj')->willReturn($obj);
 
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
@@ -141,14 +144,17 @@ class AddressTest extends TestCase
 
         $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
             ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams'])
+            ->addMethods(['getParams', 'setParams'])
             ->getMock();
         $obj->method('getParams')->willReturn($params);
         $obj->expects($this->once())->method('setParams')->with($this->callback(function ($updated) use ($verifiedResult) {
             return $updated['destination'] === $verifiedResult;
         }))->willReturnSelf();
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getObj'])
+            ->getMock();
         $event->method('getObj')->willReturn($obj);
 
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
@@ -188,13 +194,16 @@ class AddressTest extends TestCase
 
         $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
             ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams'])
+            ->addMethods(['getParams', 'setParams'])
             ->getMock();
         $obj->method('getParams')->willReturn(['destination' => $originalDestination]);
         // Critical: setParams MUST NOT be called when verifyAddress returns null.
         $obj->expects($this->never())->method('setParams');
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getObj'])
+            ->getMock();
         $event->method('getObj')->willReturn($obj);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observerObj->method('getEvent')->willReturn($event);
@@ -238,12 +247,15 @@ class AddressTest extends TestCase
 
         $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
             ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams'])
+            ->addMethods(['getParams', 'setParams'])
             ->getMock();
         $obj->method('getParams')->willReturn(['destination' => $originalDestination]);
         $obj->expects($this->never())->method('setParams');
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getObj'])
+            ->getMock();
         $event->method('getObj')->willReturn($obj);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observerObj->method('getEvent')->willReturn($event);

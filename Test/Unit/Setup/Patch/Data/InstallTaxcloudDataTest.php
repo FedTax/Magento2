@@ -71,6 +71,7 @@ class InstallTaxcloudDataTest extends TestCase
     public function testApplyRegistersTaxcloudTicAndCertAttributes()
     {
         $eavSetup = $this->getMockBuilder(\stdClass::class)
+            ->disableOriginalConstructor()
             ->addMethods(['addAttribute'])
             ->getMock();
         $eavSetup->expects($this->once())
@@ -88,15 +89,18 @@ class InstallTaxcloudDataTest extends TestCase
         $eavSetupFactory->method('create')->willReturn($eavSetup);
 
         $attribute = $this->getMockBuilder(\stdClass::class)
+            ->disableOriginalConstructor()
             ->addMethods(['addData', 'save'])
             ->getMock();
         $attribute->method('addData')->willReturnSelf();
         $attribute->expects($this->once())->method('save');
 
         $eavConfig = $this->getMockBuilder(\stdClass::class)
-            ->addMethods(['getEntityType', 'getAttribute'])
+            ->disableOriginalConstructor()
+            ->addMethods(['getAttribute', 'getEntityType'])
             ->getMock();
         $customerEntity = $this->getMockBuilder(\stdClass::class)
+            ->disableOriginalConstructor()
             ->addMethods(['getDefaultAttributeSetId'])
             ->getMock();
         $customerEntity->method('getDefaultAttributeSetId')->willReturn(1);
@@ -104,7 +108,8 @@ class InstallTaxcloudDataTest extends TestCase
         $eavConfig->method('getAttribute')->with(Customer::ENTITY, 'taxcloud_cert')->willReturn($attribute);
 
         $customerSetup = $this->getMockBuilder(\stdClass::class)
-            ->addMethods(['getEavConfig', 'addAttribute'])
+            ->disableOriginalConstructor()
+            ->addMethods(['addAttribute', 'getEavConfig'])
             ->getMock();
         $customerSetup->method('getEavConfig')->willReturn($eavConfig);
         $customerSetup->expects($this->once())
@@ -117,6 +122,7 @@ class InstallTaxcloudDataTest extends TestCase
         $customerSetupFactory->method('create')->willReturn($customerSetup);
 
         $attributeSet = $this->getMockBuilder(\stdClass::class)
+            ->disableOriginalConstructor()
             ->addMethods(['getDefaultGroupId'])
             ->getMock();
         $attributeSet->method('getDefaultGroupId')->willReturn(11);

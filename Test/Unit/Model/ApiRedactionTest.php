@@ -135,9 +135,9 @@ class ApiRedactionTest extends TestCase
         // The observer-pattern handoff: setParams seeds, getParams returns
         // the same (credential-bearing) array back to the caller. The test
         // proves redaction happens AFTER this point, before logging.
-        $mockDataObject = $this->getMockBuilder(DataObject::class)
+        $mockDataObject = $this->getMockBuilder(\Magento\Framework\DataObject::class)
             ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams', 'setResult', 'getResult'])
+            ->addMethods(['getParams', 'getResult', 'setParams', 'setResult'])
             ->getMock();
         $mockDataObject->method('setParams')->willReturnSelf();
         $mockDataObject->method('getParams')->willReturn([
@@ -168,7 +168,7 @@ class ApiRedactionTest extends TestCase
             ->willThrowException(new \RuntimeException('forced soap failure'));
         $this->injectSoapClient($api, $mockSoapClient);
 
-        $order = $this->createMock(\Magento\Sales\Model\Order\Order::class);
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
         $order->method('getCustomerId')->willReturn(null);
         $order->method('getQuoteId')->willReturn(1);
         $order->method('getIncrementId')->willReturn('TEST_ORDER_REDACT');
@@ -248,28 +248,33 @@ class ApiRedactionTest extends TestCase
 }
 
 /**
- * Logger stand-in that records every message routed through info(). The
- * SUT calls $this->tclogger->info(...) on a Taxcloud\Magento2\Logger\Logger
- * instance; in the unit-test environment that class is a plain stub
- * (see dev/test-bootstrap/MagentoMocks.php), so subclassing it gives us a
- * truthful capture of exactly what would have been written to disk.
+ * Logger stand-in that records every message routed through info() / error()
+ * / debug(). The SUT calls $this->tclogger->info(...) on a
+ * Taxcloud\Magento2\Logger\Logger instance (a Monolog\Logger subclass), so
+ * overriding with Monolog-compatible signatures gives a truthful capture of
+ * exactly what would have been written to disk.
  */
 class CapturingLogger extends Logger
 {
     /** @var array<int,mixed> */
     public array $messages = [];
 
-    public function info($message)
+    public function __construct()
+    {
+        parent::__construct('taxcloud-test');
+    }
+
+    public function info(string|\Stringable $message, array $context = []): void
     {
         $this->messages[] = $message;
     }
 
-    public function error($message)
+    public function error(string|\Stringable $message, array $context = []): void
     {
         $this->messages[] = $message;
     }
 
-    public function debug($message)
+    public function debug(string|\Stringable $message, array $context = []): void
     {
         $this->messages[] = $message;
     }

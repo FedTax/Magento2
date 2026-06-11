@@ -1,4 +1,4 @@
-.PHONY: test test-local test-unit lint lint-fix help \
+.PHONY: test test-unit lint lint-fix help \
         integration-test integration-shell integration-clean
 
 # Defaults — override on the command line, e.g.:
@@ -6,12 +6,17 @@
 MAGENTO_EDITION ?= community
 MAGENTO_VERSION ?= 2.4.8-p5
 
+# Magento installation this module lives inside. Unit tests run with that
+# install's PHPUnit and real Magento classes — the module has no vendor/ of
+# its own. Default assumes the conventional app/code/Taxcloud/Magento2 layout.
+MAGENTO_ROOT ?= $(abspath ../../../..)
+
 # Default target
 help:
-	@echo "Unit tests:"
-	@echo "  make test              - Run unit tests using Docker"
-	@echo "  make test-local        - Run unit tests locally (requires PHP)"
-	@echo "  make test-unit         - Run unit tests only"
+	@echo "Unit tests (run against the Magento install at $(MAGENTO_ROOT)):"
+	@echo "  make test-unit         - Run unit tests via Magento's PHPUnit"
+	@echo "  make test              - Alias for test-unit"
+	@echo "                           Override install path with MAGENTO_ROOT=..."
 	@echo ""
 	@echo "Integration tests (see docs/INTEGRATION_TESTS.md for setup):"
 	@echo "  make integration-test  - Install Magento + run integration tests"
@@ -24,20 +29,19 @@ help:
 	@echo "  make lint-fix          - Auto-fix linting issues where possible"
 	@echo "  make help              - Show this help message"
 
-# Run all tests using Docker
-test:
-	@echo "Running all tests with Docker..."
-	@./run-test.sh
-
-# Run tests locally (requires PHP)
-test-local:
-	@echo "Running unit tests locally..."
-	@vendor/bin/phpunit Test/Unit/ --testdox
-
-# Run unit tests only
+# Run unit tests with the surrounding Magento install's PHPUnit
 test-unit:
-	@echo "Running unit tests..."
-	@vendor/bin/phpunit Test/Unit/ --testdox
+	@if [ ! -x "$(MAGENTO_ROOT)/vendor/bin/phpunit" ]; then \
+		echo "ERROR: $(MAGENTO_ROOT)/vendor/bin/phpunit not found."; \
+		echo "Unit tests run with the Magento install's PHPUnit. Either:"; \
+		echo "  - check this module out at <magento-root>/app/code/Taxcloud/Magento2/, or"; \
+		echo "  - pass MAGENTO_ROOT=/path/to/magento"; \
+		exit 1; \
+	fi
+	@MAGENTO_ROOT=$(MAGENTO_ROOT) $(MAGENTO_ROOT)/vendor/bin/phpunit \
+		-c phpunit.xml.dist Test/Unit/ --testdox
+
+test: test-unit
 
 # Run PHP CodeSniffer linting
 lint:

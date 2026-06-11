@@ -26,7 +26,7 @@ class PostalCodeParserTest extends TestCase
         $this->assertSame($expected, PostalCodeParser::parse($input), $message);
     }
 
-    public function parseProvider(): array
+    public static function parseProvider(): array
     {
         return [
             'five-digit' => ['10001', ['Zip5' => '10001', 'Zip4' => null], 'plain Zip5'],
@@ -52,7 +52,7 @@ class PostalCodeParserTest extends TestCase
         $this->assertSame($expected, PostalCodeParser::isValid($parsed), $message);
     }
 
-    public function isValidProvider(): array
+    public static function isValidProvider(): array
     {
         return [
             'valid five-digit with null Zip4' => [['Zip5' => '10001', 'Zip4' => null], true, 'plain Zip5 valid'],

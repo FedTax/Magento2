@@ -27,10 +27,10 @@ class CaptureTriggerTest extends TestCase
         $this->assertSame(CaptureTrigger::PAYMENT, $options[1]['value']);
         $this->assertSame(CaptureTrigger::SHIPMENT, $options[2]['value']);
 
-        // The labels are wrapped in Magento's __() — the test mock for __ is a
-        // pass-through, so the raw English strings flow through.
-        $this->assertSame('On order creation', $options[0]['label']);
-        $this->assertSame('On payment', $options[1]['label']);
-        $this->assertSame('On shipment', $options[2]['label']);
+        // The labels are wrapped in Magento's __(), which returns a Phrase
+        // object — cast to string to compare the rendered text.
+        $this->assertSame('On order creation', (string) $options[0]['label']);
+        $this->assertSame('On payment', (string) $options[1]['label']);
+        $this->assertSame('On shipment', (string) $options[2]['label']);
     }
 }

@@ -79,13 +79,17 @@ bin/magento setup:di:compile
 
 ### Running Tests
 
-```bash
-# Unit tests in a disposable PHP container (recommended)
-make test
+Unit tests run with the PHPUnit and Magento classes of the Magento
+installation this module lives inside — the module has no `vendor/` of its
+own. With the module checked out at `app/code/Taxcloud/Magento2/`:
 
-# Unit tests locally (requires PHP + composer install)
-make test-local
+```bash
+make test-unit                          # or: make test
+make test-unit MAGENTO_ROOT=/path/to/magento   # explicit install root
 ```
+
+In CI, unit tests run on every push/PR against a matrix of Magento
+versions (see `.github/workflows/test.yml`).
 
 Integration tests live in their own pipeline — they boot the full Magento
 application against a real database and run via PHPUnit. They are expensive

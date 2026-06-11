@@ -186,7 +186,7 @@ class ProductTicServiceTest extends TestCase
         $this->assertEquals($expectedResult, $result, $description);
     }
 
-    public function defaultTicProvider()
+    public static function defaultTicProvider()
     {
         return [
             'configured value' => ['12345', '12345', 'Should return configured default TIC value'],
@@ -217,7 +217,7 @@ class ProductTicServiceTest extends TestCase
         $this->assertEquals($expectedResult, $result, $description);
     }
 
-    public function productValidationProvider()
+    public static function productValidationProvider()
     {
         return [
             'valid product with ID' => [789, true, 'Should return true for valid product with ID'],
@@ -242,7 +242,7 @@ class ProductTicServiceTest extends TestCase
         $this->assertEquals($expectedResult, $result, $description);
     }
 
-    public function shippingTicProvider()
+    public static function shippingTicProvider()
     {
         return [
             'default configured value' => ['11010', '11010', 'Should return configured shipping TIC value'],

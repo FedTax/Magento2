@@ -34,7 +34,11 @@ class CancelTest extends TestCase
 
         $observer = new Cancel($scopeConfig, $tcapi, $logger);
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('order_cancel_after');
         $order = $this->createMock(Order::class);
         $order->method('getId')->willReturn(1);
@@ -71,7 +75,11 @@ class CancelTest extends TestCase
         $invoiceCollection->method('getSize')->willReturn(1);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('order_cancel_after');
         $event->method('getOrder')->willReturn($order);
 
@@ -107,7 +115,11 @@ class CancelTest extends TestCase
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
         $tcapi->method('getOrderDetails')->with($order)->willReturn(null);
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('order_cancel_after');
         $event->method('getOrder')->willReturn($order);
 
@@ -142,7 +154,11 @@ class CancelTest extends TestCase
         $invoiceCollection->method('getSize')->willReturn(0);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('order_cancel_after');
         $event->method('getOrder')->willReturn($order);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
@@ -178,7 +194,11 @@ class CancelTest extends TestCase
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
         $tcapi->method('getOrderDetails')->with($order)->willReturn(['CapturedDate' => '2024-01-01']);
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('order_cancel_after');
         $event->method('getOrder')->willReturn($order);
 
@@ -229,14 +249,22 @@ class CancelTest extends TestCase
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
 
         // First event: order_cancel_after
-        $event1 = $this->createMock(\Magento\Framework\Event::class);
+        $event1 = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event1->method('getName')->willReturn('order_cancel_after');
         $event1->method('getOrder')->willReturn($order);
         $observerObj1 = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observerObj1->method('getEvent')->willReturn($event1);
 
         // Second event: sales_order_save_after, same observer instance, same order
-        $event2 = $this->createMock(\Magento\Framework\Event::class);
+        $event2 = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event2->method('getName')->willReturn('sales_order_save_after');
         $event2->method('getOrder')->willReturn($order);
         $observerObj2 = $this->createMock(\Magento\Framework\Event\Observer::class);
@@ -272,7 +300,11 @@ class CancelTest extends TestCase
         $order->method('getState')->willReturn(Order::STATE_CANCELED);
         $order->method('getOrigData')->with('state')->willReturn(Order::STATE_CANCELED);
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('sales_order_save_after');
         $event->method('getOrder')->willReturn($order);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
@@ -301,7 +333,11 @@ class CancelTest extends TestCase
 
         $order = $this->createMock(Order::class);
         $order->method('getId')->willReturn(null);
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('order_cancel_after');
         $event->method('getOrder')->willReturn($order);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
@@ -340,7 +376,11 @@ class CancelTest extends TestCase
         $invoiceCollection->method('getSize')->willReturn(0);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
 
-        $event = $this->createMock(\Magento\Framework\Event::class);
+        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getName'])
+            ->addMethods(['getOrder'])
+            ->getMock();
         $event->method('getName')->willReturn('order_cancel_after');
         $event->method('getOrder')->willReturn($order);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);

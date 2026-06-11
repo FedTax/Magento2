@@ -7,31 +7,74 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-php-versions:
-    name: Test PHP ${{ matrix.php-version }}
+  # Unit tests run against a real Magento codebase (no DB needed) using
+  # Magento's own PHPUnit. The module has no vendor/ of its own — see
+  # Test/Unit/bootstrap.php. composer create-project needs Marketplace keys
+  # (MAGENTO_PUBLIC_KEY / MAGENTO_PRIVATE_KEY repo secrets); the Magento
+  # codebase is cached between runs so warm runs skip the download.
+  unit-tests:
+    name: Unit tests — Magento ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        php-version: ['8.1', '8.2', '8.3']
-    
+        include:
+          - magento-version: '2.4.7-p3'
+            php-version: '8.2'
+          - magento-version: '2.4.8-p5'
+            php-version: '8.3'
+
+    env:
+      MAGENTO_ROOT: ${{ github.workspace }}/../magento
+      MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
+      MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
+    - name: Verify Marketplace secrets
+      run: |
+        if [[ -z "$MAGENTO_PUBLIC_KEY" || -z "$MAGENTO_PRIVATE_KEY" ]]; then
+          echo "::error::MAGENTO_PUBLIC_KEY / MAGENTO_PRIVATE_KEY secrets are required to pull Magento from repo.magento.com."
+          exit 1
+        fi
+
     - name: Set up PHP ${{ matrix.php-version }}
       uses: shivammathur/setup-php@v2
       with:
         php-version: ${{ matrix.php-version }}
-        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, bcmath, intl, gd, exif, iconv, sockets, xsl
         coverage: none
-        
-    - name: Install dependencies
+
+    - name: Cache Magento codebase
+      id: magento-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.MAGENTO_ROOT }}
+        key: magento-unit-${{ matrix.magento-version }}-php${{ matrix.php-version }}
+
+    - name: Install Magento codebase (no DB)
+      if: steps.magento-cache.outputs.cache-hit != 'true'
       run: |
-        composer install --optimize-autoloader
-        
+        composer config --global http-basic.repo.magento.com "$MAGENTO_PUBLIC_KEY" "$MAGENTO_PRIVATE_KEY"
+        composer create-project --repository-url=https://repo.magento.com/ \
+          --no-interaction --no-progress \
+          "magento/project-community-edition=${{ matrix.magento-version }}" \
+          "$MAGENTO_ROOT"
+
+    - name: Link module into app/code
+      run: |
+        mkdir -p "$MAGENTO_ROOT/app/code/Taxcloud"
+        rm -rf "$MAGENTO_ROOT/app/code/Taxcloud/Magento2"
+        ln -s "$GITHUB_WORKSPACE" "$MAGENTO_ROOT/app/code/Taxcloud/Magento2"
+
     - name: Run Unit Tests
+      working-directory: ${{ env.MAGENTO_ROOT }}
       run: |
-        vendor/bin/phpunit Test/Unit/ --testdox
+        vendor/bin/phpunit \
+          -c app/code/Taxcloud/Magento2/phpunit.xml.dist \
+          app/code/Taxcloud/Magento2/Test/Unit/ --testdox
 
   lint-code:
     name: Lint Code

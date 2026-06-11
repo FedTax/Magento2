@@ -787,7 +787,7 @@ class Api
                     $quoteDetailsItem->setUnitPrice($item->getPrice());
                     $quoteDetailsItem->setQuantity($item->getQty());
                     $quoteDetailsItem->setDiscountAmount($item->getDiscountAmount());
-                    $quoteDetailsItem->setTaxIncluded(false);
+                    $quoteDetailsItem->setIsTaxIncluded(false);
                     
                     $items[] = $quoteDetailsItem;
                 }
@@ -805,7 +805,7 @@ class Api
                     $quoteDetailsItem->setUnitPrice($itemTaxDetail[self::KEY_ITEM]->getRowTotal());
                     $quoteDetailsItem->setQuantity(1);
                     $quoteDetailsItem->setDiscountAmount(0);
-                    $quoteDetailsItem->setTaxIncluded(false);
+                    $quoteDetailsItem->setIsTaxIncluded(false);
                     
                     $items[] = $quoteDetailsItem;
                 }

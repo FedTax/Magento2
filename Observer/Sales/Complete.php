@@ -153,7 +153,7 @@ class Complete implements ObserverInterface
 
         if ($eventName === self::EVENT_SHIPMENT_SAVE_AFTER) {
             $order = $event->getShipment()->getOrder();
-            if ($order->getShipmentCollection()->getSize() > 1) {
+            if ($order->getShipmentsCollection()->getSize() > 1) {
                 return null;
             }
             return $order;

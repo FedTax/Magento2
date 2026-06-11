@@ -58,6 +58,14 @@ class TaxTest extends TestCase
 
     protected function setUp(): void
     {
+        // Magento's CommonTaxCollector constructor falls back to
+        // ObjectManager::getInstance() for optional dependencies (taxHelper,
+        // quoteDetailsItemExtensionFactory, customerAccountManagement). Give it
+        // a permissive instance that hands back mocks for whatever it asks for.
+        $om = $this->createMock(\Magento\Framework\ObjectManagerInterface::class);
+        $om->method('get')->willReturnCallback(fn (string $type) => $this->createMock($type));
+        \Magento\Framework\App\ObjectManager::setInstance($om);
+
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $this->taxConfig = $this->createMock(Config::class);
         $this->taxCalculationService = $this->createMock(TaxCalculationInterface::class);
@@ -148,12 +156,16 @@ class TaxTest extends TestCase
     {
         $rowTotal = $rowTotal ?? ($price * $qty);
         
-        $quoteItem = $this->getMockBuilder(QuoteItem::class)
+        $quoteItem = $this->getMockBuilder(\Magento\Quote\Model\Quote\Item::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getTaxCalculationItemId', 'getProduct', 'getQty', 'getPrice', 'getBasePrice', 'getRowTotal', 'getBaseRowTotal', 'setTaxAmount', 'setBaseTaxAmount', 'setTaxPercent', 'setPriceInclTax', 'setBasePriceInclTax', 'setRowTotalInclTax', 'setBaseRowTotalInclTax'])
+            ->onlyMethods(['getPrice', 'getProduct', 'getQty'])
+            ->addMethods(['getBasePrice', 'getBaseRowTotal', 'getRowTotal', 'getTaxCalculationItemId', 'setBasePriceInclTax', 'setBaseRowTotalInclTax', 'setBaseTaxAmount', 'setPriceInclTax', 'setRowTotalInclTax', 'setTaxAmount', 'setTaxPercent'])
             ->getMock();
         
-        $product = $this->createMock(Product::class);
+        $product = $this->getMockBuilder(\Magento\Catalog\Model\Product::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getTaxClassId'])
+            ->getMock();
         $product->method('getTaxClassId')->willReturn($taxClassId);
         
         $quoteItem->method('getTaxCalculationItemId')->willReturn($itemId);
@@ -173,13 +185,15 @@ class TaxTest extends TestCase
     private function createMockTaxDetails($price = 50.00, $rowTotal = 100.00)
     {
         $taxDetail = $this->getMockBuilder(\stdClass::class)
-            ->addMethods(['getPrice', 'getRowTotal', 'setRowTax', 'setPriceInclTax', 'setRowTotalInclTax', 'setAppliedTaxes', 'setTaxPercent', 'getRowTax'])
+            ->disableOriginalConstructor()
+            ->addMethods(['getPrice', 'getRowTax', 'getRowTotal', 'setAppliedTaxes', 'setPriceInclTax', 'setRowTax', 'setRowTotalInclTax', 'setTaxPercent'])
             ->getMock();
         $taxDetail->method('getPrice')->willReturn($price);
         $taxDetail->method('getRowTotal')->willReturn($rowTotal);
         
         $baseTaxDetail = $this->getMockBuilder(\stdClass::class)
-            ->addMethods(['getPrice', 'getRowTotal', 'setRowTax', 'setPriceInclTax', 'setRowTotalInclTax', 'setAppliedTaxes', 'setTaxPercent', 'getRowTax'])
+            ->disableOriginalConstructor()
+            ->addMethods(['getPrice', 'getRowTax', 'getRowTotal', 'setAppliedTaxes', 'setPriceInclTax', 'setRowTax', 'setRowTotalInclTax', 'setTaxPercent'])
             ->getMock();
         $baseTaxDetail->method('getPrice')->willReturn($price);
         $baseTaxDetail->method('getRowTotal')->willReturn($rowTotal);
@@ -193,7 +207,10 @@ class TaxTest extends TestCase
     private function setupParentMethodMocks($itemsByType = [])
     {
         $this->tax->method('clearValues')->willReturnSelf();
-        $this->tax->method('getQuoteTaxDetails')->willReturn(null);
+        // organizeItemTaxDetailsByType() type-hints TaxDetailsInterface, and mocked
+        // methods keep the real signature — null is rejected. Return a real mock.
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
         $this->tax->method('organizeItemTaxDetailsByType')->willReturn($itemsByType);
         $this->tax->method('processProductItems')->willReturnSelf();
         $this->tax->method('processShippingTaxInfo')->willReturnSelf();
@@ -242,7 +259,10 @@ class TaxTest extends TestCase
         $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
         
-        $total = $this->createMock(Total::class);
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getBaseTaxAmount', 'getTaxAmount'])
+            ->getMock();
         $total->method('getTaxAmount')->willReturn(0);
         $total->method('getBaseTaxAmount')->willReturn(0);
         
@@ -259,7 +279,7 @@ class TaxTest extends TestCase
      * Data provider for product tax persistence tests
      * Format: [productTaxAmount, shippingTaxAmount, itemPrice, itemQty, expectedTaxPercent, expectedPriceInclTax, expectedRowTotalInclTax, description]
      */
-    public function productTaxPersistenceDataProvider()
+    public static function productTaxPersistenceDataProvider()
     {
         return [
             'single item with tax' => [
@@ -389,7 +409,11 @@ class TaxTest extends TestCase
         
         // Create mock total - simulate that only shipping tax is present AFTER processAppliedTaxes
         // The defensive safeguard checks getTaxAmount() AFTER processAppliedTaxes runs
-        $total = $this->createMock(Total::class);
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['addBaseTotalAmount', 'addTotalAmount'])
+            ->addMethods(['getBaseTaxAmount', 'getTaxAmount', 'setBaseTaxAmount', 'setTaxAmount'])
+            ->getMock();
         // getTaxAmount() is called once in defensive safeguard, should return 2.50 (only shipping tax)
         $total->method('getTaxAmount')->willReturn(2.50);
         $total->method('getBaseTaxAmount')->willReturn(2.50);
@@ -429,7 +453,7 @@ class TaxTest extends TestCase
     /**
      * Data provider for edge case tests
      */
-    public function edgeCaseDataProvider()
+    public static function edgeCaseDataProvider()
     {
         return [
             'zero quantity' => [
@@ -525,7 +549,10 @@ class TaxTest extends TestCase
         $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
         $shippingAssignment->method('getItems')->willReturn([$itemA, $itemB]);
 
-        $total = $this->createMock(Total::class);
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getBaseTaxAmount', 'getTaxAmount'])
+            ->getMock();
         $total->method('getTaxAmount')->willReturn(0);
         $total->method('getBaseTaxAmount')->willReturn(0);
 
@@ -576,7 +603,10 @@ class TaxTest extends TestCase
         $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $total = $this->createMock(Total::class);
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getBaseTaxAmount', 'getTaxAmount'])
+            ->getMock();
         $total->method('getTaxAmount')->willReturn(0);
         $total->method('getBaseTaxAmount')->willReturn(0);
 
@@ -593,7 +623,7 @@ class TaxTest extends TestCase
         $this->tax->collect($quote, $shippingAssignment, $total);
     }
 
-    public function threeDecimalPrecisionProvider(): array
+    public static function threeDecimalPrecisionProvider(): array
     {
         return [
             'tax 4.875 on rowTotal 100 -> 4.875 percent (exact 3rd decimal)' => [4.875, 100.00, 4.875],
@@ -627,18 +657,17 @@ class TaxTest extends TestCase
         $lastInclPrice   = null;
         $lastInclRow     = null;
 
-        $product = $this->createMock(Product::class);
+        $product = $this->getMockBuilder(\Magento\Catalog\Model\Product::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getTaxClassId'])
+            ->getMock();
         $product->method('getTaxClassId')->willReturn('2');
 
-        $quoteItem = $this->getMockBuilder(QuoteItem::class)
+        $quoteItem = $this->getMockBuilder(\Magento\Quote\Model\Quote\Item::class)
             ->disableOriginalConstructor()
-            ->onlyMethods([
-                'getTaxCalculationItemId', 'getProduct', 'getQty',
-                'getPrice', 'getBasePrice', 'getRowTotal', 'getBaseRowTotal',
-                'setTaxAmount', 'setBaseTaxAmount', 'setTaxPercent',
-                'setPriceInclTax', 'setBasePriceInclTax',
-                'setRowTotalInclTax', 'setBaseRowTotalInclTax',
-            ])->getMock();
+            ->onlyMethods(['getPrice', 'getProduct', 'getQty'])
+            ->addMethods(['getBasePrice', 'getBaseRowTotal', 'getRowTotal', 'getTaxCalculationItemId', 'setBasePriceInclTax', 'setBaseRowTotalInclTax', 'setBaseTaxAmount', 'setPriceInclTax', 'setRowTotalInclTax', 'setTaxAmount', 'setTaxPercent'])
+            ->getMock();
 
         $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
         $quoteItem->method('getProduct')->willReturn($product);
@@ -659,7 +688,10 @@ class TaxTest extends TestCase
         $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $total = $this->createMock(Total::class);
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getBaseTaxAmount', 'getTaxAmount'])
+            ->getMock();
         $total->method('getTaxAmount')->willReturn(0);
         $total->method('getBaseTaxAmount')->willReturn(0);
 
@@ -721,7 +753,10 @@ class TaxTest extends TestCase
         $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $total = $this->createMock(Total::class);
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getBaseTaxAmount', 'getTaxAmount'])
+            ->getMock();
         $total->method('getTaxAmount')->willReturn(0);
         $total->method('getBaseTaxAmount')->willReturn(0);
 
@@ -809,10 +844,10 @@ class TaxTest extends TestCase
         $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $total = $this->getMockBuilder(Total::class)
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getTaxAmount', 'getBaseTaxAmount', 'setTaxAmount', 'setBaseTaxAmount', 'addTotalAmount', 'addBaseTotalAmount'])
-            ->addMethods(['getExtraTaxAmount', 'getBaseExtraTaxAmount'])
+            ->onlyMethods(['addBaseTotalAmount', 'addTotalAmount'])
+            ->addMethods(['getBaseExtraTaxAmount', 'getBaseTaxAmount', 'getExtraTaxAmount', 'getTaxAmount', 'setBaseTaxAmount', 'setTaxAmount'])
             ->getMock();
         // Pre-set getTaxAmount to match (productTax + shippingTax) so the defensive
         // safeguard at Tax.php:252 doesn't also call addTotalAmount('tax', ...).
@@ -827,7 +862,10 @@ class TaxTest extends TestCase
         // Don't call setupParentMethodMocks — it locks includeExtraTax to false.
         // Replicate it inline with includeExtraTax→true.
         $this->tax->method('clearValues')->willReturnSelf();
-        $this->tax->method('getQuoteTaxDetails')->willReturn(null);
+        // organizeItemTaxDetailsByType() type-hints TaxDetailsInterface, and mocked
+        // methods keep the real signature — null is rejected. Return a real mock.
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
         $this->tax->method('organizeItemTaxDetailsByType')->willReturn($itemsByType);
         $this->tax->method('processProductItems')->willReturnSelf();
         $this->tax->method('processShippingTaxInfo')->willReturnSelf();
@@ -888,6 +926,13 @@ class TaxTest extends TestCase
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
         $total = $this->createMock(Total::class);
 
+        // The parent's real collect() runs in this path; its helpers are mocked
+        // but their real type-hints still apply — unstubbed mocks would return
+        // null into TaxDetailsInterface / array parameters and fatal.
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
+        $this->tax->method('organizeItemTaxDetailsByType')->willReturn([]);
+
         // tcapi must NOT be called when the module is disabled — Tax::collect returns
         // before reaching its TaxCloud path.
         $this->tcapi->expects($this->never())->method('lookupTaxes');
@@ -916,7 +961,10 @@ class TaxTest extends TestCase
         $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $total = $this->createMock(Total::class);
+        $total = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address\Total::class)
+            ->disableOriginalConstructor()
+            ->addMethods(['getBaseTaxAmount', 'getTaxAmount'])
+            ->getMock();
         $total->method('getTaxAmount')->willReturn(0);
         $total->method('getBaseTaxAmount')->willReturn(0);
 

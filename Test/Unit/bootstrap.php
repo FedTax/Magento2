@@ -1,21 +1,48 @@
 <?php
 /**
- * Bootstrap file for unit tests.
+ * Bootstrap for the Taxcloud_Magento2 unit test suite.
  *
- * The Magento stubs file uses a `.php.inc` extension on purpose: Magento's
- * setup:di:compile brute-force scanner walks app/code/<vendor>/<module>/ for
- * `*.php` files and `require_once`s them to extract class info. If our stubs
- * file were `.php`, the scanner would load it and crash with "Cannot declare
- * interface Magento\Framework\App\Config\ScopeConfigInterface, because the
- * name is already in use" — because the file declares stubs in real Magento
- * namespaces. The `.inc` suffix sidesteps the scanner entirely. PHPUnit
- * picks it up here via require_once before any test runs.
+ * The suite runs against the Magento installation this module lives inside —
+ * there is no module-level vendor/ or hand-rolled mock layer. We delegate to
+ * Magento's own canonical unit-test bootstrap, which provides:
  *
- * Known limitation: some assertions in the unit suite implicitly depend on
- * stub signatures in MagentoMocks.php.inc that don't match Magento's actual
- * interfaces. Replacing the stubs with real Magento autoload reveals ~80
- * hidden test bugs (see DEV-8263 PR notes for the follow-up).
+ *  - Composer autoload + app/code PSR-4, so Magento\* classes resolve to the
+ *    real interfaces shipped with the installed Magento version
+ *  - The generated-classes autoloader (creates *Factory / *Proxy /
+ *    *ExtensionAttributes classes on demand in dev/tests/unit/tmp)
+ *  - A Phrase renderer, so __('...') casts to string without an ObjectManager
+ *  - Magento's standard test error handler
+ *
+ * Run from the Magento root with Magento's own PHPUnit:
+ *
+ *   vendor/bin/phpunit -c app/code/Taxcloud/Magento2/phpunit.xml.dist
+ *
+ * or via the module Makefile: `make test-unit`.
+ *
+ * The module is conventionally checked out at
+ * <magento-root>/app/code/Taxcloud/Magento2/, so the Magento root is six
+ * levels up. Override with the MAGENTO_ROOT env var for exotic layouts.
  */
 
-require_once __DIR__ . '/../../dev/test-bootstrap/MagentoMocks.php.inc';
-require_once __DIR__ . '/../../vendor/autoload.php';
+declare(strict_types=1);
+
+$magentoRoot = getenv('MAGENTO_ROOT') ?: realpath(__DIR__ . '/../../../../../..');
+$magentoUnitBootstrap = $magentoRoot . '/dev/tests/unit/framework/bootstrap.php';
+
+if (!is_file($magentoUnitBootstrap)) {
+    fwrite(
+        STDERR,
+        "ERROR: Could not locate Magento's unit test bootstrap at:\n"
+        . "  $magentoUnitBootstrap\n"
+        . "\n"
+        . "Unit tests for this module run against an installed Magento (its\n"
+        . "vendor/ provides PHPUnit and the real Magento\\* interfaces). Either:\n"
+        . "  1. Check the module out at <magento-root>/app/code/Taxcloud/Magento2/, or\n"
+        . "  2. Set MAGENTO_ROOT to the Magento installation root, or\n"
+        . "  3. Use the integration test stack (`make integration-test`), which\n"
+        . "     provisions a known Magento version first.\n"
+    );
+    exit(1);
+}
+
+require $magentoUnitBootstrap;
