@@ -1,28 +1,47 @@
 <?php
 /**
  * Minimal Magento Class Definitions for Unit Testing
- * 
+ *
  * This file provides minimal class definitions needed for PHPUnit mocking
- * without requiring a full Magento installation.
- * 
+ * without requiring a full Magento installation. It declares stubs in real
+ * Magento namespaces (Magento\Framework\App\Config\ScopeConfigInterface,
+ * etc.) so the SUT under unit test can run without ever loading Magento.
+ *
+ * SAFETY GUARD (top of file): we deliberately bail out when this file gets
+ * included from a real Magento context — e.g. when Magento's setup:di:compile
+ * brute-force scans app/code/<vendor>/<module>/ for .php files and
+ * require_once's them. Without the guard, our stubs would collide with the
+ * real Magento interfaces and cause a fatal "Cannot declare X" error.
+ *
  * HOW TO GENERATE THESE MOCKS:
  * (Asking AI to generate the mocks for the classes that are not found works pretty well)
- * 
+ *
  * 1. When you get "Class not found" errors during unit testing:
  *    - Add the missing class to the appropriate namespace below
  *    - Include only the methods that are actually called in your tests
  *    - Use empty method bodies: public function methodName() {}
- * 
+ *
  * 2. For interfaces, just declare them without implementation
  * 3. For classes, add minimal method signatures that your tests need
  * 4. Keep it minimal - only add what's necessary for tests to run
- * 
+ *
  * Example:
  *    class MyClass {
  *        public function getValue() {}
  *        public function setValue($value) { return $this; }
  *    }
  */
+
+namespace {
+    // Bail out if we're being included from inside a real Magento installation.
+    // BP is defined by Magento's bin/magento + index.php; the Bootstrap class is
+    // present once any Magento entrypoint has booted. In either case the real
+    // interfaces are about to be (or already are) loaded, and our stubs would
+    // collide. Second arg `false` to skip autoload — we only want the in-memory check.
+    if (defined('BP') || class_exists(\Magento\Framework\App\Bootstrap::class, false)) {
+        return;
+    }
+}
 
 namespace Magento\Framework\App\Config {
     // Prevent the real registration.php from being loaded
