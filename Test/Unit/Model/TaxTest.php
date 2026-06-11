@@ -503,7 +503,110 @@ class TaxTest extends TestCase
 
         // Should not throw any errors
         $result = $this->tax->collect($quote, $shippingAssignment, $total);
-        
+
         $this->assertSame($this->tax, $result, "Failed for: $description");
+    }
+
+    /**
+     * Regression test for the 2x/3x per-line tax bug observed on prod
+     * (e.g. order #2000543282: $27.30 line charged $8.03 tax instead of $2.68).
+     *
+     * The InclTax setters at Tax.php:171-174 compute incl-tax from getPrice() / getRowTotal().
+     * If anything between consecutive collect() invocations pushes the incl-tax values back
+     * into those pre-tax getters (3rd-party collector, promo recalc, address change),
+     * the next collect() will compound. This test forces that hostile precondition and
+     * asserts that the setters resist it.
+     *
+     * Expected: fails on current code, passes after the snapshot-based fix.
+     */
+    public function testInclTaxSettersAreIdempotentAcrossMultipleCollects()
+    {
+        $this->configureTaxCloudEnabled();
+
+        $price           = 27.30;
+        $tax             = 2.68;
+        $expectedInclTax = 29.98; // price + tax — invariant across N collects
+
+        // Stateful mirror of the quote item's mutable fields.
+        $currentPrice    = $price;
+        $currentRowTotal = $price; // qty = 1
+        $lastInclPrice   = null;
+        $lastInclRow     = null;
+
+        $product = $this->createMock(Product::class);
+        $product->method('getTaxClassId')->willReturn('2');
+
+        $quoteItem = $this->getMockBuilder(QuoteItem::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods([
+                'getTaxCalculationItemId', 'getProduct', 'getQty',
+                'getPrice', 'getBasePrice', 'getRowTotal', 'getBaseRowTotal',
+                'setTaxAmount', 'setBaseTaxAmount', 'setTaxPercent',
+                'setPriceInclTax', 'setBasePriceInclTax',
+                'setRowTotalInclTax', 'setBaseRowTotalInclTax',
+            ])->getMock();
+
+        $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
+        $quoteItem->method('getProduct')->willReturn($product);
+        $quoteItem->method('getQty')->willReturn(1);
+
+        // Pre-tax getters reflect whatever the test has mutated them to.
+        $quoteItem->method('getPrice')->willReturnCallback(function () use (&$currentPrice) { return $currentPrice; });
+        $quoteItem->method('getBasePrice')->willReturnCallback(function () use (&$currentPrice) { return $currentPrice; });
+        $quoteItem->method('getRowTotal')->willReturnCallback(function () use (&$currentRowTotal) { return $currentRowTotal; });
+        $quoteItem->method('getBaseRowTotal')->willReturnCallback(function () use (&$currentRowTotal) { return $currentRowTotal; });
+
+        // Capture what the InclTax setters were last called with.
+        $quoteItem->method('setPriceInclTax')->willReturnCallback(function ($v) use (&$lastInclPrice) { $lastInclPrice = $v; });
+        $quoteItem->method('setBasePriceInclTax')->willReturnCallback(function ($v) use (&$lastInclPrice) { $lastInclPrice = $v; });
+        $quoteItem->method('setRowTotalInclTax')->willReturnCallback(function ($v) use (&$lastInclRow) { $lastInclRow = $v; });
+        $quoteItem->method('setBaseRowTotalInclTax')->willReturnCallback(function ($v) use (&$lastInclRow) { $lastInclRow = $v; });
+
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+
+        $total = $this->createMock(Total::class);
+        $total->method('getTaxAmount')->willReturn(0);
+        $total->method('getBaseTaxAmount')->willReturn(0);
+
+        [$taxDetail, $baseTaxDetail] = $this->createMockTaxDetails($price, $price);
+        $this->setupParentMethodMocks(
+            $this->createItemsByTypeForProduct('item-1', $taxDetail, $baseTaxDetail)
+        );
+        $this->setupTaxCloudApiMock(['item-1' => $tax], 0);
+
+        $quote = $this->createMockQuote();
+
+        // --- Pass 1: clean state. Should produce price + tax. ---
+        $this->tax->collect($quote, $shippingAssignment, $total);
+        $this->assertEqualsWithDelta(
+            $expectedInclTax, $lastInclRow, 0.0001,
+            'Baseline: first collect must set RowTotalInclTax = price + tax'
+        );
+
+        // --- Hostile precondition: simulate an external mutator (3rd-party collector,
+        //     promo recalc, etc.) that pushed InclTax values back into pre-tax fields. ---
+        $currentPrice    = $lastInclPrice;
+        $currentRowTotal = $lastInclRow;
+
+        // --- Pass 2: under the bug, this compounds to price + 2*tax. ---
+        $this->tax->collect($quote, $shippingAssignment, $total);
+        $this->assertEqualsWithDelta(
+            $expectedInclTax, $lastInclRow, 0.0001,
+            sprintf(
+                'Idempotency violated: second collect produced %.4f, expected %.4f. ' .
+                'InclTax setters must compute from a stable pre-tax snapshot, not from live getters.',
+                (float) $lastInclRow, $expectedInclTax
+            )
+        );
+
+        // --- Pass 3: the 3x symptom reported on order #2000543282. ---
+        $currentPrice    = $lastInclPrice;
+        $currentRowTotal = $lastInclRow;
+        $this->tax->collect($quote, $shippingAssignment, $total);
+        $this->assertEqualsWithDelta(
+            $expectedInclTax, $lastInclRow, 0.0001,
+            'Three collects must not produce the 3x compounding observed on order #2000543282'
+        );
     }
 }
