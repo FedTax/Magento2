@@ -1,4 +1,5 @@
-# Exclude dev/CI files from git archive (GitHub release ZIPs)
+# Magento2-specific export-ignore rules: keep dev/CI files out of the
+# GitHub release ZIPs (`git archive`).
 .gitignore export-ignore
 .gitattributes export-ignore
 .github/ export-ignore
@@ -9,3 +10,131 @@ run-test.sh export-ignore
 scripts/ export-ignore
 docs/images/ export-ignore
 phpunit.xml.dist export-ignore
+
+# .gitattributes — Shared line-ending, diff, and merge settings.
+#
+# Installed by .dev-kit/install.sh as .gitattributes in the repo root.
+# Committed to the repo, so these rules apply to all contributors
+# regardless of their local git config.
+#
+# This file makes core.autocrlf largely irrelevant: the rules below
+# override it on a per-path basis, which is more precise and portable.
+
+# =============================================================================
+# Line Endings
+# =============================================================================
+# Normalize to LF on commit, use platform-native on checkout.
+# This single rule prevents most cross-platform line-ending bugs.
+* text=auto
+
+# Force LF on shell scripts, Makefiles, and config — they break in
+# subtle ways on Windows runners with CRLF.
+*.sh             text eol=lf
+*.bash           text eol=lf
+Makefile         text eol=lf
+*.mk             text eol=lf
+*.awk            text eol=lf
+*.go             text eol=lf
+*.py             text eol=lf
+*.rb             text eol=lf
+*.js             text eol=lf
+*.ts             text eol=lf
+*.jsx            text eol=lf
+*.tsx            text eol=lf
+*.json           text eol=lf
+*.yml            text eol=lf
+*.yaml           text eol=lf
+*.toml           text eol=lf
+*.md             text eol=lf
+*.sql            text eol=lf
+.gitattributes   text eol=lf
+.gitignore       text eol=lf
+.editorconfig    text eol=lf
+
+# Force CRLF on files that explicitly need it.
+*.bat            text eol=crlf
+*.cmd            text eol=crlf
+*.ps1            text eol=crlf
+
+# =============================================================================
+# Binary Files
+# =============================================================================
+# Mark known binary types so git doesn't try to diff or merge them.
+*.png            binary
+*.jpg            binary
+*.jpeg           binary
+*.gif            binary
+*.ico            binary
+*.svg            text
+*.pdf            binary
+*.zip            binary
+*.tar.gz         binary
+*.tgz            binary
+*.gz             binary
+*.bz2            binary
+*.xz             binary
+*.7z             binary
+*.rar            binary
+*.dll            binary
+*.exe            binary
+*.so             binary
+*.dylib          binary
+*.class          binary
+*.jar            binary
+*.war            binary
+*.ear            binary
+*.woff           binary
+*.woff2          binary
+*.ttf            binary
+*.eot            binary
+*.otf            binary
+
+# Compiled binaries (extensionless)
+# Go, Rust, and C projects typically output to bin/ or dist/.
+# Mark these directories as binary to prevent line-ending corruption.
+bin/** binary
+dist/** binary
+out/** binary
+
+# Other binary formats that lack common extensions
+*.wasm binary
+*.pb binary
+*.pyc binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.exe binary
+
+# =============================================================================
+# Generated Files
+# =============================================================================
+# Hide generated files from diffs; they still show as changed, but
+# without the noisy line-by-line output.
+*.pb.go              -diff linguist-generated
+*_generated.go       -diff linguist-generated
+*.gen.go             -diff linguist-generated
+schema.gen.sql       -diff linguist-generated
+openapi.json         -diff
+openapi.gen.json     -diff
+*.snap               -diff linguist-generated
+
+# =============================================================================
+# Lock Files
+# =============================================================================
+# Generated lock files produce huge, unreadable diffs. Suppress the
+# diff output (they still show as changed, just without the noise).
+package-lock.json -diff
+yarn.lock -diff
+pnpm-lock.yaml -diff
+go.sum -diff
+Cargo.lock -diff
+Gemfile.lock -diff
+poetry.lock -diff
+composer.lock -diff
+
+# Merge strategy: lock files should be regenerated, not merged.
+# "ours" keeps the current branch's version; the developer then
+# re-runs the package manager to reconcile.
+package-lock.json merge=ours
+yarn.lock merge=ours
+pnpm-lock.yaml merge=ours
