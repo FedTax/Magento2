@@ -149,16 +149,23 @@ docker compose exec -T app sh -c '
     rm -rf /var/www/html/app/code/Taxcloud/Magento2
     mkdir -p /var/www/html/app/code/Taxcloud/Magento2
     cd /var/www/html/app/code/Taxcloud/Magento2
+
+    # registration.php must be a real file, not a symlink. It uses __DIR__
+    # to tell Magento where the module lives, and PHP resolves __DIR__ through
+    # symlinks to the *real* path. If we symlinked registration.php → /srv/module,
+    # Magento would register the module at /srv/module, and PSR-4 autoload of
+    # Taxcloud\Magento2\Test\Unit\* would find files we never symlinked into
+    # app/code/. Copying breaks that chain.
+    cp /srv/module/registration.php registration.php
+
     for d in Logger Model Observer Setup etc; do
         ln -s /srv/module/$d $d
     done
-    for f in registration.php composer.json LICENSE.txt CHANGELOG.md README.md; do
+    for f in composer.json LICENSE.txt CHANGELOG.md README.md; do
         [ -e /srv/module/$f ] && ln -s /srv/module/$f $f
     done
     # Test/Integration is exposed so PHPUnit can discover + PSR-4 autoload
-    # the smoke tests. Test/Unit (containing MagentoMocks.php) is intentionally
-    # NOT exposed — its mock declarations of real Magento interfaces would
-    # collide with Magento'"'"'s own autoloader at di:compile time.
+    # the smoke tests. Test/Unit is intentionally NOT exposed.
     mkdir -p Test
     ln -s /srv/module/Test/Integration Test/Integration
 '
