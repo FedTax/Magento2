@@ -54,12 +54,18 @@ Re-runs are idempotent — composer create-project is skipped if Magento is
 already installed at the target path; the schema and DB are always
 re-prepared so tests run against a known state.
 
-### Choosing a different edition / version
+### Choosing a different edition / version / PHP
 
 ```bash
-make integration-test MAGENTO_EDITION=community  MAGENTO_VERSION=2.4.7-p3
+make integration-test MAGENTO_EDITION=community  MAGENTO_VERSION=2.4.7-p3 PHP_VERSION=8.2
 make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5
 ```
+
+Precedence for the PHP version: `make` command line > `PHP_VERSION` in
+`.env` > `8.3`. Edition and version always come from the `make` command
+line (or its `community 2.4.8-p5` default) — the `MAGENTO_EDITION` /
+`MAGENTO_VERSION` lines in `.env` only affect direct `docker compose`
+invocations.
 
 ### Other targets
 

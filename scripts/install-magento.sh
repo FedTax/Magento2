@@ -8,9 +8,11 @@
 # installed at the target location; setup:install + seeding always run to
 # guarantee clean schema state.
 #
-# Usage:  ./scripts/install-magento.sh <edition> <version>
+# Usage:  ./scripts/install-magento.sh <edition> <version> [php-version]
 # Example: ./scripts/install-magento.sh community 2.4.8-p5
-#          ./scripts/install-magento.sh enterprise 2.4.8-p5
+#          ./scripts/install-magento.sh enterprise 2.4.8-p5 8.2
+#
+# PHP version precedence: third argument > PHP_VERSION in .env / env > 8.3.
 #
 # Required env vars (sourced from .env, or exported in CI):
 #   TAXCLOUD_API_ID, TAXCLOUD_API_KEY
@@ -26,10 +28,11 @@ set -euo pipefail
 
 EDITION="${1:-}"
 VERSION="${2:-}"
+PHP_VERSION_ARG="${3:-}"
 
 if [[ -z "$EDITION" || -z "$VERSION" ]]; then
-    echo "Usage: $0 <community|enterprise> <version>"
-    echo "Example: $0 community 2.4.8-p5"
+    echo "Usage: $0 <community|enterprise> <version> [php-version]"
+    echo "Example: $0 community 2.4.8-p5 8.3"
     exit 2
 fi
 
@@ -52,7 +55,9 @@ fi
 
 export MAGENTO_EDITION="$EDITION"
 export MAGENTO_VERSION="$VERSION"
-export PHP_VERSION="${PHP_VERSION:-8.3}"
+# Arg wins over .env (sourced above) so `make integration-test PHP_VERSION=8.2`
+# beats a PHP_VERSION line in .env.
+export PHP_VERSION="${PHP_VERSION_ARG:-${PHP_VERSION:-8.3}}"
 
 DEFAULT_INSTALL_DIR="$MODULE_ROOT/../magento-${EDITION}-${VERSION}"
 MAGENTO_INSTALL_DIR="${MAGENTO_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"

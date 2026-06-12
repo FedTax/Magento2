@@ -2,9 +2,13 @@
         integration-test integration-shell integration-clean
 
 # Defaults — override on the command line, e.g.:
-#   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5
+#   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
 MAGENTO_EDITION ?= community
 MAGENTO_VERSION ?= 2.4.8-p5
+# PHP_VERSION is deliberately empty by default: when unset, the install script
+# falls back to .env's PHP_VERSION, then to 8.3. Setting it here would
+# silently shadow .env.
+PHP_VERSION ?=
 
 # Magento installation this module lives inside. Unit tests run with that
 # install's PHPUnit and real Magento classes — the module has no vendor/ of
@@ -20,7 +24,7 @@ help:
 	@echo ""
 	@echo "Integration tests (see docs/INTEGRATION_TESTS.md for setup):"
 	@echo "  make integration-test  - Install Magento + run integration tests"
-	@echo "                           Override with MAGENTO_EDITION / MAGENTO_VERSION"
+	@echo "                           Override with MAGENTO_EDITION / MAGENTO_VERSION / PHP_VERSION"
 	@echo "  make integration-shell - Open a shell in the Magento container"
 	@echo "  make integration-clean - Tear down docker compose volumes / containers"
 	@echo ""
@@ -75,7 +79,7 @@ integration-test:
 		echo ""; \
 		exit 1; \
 	fi
-	@./scripts/install-magento.sh $(MAGENTO_EDITION) $(MAGENTO_VERSION)
+	@./scripts/install-magento.sh $(MAGENTO_EDITION) $(MAGENTO_VERSION) $(PHP_VERSION)
 	@echo "==> Running integration test suite..."
 	@docker compose exec -T -w /var/www/html app \
 		vendor/bin/phpunit -c /srv/module/phpunit.integration.xml.dist --testdox
