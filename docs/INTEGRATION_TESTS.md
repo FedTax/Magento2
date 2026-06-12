@@ -153,7 +153,25 @@ idempotent) or `INSERT` from within the test via Magento's
 
 ---
 
-## Adding a new Magento version to the matrix
+## The CI matrix
+
+The workflow currently runs four rows:
+
+| Edition    | Magento  | PHP | MariaDB | OpenSearch |
+| ---------- | -------- | --- | ------- | ---------- |
+| community  | 2.4.8-p5 | 8.3 | 10.6    | 2.12       |
+| community  | 2.4.9    | 8.5 | 11.4    | 3.0        |
+| enterprise | 2.4.8-p5 | 8.3 | 10.6    | 2.12       |
+| enterprise | 2.4.9    | 8.5 | 11.4    | 3.0        |
+
+Enterprise rows skip cleanly (not fail) when the `MAGENTO_PUBLIC_KEY`
+secret is unset, so forks without a Commerce contract still get green
+community rows. Note that enterprise rows need Marketplace keys from an
+account **entitled to Adobe Commerce** — ordinary free Marketplace keys can
+download Open Source but get a 403 from `repo.magento.com` for
+`project-enterprise-edition`.
+
+### Adding a new Magento version
 
 There are no per-version artifacts to generate — the seed script works
 against any installed Magento. Adding a version is two steps:
@@ -161,27 +179,22 @@ against any installed Magento. Adding a version is two steps:
 1. **Add a row to `.github/workflows/integration-tests.yml`:**
    ```yaml
    - magento-edition: community
-     magento-version: '2.4.9'
-     php-version: '8.3'
+     magento-version: '2.4.10'
+     php-version: '8.5'
    ```
 2. **Test the row before merging:** Actions tab → Integration Tests → Run
-   workflow → set `magento_versions=2.4.9`.
+   workflow → set `magento_versions=2.4.10`.
 
 If a row needs a different PHP version than the others, the compose stack
 already supports it — the `PHP_VERSION` env var is honored both locally and
 in CI. The image is `markoshust/magento-php:<PHP_VERSION>-fpm`.
 
-### Re-expanding to a full matrix from this PR's starting point
-
-The workflow currently ships with one active row (`community 2.4.8-p5`).
-Two future rows are commented out in
-`.github/workflows/integration-tests.yml` as a punch-list:
-
-- `community 2.4.7-p3` / PHP 8.2
-- `enterprise 2.4.8-p5` / PHP 8.3
-
-Each one becomes active by simply uncommenting the matrix block — the seed
-script needs nothing version-specific.
+MariaDB and OpenSearch versions are derived from the Magento version by
+`scripts/install-magento.sh` per Adobe's system requirements (2.4.9 dropped
+MariaDB 10.x and OpenSearch 2.x). If a future Magento release changes the
+requirements again, extend the `case` block in the install script — or
+override per-run with the `MARIADB_VERSION` / `OPENSEARCH_VERSION` env
+vars.
 
 ---
 

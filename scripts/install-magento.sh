@@ -59,6 +59,20 @@ export MAGENTO_VERSION="$VERSION"
 # beats a PHP_VERSION line in .env.
 export PHP_VERSION="${PHP_VERSION_ARG:-${PHP_VERSION:-8.3}}"
 
+# DB / search engine versions follow Magento's system requirements:
+# 2.4.9 dropped MariaDB 10.x and OpenSearch 2.x. Derived from the Magento
+# version unless explicitly set via env / .env.
+case "$VERSION" in
+    2.4.9*|2.5*)
+        export MARIADB_VERSION="${MARIADB_VERSION:-11.4}"
+        export OPENSEARCH_VERSION="${OPENSEARCH_VERSION:-3.0.0}"
+        ;;
+    *)
+        export MARIADB_VERSION="${MARIADB_VERSION:-10.6}"
+        export OPENSEARCH_VERSION="${OPENSEARCH_VERSION:-2.12.0}"
+        ;;
+esac
+
 DEFAULT_INSTALL_DIR="$MODULE_ROOT/../magento-${EDITION}-${VERSION}"
 MAGENTO_INSTALL_DIR="${MAGENTO_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 export MAGENTO_INSTALL_DIR
@@ -84,7 +98,7 @@ mkdir -p "$COMPOSER_CACHE_DIR_RESOLVED"
 # The container runs as a non-root user; relax host perms so it can write.
 chmod 777 "$COMPOSER_CACHE_DIR_RESOLVED"
 
-echo "==> Bringing up integration test stack (PHP $PHP_VERSION, Magento $EDITION $VERSION)..."
+echo "==> Bringing up integration test stack (Magento $EDITION $VERSION, PHP $PHP_VERSION, MariaDB $MARIADB_VERSION, OpenSearch $OPENSEARCH_VERSION)..."
 docker compose up -d --wait
 
 # --- 2. Composer auth ------------------------------------------------------

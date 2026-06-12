@@ -39,8 +39,12 @@ services:
         condition: service_started
     networks: [magento]
 
+  # Service versions track Magento's system requirements and are derived from
+  # MAGENTO_VERSION by scripts/install-magento.sh (override via env / .env):
+  #   <= 2.4.8-px : MariaDB 10.6, OpenSearch 2.12
+  #   >= 2.4.9    : MariaDB 11.4, OpenSearch 3.0
   db:
-    image: mariadb:10.6
+    image: "mariadb:${MARIADB_VERSION:-10.6}"
     environment:
       MARIADB_ROOT_PASSWORD: magento
       MARIADB_DATABASE: magento
@@ -54,7 +58,7 @@ services:
     networks: [magento]
 
   opensearch:
-    image: opensearchproject/opensearch:2.12.0
+    image: "opensearchproject/opensearch:${OPENSEARCH_VERSION:-2.12.0}"
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true

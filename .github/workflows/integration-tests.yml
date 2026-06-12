@@ -46,18 +46,22 @@ jobs:
       matrix:
         # Test data is seeded programmatically (scripts/seed-test-data.php),
         # so rows need no per-version artifacts — just add edition/version/php.
+        # MariaDB/OpenSearch versions are derived from the Magento version by
+        # scripts/install-magento.sh (2.4.9+ needs MariaDB 11.4 + OpenSearch 3.0).
         # See docs/INTEGRATION_TESTS.md → "Adding a new Magento version".
         include:
           - magento-edition: community
             magento-version: '2.4.8-p5'
             php-version: '8.3'
-          # Future rows — uncomment to activate:
-          # - magento-edition: community
-          #   magento-version: '2.4.7-p3'
-          #   php-version: '8.2'
-          # - magento-edition: enterprise
-          #   magento-version: '2.4.8-p5'
-          #   php-version: '8.3'
+          - magento-edition: community
+            magento-version: '2.4.9'
+            php-version: '8.5'
+          - magento-edition: enterprise
+            magento-version: '2.4.8-p5'
+            php-version: '8.3'
+          - magento-edition: enterprise
+            magento-version: '2.4.9'
+            php-version: '8.5'
 
     env:
       MAGENTO_EDITION: ${{ matrix.magento-edition }}
