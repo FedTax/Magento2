@@ -92,6 +92,11 @@ if [[ -z "${MAGENTO_PUBLIC_KEY:-}" || -z "${MAGENTO_PRIVATE_KEY:-}" ]]; then
 fi
 
 mkdir -p "$MAGENTO_INSTALL_DIR"
+# The app container runs as uid 1000, but CI runners create this dir as the
+# runner user (uid 1001). Without world-write, composer create-project dies
+# with "vendor/composer does not exist and could not be created". Same
+# reasoning as the composer cache dir below.
+chmod 777 "$MAGENTO_INSTALL_DIR"
 
 COMPOSER_CACHE_DIR_RESOLVED="${COMPOSER_CACHE_DIR:-$MODULE_ROOT/.composer-cache}"
 mkdir -p "$COMPOSER_CACHE_DIR_RESOLVED"
