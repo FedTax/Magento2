@@ -3,6 +3,9 @@ name: Test Suite
 on:
   push:
     branches: [ main, develop, DEV-* ]
+    # Release tags also run the full suite, alongside integration-tests.yml's
+    # own v* trigger, so a tagged release gets both gates from one push.
+    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
 
