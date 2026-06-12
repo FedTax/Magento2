@@ -42,13 +42,12 @@ That's it. On the first run, the install script will:
 2. `composer create-project magento/project-community-edition=<version>` into
    a sibling directory (`../magento-community-<version>` by default).
 3. Symlink this module into the install's `app/code/Taxcloud/Magento2`.
-4. Run `bin/magento setup:install` as a schema baseline.
-5. Restore the committed DB fixture
-   (`fixtures/db/magento-fixture-community-<version>.sql.gz`).
-6. Run `setup:upgrade`, `setup:di:compile`, enable the module.
-7. Inject TaxCloud credentials into `core_config_data` via `bin/magento
-   config:set tax/taxcloud_settings/{api_id,api_key,enabled}`.
-8. Run the PHPUnit integration suite via our custom bootstrap
+4. Run `bin/magento setup:install` for a clean baseline install.
+5. Run `setup:upgrade`, `setup:di:compile`, enable the module.
+6. Seed the standard test environment via `scripts/seed-test-data.php`
+   (admin user, test category + product, TaxCloud + shipping-origin config,
+   active shipping carrier + payment method, reindex, cache flush).
+7. Run the PHPUnit integration suite via our custom bootstrap
    (`Test/Integration/bootstrap.php`).
 
 Re-runs are idempotent — composer create-project is skipped if Magento is
@@ -95,20 +94,40 @@ into a separate DB and wires up annotation-driven fixtures and isolation. For
 exercising one module against an already-installed Magento, it adds nothing
 and makes the install pipeline far more fragile.
 
-### How fixtures work
+### How test data works
 
-The install script restores a committed SQL dump under `fixtures/db/` into
-the `magento` database. Tests run against that same database, so the
-restored state is your test fixture. If a future test needs custom seed
-data, either bake it into the dump (run `make-fixture.sh` against a Magento
-you've prepped) or `INSERT` it from within the test via Magento's
+There is no committed DB dump. Instead, the install script applies a known
+test state programmatically on top of a clean `setup:install` via
+[`scripts/seed-test-data.php`](../scripts/seed-test-data.php) — a standalone
+PHP script that bootstraps the installed Magento and uses standard Magento
+APIs (repositories, config writer, indexers). Because the state is created
+through the application rather than restored as SQL, the same script works
+on **any** edition or version with no per-version artifacts to regenerate.
+
+The seeded baseline every test can rely on:
+
+| What | Value |
+| ---- | ----- |
+| Admin user | `admin` / `1234567a` (`admin@example.com`, Administrators role) |
+| Category | "Test Category" (`test-category`) |
+| Product | `test-product` — simple, $10.00, in stock, in Test Category |
+| TaxCloud config | `enabled`, `logging`, `verify_address` = 1; `default_tic` = 20000; `api_id`/`api_key` from env |
+| Shipping origin | 1401 Lavaca St, Austin TX 78701-1634 (region 57) |
+| Checkout methods | `carriers/flatrate` + `payment/checkmo` active |
+| Indexers / caches | All reindexed, all flushed |
+
+The script is idempotent — re-running updates rather than duplicates. It
+can also be pointed at any other installed Magento (a local dev install,
+say) to reproduce the same baseline:
+
+```bash
+TAXCLOUD_API_ID=... TAXCLOUD_API_KEY=... \
+  php scripts/seed-test-data.php /path/to/magento
+```
+
+If a future test needs more seed data, extend `seed-test-data.php` (keep it
+idempotent) or `INSERT` from within the test via Magento's
 `ResourceConnection`.
-
-A missing dump is a **fail-fast error**: the install script will refuse to
-run if `fixtures/db/magento-fixture-<edition>-<version>.sql.gz` is not
-present. This is deliberate — silently falling back to a clean install
-would hide schema/data drift bugs that fixture-based tests are meant to
-catch.
 
 > Magento's per-test annotations (`@magentoDataFixture`,
 > `@magentoDbIsolation`, `@magentoConfigFixture`) **do not work** here —
@@ -126,68 +145,21 @@ catch.
 > }
 > ```
 
-### Generating a fresh DB dump
-
-You generate a dump once per Magento version and commit it. The procedure:
-
-1. Tear down any prior stack: `make integration-clean`.
-2. Wipe the existing Magento install dir for the target version (the
-   install script will recreate it cleanly):
-   ```bash
-   rm -rf ../magento-community-2.4.8-p5
-   ```
-3. Stand up just the stack services (no install yet):
-   ```bash
-   MAGENTO_EDITION=community MAGENTO_VERSION=2.4.8-p5 docker compose up -d --wait
-   ```
-4. Get a shell in the app container and run the install steps from
-   `scripts/install-magento.sh` manually, **skipping** the dump-restore
-   block (since you're generating the dump fresh):
-   ```bash
-   docker compose exec -w /var/www/html app bash
-   composer create-project --repository-url=https://repo.magento.com/ \
-     magento/project-community-edition=2.4.8-p5 .
-   bin/magento setup:install ...            # use the same flags as the script
-   bin/magento sampledata:deploy            # optional, adds sample products
-   bin/magento setup:upgrade
-   ```
-5. Make any additional baseline state changes (tax zones, store config,
-   custom modules, etc.) — these will be baked into the fixture.
-6. Dump and gzip from the host:
-   ```bash
-   docker compose exec -T db \
-     mariadb-dump -uroot -pmagento --single-transaction --no-tablespaces magento \
-     | gzip -9 > fixtures/db/magento-fixture-community-2.4.8-p5.sql.gz
-   ```
-7. Commit the resulting file. Expect 5-30 MB depending on whether you
-   loaded sample data. See `fixtures/db/README.md` for more notes on
-   keeping dumps small.
-
 ---
 
 ## Adding a new Magento version to the matrix
 
-The install script **fail-fasts** on missing fixtures, so the order matters
-— fixture first, matrix row second. Follow these steps in order:
+There are no per-version artifacts to generate — the seed script works
+against any installed Magento. Adding a version is two steps:
 
-1. **Generate the fixture for the new version.** This requires either an
-   already-installed Magento at that version (e.g. a local Warden install)
-   or a one-off provision via `make integration-test MAGENTO_VERSION=2.4.9`
-   (which would have to skip the dump-restore step — easiest is to comment
-   out that block in `scripts/install-magento.sh` for the one-off run).
-   Then run `scripts/make-fixture.sh community 2.4.9`. See "Generating a
-   fresh DB dump" above for the longer procedure.
-2. **Commit the fixture file.** Verify the safety greps in
-   `make-fixture.sh`'s closing notice show no leaked PII/credentials.
-3. **Add a row to `.github/workflows/integration-tests.yml`:**
+1. **Add a row to `.github/workflows/integration-tests.yml`:**
    ```yaml
    - magento-edition: community
      magento-version: '2.4.9'
      php-version: '8.3'
    ```
-4. **Test the row before merging:** Actions tab → Integration Tests → Run
+2. **Test the row before merging:** Actions tab → Integration Tests → Run
    workflow → set `magento_versions=2.4.9`.
-5. **Merge** the fixture + matrix row together as one commit.
 
 If a row needs a different PHP version than the others, the compose stack
 already supports it — the `PHP_VERSION` env var is honored both locally and
@@ -202,8 +174,8 @@ Two future rows are commented out in
 - `community 2.4.7-p3` / PHP 8.2
 - `enterprise 2.4.8-p5` / PHP 8.3
 
-Each one becomes active by generating its fixture (step 1 above) and
-uncommenting the matrix block.
+Each one becomes active by simply uncommenting the matrix block — the seed
+script needs nothing version-specific.
 
 ---
 
@@ -290,18 +262,13 @@ For one third-party module, that machinery is pure cost:
 
 Our custom bootstrap is ~20 lines, boots the installed Magento, and lets
 tests share state. If you ever need per-test isolation, you can wrap a test
-in a manual transaction (see "How fixtures work" earlier). If you need
-fixture data, bake it into the dump or `INSERT` it from the test.
+in a manual transaction (see "How test data works" earlier). If you need
+seed data, add it to `scripts/seed-test-data.php` or `INSERT` it from the
+test.
 
 ---
 
 ## Troubleshooting
-
-### `ERROR: DB fixture not found`
-
-A version of `magento-fixture-<edition>-<version>.sql.gz` is missing from
-`fixtures/db/`. Generate one (see above) or run with an
-edition/version that already has a fixture committed.
 
 ### `ERROR: TAXCLOUD_API_ID and TAXCLOUD_API_KEY must be set`
 

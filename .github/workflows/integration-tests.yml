@@ -44,15 +44,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # IMPORTANT: every row here needs a matching DB fixture committed
-        # at fixtures/db/magento-fixture-<edition>-<version>.sql.gz.
-        # See docs/INTEGRATION_TESTS.md → "Adding a new Magento version" for
-        # the procedure. The install script fail-fasts on missing fixtures.
+        # Test data is seeded programmatically (scripts/seed-test-data.php),
+        # so rows need no per-version artifacts — just add edition/version/php.
+        # See docs/INTEGRATION_TESTS.md → "Adding a new Magento version".
         include:
           - magento-edition: community
             magento-version: '2.4.8-p5'
             php-version: '8.3'
-          # Future rows — uncomment when their fixtures land:
+          # Future rows — uncomment to activate:
           # - magento-edition: community
           #   magento-version: '2.4.7-p3'
           #   php-version: '8.2'

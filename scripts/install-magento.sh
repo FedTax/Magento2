@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Install a Magento Open Source or Adobe Commerce instance into the integration
-# test stack (docker-compose.yml), mount this module into it, restore the DB
-# from a committed fixture, and configure TaxCloud credentials.
+# test stack (docker-compose.yml), mount this module into it, and seed the
+# standard test environment programmatically (scripts/seed-test-data.php).
 #
 # Idempotent: re-running skips composer create-project if Magento is already
-# installed at the target location; setup:install + dump restore always run to
+# installed at the target location; setup:install + seeding always run to
 # guarantee clean schema state.
 #
 # Usage:  ./scripts/install-magento.sh <edition> <version>
@@ -58,23 +58,7 @@ DEFAULT_INSTALL_DIR="$MODULE_ROOT/../magento-${EDITION}-${VERSION}"
 MAGENTO_INSTALL_DIR="${MAGENTO_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 export MAGENTO_INSTALL_DIR
 
-FIXTURE_REL="fixtures/db/magento-fixture-${EDITION}-${VERSION}.sql.gz"
-FIXTURE_ABS="$MODULE_ROOT/$FIXTURE_REL"
-
 # --- 1. Preflight ----------------------------------------------------------
-
-if [[ ! -f "$FIXTURE_ABS" ]]; then
-    cat >&2 <<EOF
-ERROR: DB fixture not found: $FIXTURE_REL
-
-Integration tests require a pre-built database dump that matches the requested
-Magento edition + version. See docs/INTEGRATION_TESTS.md for the procedure to
-generate and commit one.
-
-Looked for: $FIXTURE_ABS
-EOF
-    exit 1
-fi
 
 if [[ -z "${TAXCLOUD_API_ID:-}" || -z "${TAXCLOUD_API_KEY:-}" ]]; then
     echo "ERROR: TAXCLOUD_API_ID and TAXCLOUD_API_KEY must be set in .env (or env)." >&2
@@ -187,15 +171,15 @@ docker compose exec -T -u root app sh -c '
     rm -rf /var/www/html/var/cache/* /var/www/html/var/page_cache/* /var/www/html/var/view_preprocessed/*
 '
 
-# --- 6. setup:install (schema baseline before dump restore) ---------------
+# --- 6. setup:install (clean baseline) -------------------------------------
 
-echo "==> bin/magento setup:install (schema baseline)..."
+echo "==> bin/magento setup:install (clean baseline)..."
 docker compose exec -T app bin/magento setup:install \
     --base-url=http://localhost/ \
     --db-host=db --db-name=magento --db-user=magento --db-password=magento \
     --admin-firstname=Admin --admin-lastname=User \
     --admin-email=admin@example.com \
-    --admin-user=admin --admin-password='Admin123!' \
+    --admin-user=admin --admin-password='1234567a' \
     --language=en_US --currency=USD --timezone=America/Chicago \
     --use-rewrites=1 \
     --search-engine=opensearch \
@@ -206,29 +190,23 @@ docker compose exec -T app bin/magento setup:install \
     --page-cache=redis  --page-cache-redis-server=redis  --page-cache-redis-db=1 \
     --no-interaction
 
-# --- 7. Restore committed DB fixture --------------------------------------
-
-echo "==> Dropping schema and restoring fixture: $FIXTURE_REL"
-docker compose exec -T db sh -c \
-    'mariadb -uroot -pmagento -e "DROP DATABASE magento; CREATE DATABASE magento;"'
-gunzip -c "$FIXTURE_ABS" \
-    | docker compose exec -T db mariadb -uroot -pmagento magento
-
-# --- 8. Module enable, DI compile, indexers -------------------------------
+# --- 7. Module enable, DI compile -----------------------------------------
 
 echo "==> bin/magento module:enable / setup:upgrade / di:compile..."
 docker compose exec -T app bin/magento module:enable Taxcloud_Magento2 || true
 docker compose exec -T app bin/magento setup:upgrade --no-interaction
 docker compose exec -T app bin/magento setup:di:compile
 
-# --- 9. Inject TaxCloud credentials ---------------------------------------
+# --- 8. Seed the standard test environment ---------------------------------
+#
+# Admin user, test category + product, TaxCloud config (creds come from the
+# container env, wired through docker-compose.yml), shipping origin, active
+# shipping carrier + payment method, reindex, cache flush. Idempotent — see
+# scripts/seed-test-data.php for the full list.
 
-echo "==> Injecting TaxCloud credentials into core_config_data..."
-docker compose exec -T app bin/magento config:set tax/taxcloud_settings/api_id "$TAXCLOUD_API_ID"
-docker compose exec -T app bin/magento config:set tax/taxcloud_settings/api_key "$TAXCLOUD_API_KEY"
-docker compose exec -T app bin/magento config:set tax/taxcloud_settings/enabled 1
-
-docker compose exec -T app bin/magento cache:flush
+echo "==> Seeding test environment (scripts/seed-test-data.php)..."
+docker compose exec -T -w /var/www/html app \
+    php /srv/module/scripts/seed-test-data.php
 
 echo
 echo "==> Install complete."

@@ -9,7 +9,8 @@
  * Deliberately does NOT use Magento's dev/tests/integration/ framework:
  * - That framework installs a second Magento into a separate DB to give
  *   tests app-level isolation. We don't need that — we want to test
- *   against the actual installed Magento + the restored fixture DB.
+ *   against the actual installed Magento + the seeded test data
+ *   (scripts/seed-test-data.php).
  * - All the TESTS_* constants that framework demands are skipped.
  */
 
