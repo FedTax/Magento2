@@ -1380,6 +1380,26 @@ class ApiTest extends TestCase
     }
 
     /**
+     * callSoapWithRetry(): honors a configurable retry count.
+     */
+    public function testCallSoapWithRetryHonorsMaxRetries()
+    {
+        $this->scopeConfig->method('getValue')->willReturn('0');
+
+        $attempts = 0;
+        $result = $this->callProtected('callSoapWithRetry', [function () use (&$attempts) {
+            $attempts++;
+            if ($attempts < 3) {
+                throw new \SoapFault('Server', 'Transient blip');
+            }
+            return 'ok';
+        }, 2]);
+
+        $this->assertSame(3, $attempts, 'maxRetries=2 should allow up to three total attempts');
+        $this->assertSame('ok', $result);
+    }
+
+    /**
      * callSoapWithRetry(): does NOT retry on a timeout — rethrows immediately.
      */
     public function testCallSoapWithRetryDoesNotRetryOnTimeout()

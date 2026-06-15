@@ -44,14 +44,11 @@ class Api
 
     /**
      * Default SOAP connection/read timeout in seconds.
-     * Kept low so a slow upstream call fails fast into the Magento fallback
-     * (when enabled) instead of stalling the checkout request thread, which
-     * inherits PHP's default_socket_timeout (~60s) otherwise.
      */
     const DEFAULT_SOAP_TIMEOUT = 10;
 
     /**
-     * Backoff between the initial SOAP attempt and the single retry, in microseconds.
+     * Backoff between SOAP retry attempts, in microseconds.
      */
     const SOAP_RETRY_BACKOFF_US = 250000;
 
@@ -527,10 +524,8 @@ class Api
     }
 
     /**
-     * Decide whether a SOAP failure is a connection/read timeout.
-     *
-     * Timeouts are not retried — a second long wait only compounds the delay
-     * the customer sees at checkout, so we fail fast into the fallback instead.
+     * Return whether a SOAP failure represents a connection or read timeout,
+     * based on its fault code and message.
      *
      * @param Throwable $e
      * @return bool
@@ -548,31 +543,32 @@ class Api
     }
 
     /**
-     * Execute a SOAP call with a single bounded retry.
+     * Execute a SOAP call, retrying up to $maxRetries times on transient faults.
      *
-     * Replaces the previous immediate blind retry:
-     * - On a timeout, the error is rethrown immediately (no retry) so the
-     *   caller can fall back fast instead of waiting through a second stall.
-     * - On any other transient fault, retry once after a short backoff.
-     *
-     * The final exception is rethrown so each call site's existing error
-     * handling (Magento fallback / return false) continues to apply unchanged.
+     * Timeouts are rethrown immediately and never retried. Any other fault is
+     * retried after a short backoff until $maxRetries is exhausted, then the
+     * final exception is rethrown so each call site's existing error handling
+     * (Magento fallback / return false) still applies.
      *
      * @param callable $call
+     * @param int      $maxRetries Retries after the initial attempt (default 1)
      * @return mixed
      */
-    protected function callSoapWithRetry(callable $call)
+    protected function callSoapWithRetry(callable $call, $maxRetries = 1)
     {
-        try {
-            return $call();
-        } catch (Throwable $e) {
-            if ($this->isTimeoutError($e)) {
-                $this->tclogger->info('SOAP call timed out, not retrying: ' . $e->getMessage());
-                throw $e;
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return $call();
+            } catch (Throwable $e) {
+                if ($this->isTimeoutError($e) || $attempt >= $maxRetries) {
+                    throw $e;
+                }
+                $this->tclogger->info(
+                    'SOAP call failed, retrying (' . ($attempt + 1) . '/' . $maxRetries
+                    . ') after backoff: ' . $e->getMessage()
+                );
+                usleep(self::SOAP_RETRY_BACKOFF_US);
             }
-            $this->tclogger->info('SOAP call failed, retrying once after backoff: ' . $e->getMessage());
-            usleep(self::SOAP_RETRY_BACKOFF_US);
-            return $call();
         }
     }
 
