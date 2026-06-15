@@ -556,15 +556,17 @@ class Api
      */
     protected function callSoapWithRetry(callable $call, $maxRetries = 1)
     {
-        for ($attempt = 0; ; $attempt++) {
+        $attempt = 0;
+        while (true) {
             try {
                 return $call();
             } catch (Throwable $e) {
                 if ($this->isTimeoutError($e) || $attempt >= $maxRetries) {
                     throw $e;
                 }
+                $attempt++;
                 $this->tclogger->info(
-                    'SOAP call failed, retrying (' . ($attempt + 1) . '/' . $maxRetries
+                    'SOAP call failed, retrying (' . $attempt . '/' . $maxRetries
                     . ') after backoff: ' . $e->getMessage()
                 );
                 usleep(self::SOAP_RETRY_BACKOFF_US);
