@@ -37,6 +37,20 @@ class SoapClientDouble extends \SoapClient
     public function verifyAddress($params = null) {}
 }
 
+/**
+ * DataObject whose magic accessors (setParams/getParams/setResult/getResult) are
+ * declared as real methods, for the event-handoff object in ApiTest — there the
+ * object is a mock with capturing callbacks / call-count expectations, so it must
+ * remain a mock (onlyMethods) rather than a plain real instance.
+ */
+class DataObjectDouble extends \Magento\Framework\DataObject
+{
+    public function setParams($params = null) { return $this; }
+    public function getParams() { return null; }
+    public function setResult($result = null) { return $this; }
+    public function getResult() { return null; }
+}
+
 class RegionDouble extends \Magento\Directory\Model\Region
 {
     public function __construct() {}
@@ -54,6 +68,12 @@ class ProductDouble extends \Magento\Catalog\Model\Product
 {
     public function __construct() {}
     public function getTaxClassId() { return null; }
+}
+
+class ItemDetailsDouble extends \Magento\Tax\Model\Sales\Quote\ItemDetails
+{
+    public function __construct() {}
+    public function getRowTotal() { return null; }
 }
 
 class QuoteItemDouble extends \Magento\Quote\Model\Quote\Item
@@ -82,6 +102,23 @@ class TotalDouble extends \Magento\Quote\Model\Quote\Address\Total
     public function getBaseExtraTaxAmount() { return null; }
     public function setTaxAmount($v = null) { return $this; }
     public function setBaseTaxAmount($v = null) { return $this; }
+}
+
+/**
+ * Stand-in for the per-item tax-detail objects (originally stubbed as stdClass).
+ * Plain class — not coupled to any Magento type — declaring the accessors the
+ * Tax collector reads/writes, so they can be stubbed/asserted with onlyMethods().
+ */
+class TaxDetailDouble
+{
+    public function getPrice() { return null; }
+    public function getRowTax() { return null; }
+    public function getRowTotal() { return null; }
+    public function setAppliedTaxes($v = null) { return $this; }
+    public function setPriceInclTax($v = null) { return $this; }
+    public function setRowTax($v = null) { return $this; }
+    public function setRowTotalInclTax($v = null) { return $this; }
+    public function setTaxPercent($v = null) { return $this; }
 }
 
 // ─── EAV install-script collaborators (InstallTaxcloudDataTest) ──────────────

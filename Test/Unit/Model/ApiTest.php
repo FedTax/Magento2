@@ -18,7 +18,9 @@
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\Api;
+use Taxcloud\Magento2\Test\Unit\Double as Dbl;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\CacheInterface;
 use Magento\Framework\Event\ManagerInterface;
@@ -91,15 +93,25 @@ class ApiTest extends TestCase
             'cartItems' => [],
             'reason'    => 'test default',
         ]);
-        $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails', 'GetExemptCertificates', 'verifyAddress'])
+        $this->mockSoapClient = $this->getMockBuilder(Dbl\SoapClientDouble::class)
+            ->onlyMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails', 'GetExemptCertificates', 'verifyAddress'])
             ->getMock();
-        $this->mockDataObject = $this->getMockBuilder(DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams', 'setResult', 'getResult'])
+        $this->mockDataObject = $this->getMockBuilder(Dbl\DataObjectDouble::class)
+            ->onlyMethods(['setParams', 'getParams', 'setResult', 'getResult'])
             ->getMock();
+        // getClient() builds its SoapClient via the injected factory — hand it ours.
+        $this->soapClientFactory->method('create')->willReturn($this->mockSoapClient);
 
+        $this->constructApi();
+    }
+
+    /**
+     * Construct $this->api from the current mock properties. Rebuild after
+     * swapping a dependency (e.g. a real CartItemResponseHandler, or a factory
+     * that fails) instead of reaching into private state.
+     */
+    private function constructApi(): void
+    {
         $this->api = new Api(
             $this->scopeConfig,
             $this->cacheType,
@@ -120,35 +132,17 @@ class ApiTest extends TestCase
             $this->customerAddressRegionFactory,
             $this->refundDistributor
         );
-        $this->injectMockSoapClientIntoApi();
     }
 
     /**
-     * Inject mock SoapClient into Api so getClient() returns it (Api uses new \SoapClient in getClient).
-     */
-    private function injectMockSoapClientIntoApi()
-    {
-        $ref = new \ReflectionClass(Api::class);
-        $prop = $ref->getProperty('client');
-        if (method_exists($prop, 'setAccessible')) {
-            @$prop->setAccessible(true);
-        }
-        $prop->setValue($this->api, $this->mockSoapClient);
-    }
-
-    /**
-     * Swap the mocked CartItemResponseHandler for a real instance. Use this
-     * in tests that assert on the lookupTaxes() return value, since the real
-     * handler is what writes per-item TaxAmount into the result array.
+     * Swap the mocked CartItemResponseHandler for a real instance and rebuild
+     * the Api. Use this in tests that assert on the lookupTaxes() return value,
+     * since the real handler is what writes per-item TaxAmount into the result.
      */
     private function useRealCartItemResponseHandler(): void
     {
-        $ref = new \ReflectionClass(Api::class);
-        $prop = $ref->getProperty('cartItemResponseHandler');
-        if (method_exists($prop, 'setAccessible')) {
-            @$prop->setAccessible(true);
-        }
-        $prop->setValue($this->api, new CartItemResponseHandler());
+        $this->cartItemResponseHandler = new CartItemResponseHandler();
+        $this->constructApi();
     }
 
     public function testReturnOrderIncludesReturnCoDeliveryFeeWhenNoCartItems()
@@ -700,10 +694,9 @@ class ApiTest extends TestCase
                 ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
             ]);
 
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn('GA');
@@ -715,10 +708,9 @@ class ApiTest extends TestCase
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $quote->method('getCustomer')->willReturn($customer);
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn('30097');
         $address->method('getStreet')->willReturn(['405 Victorian Ln']);
@@ -727,9 +719,9 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(13.85);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
@@ -737,9 +729,9 @@ class ApiTest extends TestCase
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([]);
 
-        $shippingTaxDetailItem = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $shippingTaxDetailItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $shippingTaxDetailItem->method('getRowTotal')->willReturn(0);
 
@@ -816,10 +808,9 @@ class ApiTest extends TestCase
                 ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
             ]);
 
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn('GA');
@@ -830,10 +821,9 @@ class ApiTest extends TestCase
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $quote->method('getCustomer')->willReturn($customer);
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn('30097');
         $address->method('getStreet')->willReturn(['405 Victorian Ln']);
@@ -842,18 +832,18 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(0);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
         $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([]);
 
-        $shippingTaxDetailItem = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $shippingTaxDetailItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $shippingTaxDetailItem->method('getRowTotal')->willReturn(0);
         $itemsByType = [
@@ -979,36 +969,15 @@ class ApiTest extends TestCase
         $this->serializer = $this->createMock(SerializerInterface::class);
         $this->cartItemResponseHandler = $this->createMock(CartItemResponseHandler::class);
         $this->productTicService = $this->createMock(ProductTicService::class);
-        $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails', 'GetExemptCertificates', 'verifyAddress'])
+        $this->mockSoapClient = $this->getMockBuilder(Dbl\SoapClientDouble::class)
+            ->onlyMethods(['Returned', 'lookup', 'authorizedWithCapture', 'OrderDetails', 'GetExemptCertificates', 'verifyAddress'])
             ->getMock();
-        $this->mockDataObject = $this->getMockBuilder(DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams', 'setResult', 'getResult'])
+        $this->mockDataObject = $this->getMockBuilder(Dbl\DataObjectDouble::class)
+            ->onlyMethods(['setParams', 'getParams', 'setResult', 'getResult'])
             ->getMock();
+        $this->soapClientFactory->method('create')->willReturn($this->mockSoapClient);
 
-        $this->api = new Api(
-            $this->scopeConfig,
-            $this->cacheType,
-            $this->eventManager,
-            $this->soapClientFactory,
-            $this->objectFactory,
-            $this->productFactory,
-            $this->regionFactory,
-            $this->logger,
-            $this->serializer,
-            $this->cartItemResponseHandler,
-            $this->productTicService,
-            $this->taxCalculationService,
-            $this->quoteDetailsFactory,
-            $this->quoteDetailsItemFactory,
-            $this->taxClassKeyFactory,
-            $this->customerAddressFactory,
-            $this->customerAddressRegionFactory,
-            $this->refundDistributor
-        );
-        $this->injectMockSoapClientIntoApi();
+        $this->constructApi();
 
         $this->scopeConfig->method('getValue')
             ->willReturnMap([
@@ -1025,10 +994,9 @@ class ApiTest extends TestCase
                 ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
             ]);
 
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn($destinationState);
@@ -1051,10 +1019,9 @@ class ApiTest extends TestCase
         $quote->method('getCustomer')->willReturn($customer);
         $quote->method('getId')->willReturn(999);
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn('30097');
         $address->method('getStreet')->willReturn(['405 Victorian Ln']);
@@ -1063,9 +1030,9 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(5.00);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
@@ -1073,9 +1040,9 @@ class ApiTest extends TestCase
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([]);
 
-        $shippingTaxDetailItem = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $shippingTaxDetailItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $shippingTaxDetailItem->method('getRowTotal')->willReturn(5.00);
 
@@ -1125,6 +1092,7 @@ class ApiTest extends TestCase
     /**
      * @dataProvider exemptCertSoapProvider
      */
+    #[DataProvider('exemptCertSoapProvider')]
     public function testLookupTaxesExemptCertStateFilteringViaSoap(
         string $description,
         array $certExemptStates,
@@ -1190,6 +1158,7 @@ class ApiTest extends TestCase
     /**
      * @dataProvider exemptCertCacheProvider
      */
+    #[DataProvider('exemptCertCacheProvider')]
     public function testLookupTaxesExemptCertStateFilteringViaCache(
         string $description,
         array $cachedStates,
@@ -1330,10 +1299,9 @@ class ApiTest extends TestCase
     {
         $this->configureBaseLookupScopeConfig('0');
 
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn('NY');
@@ -1344,10 +1312,9 @@ class ApiTest extends TestCase
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $quote->method('getCustomer')->willReturn($customer);
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn('10001');
         $address->method('getStreet')->willReturn(['350 Fifth Ave']);
@@ -1356,21 +1323,20 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(0);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
-        $product = $this->getMockBuilder(\Magento\Catalog\Model\Product::class)
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getTaxClassId'])
+            ->onlyMethods(['getTaxClassId'])
             ->getMock();
         $product->method('getTaxClassId')->willReturn('2');
-        $quoteItem = $this->getMockBuilder(\Magento\Quote\Model\Quote\Item::class)
+        $quoteItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku'])
-            ->addMethods(['getDiscountAmount', 'getTaxCalculationItemId'])
+            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku', 'getDiscountAmount', 'getTaxCalculationItemId'])
             ->getMock();
         $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
         $quoteItem->method('getProduct')->willReturn($product);
@@ -1383,9 +1349,9 @@ class ApiTest extends TestCase
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $productTaxDetail = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $productTaxDetail = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $productTaxDetail->method('getRowTotal')->willReturn(14.99);
 
@@ -1428,6 +1394,7 @@ class ApiTest extends TestCase
      *
      * @dataProvider shippingTicPassthroughProvider
      */
+    #[DataProvider('shippingTicPassthroughProvider')]
     public function testLookupTaxesShippingTic11010VsTic11000InShippingTaxableState(
         string $shippingTic,
         string $destinationState,
@@ -1436,10 +1403,9 @@ class ApiTest extends TestCase
     ) {
         $this->configureBaseLookupScopeConfig('0');
 
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn($destinationState);
@@ -1450,10 +1416,9 @@ class ApiTest extends TestCase
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $quote->method('getCustomer')->willReturn($customer);
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn('75001');
         $address->method('getStreet')->willReturn(['1 Main St']);
@@ -1462,9 +1427,9 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(0);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
@@ -1472,9 +1437,9 @@ class ApiTest extends TestCase
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([]);
 
-        $shippingTaxDetail = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $shippingTaxDetail = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $shippingTaxDetail->method('getRowTotal')->willReturn(10.00);
 
@@ -1627,10 +1592,9 @@ class ApiTest extends TestCase
         $this->productTicService->method('getProductTic')->willReturn('00000');
         $this->productTicService->method('getShippingTic')->willReturn('11010');
 
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn('NY');
@@ -1645,7 +1609,7 @@ class ApiTest extends TestCase
         $orderItem->method('getDiscountAmount')->willReturn(0);
         $orderItem->method('getProduct')->willReturn(null);
 
-        $shippingAddress = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shippingAddress = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
             ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionCode', 'getRegionId', 'getStreet'])
             ->getMock();
@@ -1738,10 +1702,9 @@ class ApiTest extends TestCase
     {
         $this->configureBaseLookupScopeConfig('0');
 
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn('NY');
@@ -1754,9 +1717,9 @@ class ApiTest extends TestCase
 
         $address = $this->buildAddressMockWithOverrides($addressOverrides);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
@@ -1789,10 +1752,9 @@ class ApiTest extends TestCase
         ];
         $merged = array_merge($defaults, $overrides);
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn($merged['postcode']);
         $address->method('getStreet')->willReturn($merged['street']);
@@ -1889,10 +1851,11 @@ class ApiTest extends TestCase
         $this->setUpPassThroughDataObject();
 
         // Force the client to be falsy without hitting the network on lazy init.
-        $ref = new \ReflectionClass(Api::class);
-        $prop = $ref->getProperty('client');
-        $prop->setAccessible(true);
-        $prop->setValue($this->api, false);
+        // Make the SoapClient factory fail so getClient() returns null without
+        // touching the network (mirrors a failed WSDL fetch).
+        $this->soapClientFactory = $this->createMock(ClientFactory::class);
+        $this->soapClientFactory->method('create')->willThrowException(new \Exception('WSDL unavailable'));
+        $this->constructApi();
 
         $this->mockSoapClient->expects($this->never())->method('authorizedWithCapture');
 
@@ -2168,10 +2131,11 @@ class ApiTest extends TestCase
 
         // Force getClient() to return falsy. Setting client=false skips both the
         // `=== null` lazy-init branch and the network call to fetch the WSDL.
-        $ref = new \ReflectionClass(Api::class);
-        $prop = $ref->getProperty('client');
-        $prop->setAccessible(true);
-        $prop->setValue($this->api, false);
+        // Make the SoapClient factory fail so getClient() returns null without
+        // touching the network (mirrors a failed WSDL fetch).
+        $this->soapClientFactory = $this->createMock(ClientFactory::class);
+        $this->soapClientFactory->method('create')->willThrowException(new \Exception('WSDL unavailable'));
+        $this->constructApi();
 
         $this->mockSoapClient->expects($this->never())->method('lookup');
 
@@ -2262,10 +2226,9 @@ class ApiTest extends TestCase
      */
     private function buildGuestCheckoutContext(): array
     {
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn('NY');
@@ -2279,10 +2242,9 @@ class ApiTest extends TestCase
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $quote->method('getCustomer')->willReturn($customer);
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn('10001');
         $address->method('getStreet')->willReturn(['1 Main St']);
@@ -2291,22 +2253,21 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(0);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
-        $product = $this->getMockBuilder(\Magento\Catalog\Model\Product::class)
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getTaxClassId'])
+            ->onlyMethods(['getTaxClassId'])
             ->getMock();
         $product->method('getTaxClassId')->willReturn('2');
 
-        $quoteItem = $this->getMockBuilder(\Magento\Quote\Model\Quote\Item::class)
+        $quoteItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku'])
-            ->addMethods(['getDiscountAmount', 'getTaxCalculationItemId'])
+            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku', 'getDiscountAmount', 'getTaxCalculationItemId'])
             ->getMock();
         $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
         $quoteItem->method('getProduct')->willReturn($product);
@@ -2319,9 +2280,9 @@ class ApiTest extends TestCase
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $productTaxDetail = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $productTaxDetail = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $productTaxDetail->method('getRowTotal')->willReturn(10.00);
 
@@ -2418,9 +2379,9 @@ class ApiTest extends TestCase
         $regionFactoryReturn = $this->createMock(\Magento\Directory\Model\Region::class);
         $regionFactoryReturn->method('load')->willReturnCallback(function ($id) {
             $code = $id === 1 ? 'NY' : 'CA';
-            $r = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+            $r = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
                 ->disableOriginalConstructor()
-                ->addMethods(['getCode'])
+                ->onlyMethods(['getCode'])
                 ->getMock();
             $r->method('getCode')->willReturn($code);
             return $r;
@@ -2436,9 +2397,9 @@ class ApiTest extends TestCase
         $shippingAssignmentNY = $this->buildShippingAssignmentForLookup(regionId: 1, postcode: '10001', city: 'New York');
         $shippingAssignmentCA = $this->buildShippingAssignmentForLookup(regionId: 2, postcode: '94101', city: 'San Francisco');
 
-        $productTaxDetail = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $productTaxDetail = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $productTaxDetail->method('getRowTotal')->willReturn(10.00);
         $itemsByType = [
@@ -2488,10 +2449,9 @@ class ApiTest extends TestCase
      */
     private function buildShippingAssignmentForLookup(int $regionId, string $postcode, string $city): \Magento\Quote\Api\Data\ShippingAssignmentInterface
     {
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn($postcode);
         $address->method('getStreet')->willReturn(['1 Main St']);
@@ -2500,22 +2460,21 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(0);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
-        $product = $this->getMockBuilder(\Magento\Catalog\Model\Product::class)
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getTaxClassId'])
+            ->onlyMethods(['getTaxClassId'])
             ->getMock();
         $product->method('getTaxClassId')->willReturn('2');
 
-        $quoteItem = $this->getMockBuilder(\Magento\Quote\Model\Quote\Item::class)
+        $quoteItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku'])
-            ->addMethods(['getDiscountAmount', 'getTaxCalculationItemId'])
+            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku', 'getDiscountAmount', 'getTaxCalculationItemId'])
             ->getMock();
         $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
         $quoteItem->method('getProduct')->willReturn($product);
@@ -2639,10 +2598,9 @@ class ApiTest extends TestCase
      */
     private function buildBasicSingleItemLookupContext(string $stateCode, string $postcode): array
     {
-        $region = $this->getMockBuilder(\Magento\Directory\Model\Region::class)
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getCode'])
+            ->onlyMethods(['load', 'getCode'])
             ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn($stateCode);
@@ -2655,10 +2613,9 @@ class ApiTest extends TestCase
         $quote->method('getStoreId')->willReturn(1);
         $quote->method('getCustomerTaxClassId')->willReturn('3');
 
-        $address = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet'])
-            ->addMethods(['getShippingAmount'])
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
             ->getMock();
         $address->method('getPostcode')->willReturn($postcode);
         $address->method('getStreet')->willReturn(['1 Main St']);
@@ -2667,22 +2624,21 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(0);
 
-        $shipping = $this->getMockBuilder(\Magento\Quote\Model\Quote\Address::class)
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getAddress'])
+            ->onlyMethods(['getAddress'])
             ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
-        $product = $this->getMockBuilder(\Magento\Catalog\Model\Product::class)
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getTaxClassId'])
+            ->onlyMethods(['getTaxClassId'])
             ->getMock();
         $product->method('getTaxClassId')->willReturn('2');
 
-        $quoteItem = $this->getMockBuilder(\Magento\Quote\Model\Quote\Item::class)
+        $quoteItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku'])
-            ->addMethods(['getDiscountAmount', 'getTaxCalculationItemId'])
+            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku', 'getDiscountAmount', 'getTaxCalculationItemId'])
             ->getMock();
         $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
         $quoteItem->method('getProduct')->willReturn($product);
@@ -2695,9 +2651,9 @@ class ApiTest extends TestCase
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
 
-        $productTaxDetail = $this->getMockBuilder(\Magento\Tax\Model\Sales\Quote\ItemDetails::class)
+        $productTaxDetail = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
             ->disableOriginalConstructor()
-            ->addMethods(['getRowTotal'])
+            ->onlyMethods(['getRowTotal'])
             ->getMock();
         $productTaxDetail->method('getRowTotal')->willReturn(10.00);
 
@@ -2865,6 +2821,7 @@ class ApiTest extends TestCase
     /**
      * @dataProvider timeoutErrorProvider
      */
+    #[DataProvider('timeoutErrorProvider')]
     public function testIsTimeoutErrorClassification(\Throwable $error, bool $expected, string $message)
     {
         $this->assertSame($expected, $this->api->isTimeoutError($error), $message);
@@ -2985,7 +2942,9 @@ class ApiTest extends TestCase
                 ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
             ]);
 
-        $region = $this->createMock(\Magento\Directory\Model\Region::class);
+        $region = $this->getMockBuilder(Dbl\RegionDouble::class)
+            ->onlyMethods(['load', 'getCode'])
+            ->getMock();
         $region->method('load')->willReturnSelf();
         $region->method('getCode')->willReturn('GA');
         $this->regionFactory->method('create')->willReturn($region);
@@ -2998,7 +2957,9 @@ class ApiTest extends TestCase
         $quote->method('getCustomer')->willReturn($customer);
         $quote->method('getId')->willReturn(999);
 
-        $address = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $address = $this->getMockBuilder(Dbl\QuoteAddressDouble::class)
+            ->onlyMethods(['getPostcode', 'getStreet', 'getCity', 'getRegionId', 'getCountryId', 'getShippingAmount'])
+            ->getMock();
         $address->method('getPostcode')->willReturn('30097');
         $address->method('getStreet')->willReturn(['405 Victorian Ln']);
         $address->method('getCity')->willReturn('Duluth');
@@ -3006,14 +2967,18 @@ class ApiTest extends TestCase
         $address->method('getCountryId')->willReturn('US');
         $address->method('getShippingAmount')->willReturn(5.00);
 
-        $shipping = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $shipping = $this->getMockBuilder(Dbl\QuoteAddressDouble::class)
+            ->onlyMethods(['getAddress'])
+            ->getMock();
         $shipping->method('getAddress')->willReturn($address);
 
         $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
         $shippingAssignment->method('getShipping')->willReturn($shipping);
         $shippingAssignment->method('getItems')->willReturn([]);
 
-        $shippingTaxDetailItem = $this->createMock(\Magento\Tax\Api\Data\QuoteDetailsItemInterface::class);
+        $shippingTaxDetailItem = $this->getMockBuilder(Dbl\ItemDetailsDouble::class)
+            ->onlyMethods(['getRowTotal'])
+            ->getMock();
         $shippingTaxDetailItem->method('getRowTotal')->willReturn(5.00);
         $itemsByType = [
             Api::ITEM_TYPE_SHIPPING => [

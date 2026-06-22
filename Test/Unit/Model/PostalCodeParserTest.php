@@ -10,6 +10,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 
 /**
@@ -21,6 +22,7 @@ class PostalCodeParserTest extends TestCase
     /**
      * @dataProvider parseProvider
      */
+    #[DataProvider('parseProvider')]
     public function testParse(?string $input, array $expected, string $message)
     {
         $this->assertSame($expected, PostalCodeParser::parse($input), $message);
@@ -47,6 +49,7 @@ class PostalCodeParserTest extends TestCase
     /**
      * @dataProvider isValidProvider
      */
+    #[DataProvider('isValidProvider')]
     public function testIsValid(array $parsed, bool $expected, string $message)
     {
         $this->assertSame($expected, PostalCodeParser::isValid($parsed), $message);

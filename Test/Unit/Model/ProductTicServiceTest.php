@@ -21,6 +21,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model;
 require_once __DIR__ . '/../../../Model/ProductTicService.php';
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
@@ -175,6 +176,7 @@ class ProductTicServiceTest extends TestCase
      * Test getDefaultTic with various configurations
      * @dataProvider defaultTicProvider
      */
+    #[DataProvider('defaultTicProvider')]
     public function testGetDefaultTic($configValue, $expectedResult, $description)
     {
         $this->scopeConfig->method('getValue')
@@ -200,6 +202,7 @@ class ProductTicServiceTest extends TestCase
      * Test isProductValid with various product states
      * @dataProvider productValidationProvider
      */
+    #[DataProvider('productValidationProvider')]
     public function testIsProductValid($productId, $expectedResult, $description)
     {
         $item = $this->createMock(Item::class);
@@ -231,6 +234,7 @@ class ProductTicServiceTest extends TestCase
      * Test getShippingTic with various configurations
      * @dataProvider shippingTicProvider
      */
+    #[DataProvider('shippingTicProvider')]
     public function testGetShippingTic($configValue, $expectedResult, $description)
     {
         $this->scopeConfig->method('getValue')
