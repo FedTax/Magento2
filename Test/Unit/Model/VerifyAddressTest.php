@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Api;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\CacheInterface;
@@ -46,6 +47,7 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
  * which is how the `return $result;` undefined-variable bug at the
  * no-client and SOAP-retry-failure branches went unnoticed.
  */
+#[AllowMockObjectsWithoutExpectations]
 class VerifyAddressTest extends TestCase
 {
     private $scopeConfig;

@@ -10,11 +10,13 @@
 namespace Taxcloud\Magento2\Test\Unit\Model\Config\Source;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 /**
  * Section A2: cover the only public method on the CaptureTrigger source.
  */
+#[AllowMockObjectsWithoutExpectations]
 class CaptureTriggerTest extends TestCase
 {
     public function testToOptionArrayReturnsThreeChoicesInOrder()

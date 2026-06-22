@@ -10,6 +10,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Setup\Patch\Data;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Setup\Patch\Data\InstallTaxcloudData;
 use Magento\Customer\Setup\CustomerSetupFactory;
 use Magento\Eav\Model\Entity\Attribute\SetFactory;
@@ -24,6 +25,7 @@ use Taxcloud\Magento2\Test\Unit\Double as Dbl;
  * attributes (taxcloud_tic on Product, taxcloud_cert on Customer); we drive it through
  * mocks and assert the orchestration without touching a database.
  */
+#[AllowMockObjectsWithoutExpectations]
 class InstallTaxcloudDataTest extends TestCase
 {
     /**

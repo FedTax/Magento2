@@ -10,12 +10,14 @@
 namespace Taxcloud\Magento2\Test\Unit\Observer\Sales;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Observer\Sales\Refund;
 
 /**
  * Coverage for the Refund observer — fires on sales_order_creditmemo_refund and
  * forwards the credit memo to Api::returnOrder.
  */
+#[AllowMockObjectsWithoutExpectations]
 class RefundTest extends TestCase
 {
     private function buildObserver($creditmemo): \Magento\Framework\Event\Observer

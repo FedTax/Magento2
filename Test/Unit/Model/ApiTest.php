@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Test\Unit\Double as Dbl;
@@ -41,6 +42,7 @@ use Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory;
 use Magento\Customer\Api\Data\AddressInterfaceFactory;
 use Magento\Customer\Api\Data\RegionInterfaceFactory;
 
+#[AllowMockObjectsWithoutExpectations]
 class ApiTest extends TestCase
 {
     private $api;

@@ -21,6 +21,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model;
 require_once __DIR__ . '/../../../Model/ProductTicService.php';
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Magento\Framework\App\Config\ScopeConfigInterface;
@@ -30,6 +31,7 @@ use Magento\Sales\Model\Order\Item;
 use Magento\Framework\Api\AttributeValue;
 use Taxcloud\Magento2\Logger\Logger;
 
+#[AllowMockObjectsWithoutExpectations]
 class ProductTicServiceTest extends TestCase
 {
     private $productTicService;

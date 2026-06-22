@@ -21,6 +21,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model;
 require_once __DIR__ . '/../../../Model/Tax.php';
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\Tax;
 use Taxcloud\Magento2\Model\Api as TaxCloudApi;
@@ -42,6 +43,7 @@ use Magento\Quote\Model\Quote\Item as QuoteItem;
 use Magento\Catalog\Model\Product;
 use Taxcloud\Magento2\Test\Unit\Double as Dbl;
 
+#[AllowMockObjectsWithoutExpectations]
 class TaxTest extends TestCase
 {
     private $tax;

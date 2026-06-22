@@ -10,6 +10,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Observer\Sales;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Observer\Sales\Complete;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 use Magento\Sales\Model\Order;
@@ -25,6 +26,7 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
  * tests here pin the routing — wrong-event must be a no-op, repeat invoices /
  * shipments must dedupe, and the disabled/empty-config corners must behave.
  */
+#[AllowMockObjectsWithoutExpectations]
 class CompleteTest extends TestCase
 {
     /**

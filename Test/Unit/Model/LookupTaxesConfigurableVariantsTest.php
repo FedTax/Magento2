@@ -20,6 +20,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model;
 require_once __DIR__ . '/../../../Model/ProductTicService.php';
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
@@ -37,6 +38,7 @@ use Taxcloud\Magento2\Logger\Logger;
  * product the item carries is the one we ask the repository about, and we never
  * fall back to a sibling product's TIC.
  */
+#[AllowMockObjectsWithoutExpectations]
 class LookupTaxesConfigurableVariantsTest extends TestCase
 {
     private $productTicService;

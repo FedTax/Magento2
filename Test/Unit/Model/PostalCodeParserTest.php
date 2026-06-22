@@ -10,6 +10,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 
@@ -17,6 +18,7 @@ use Taxcloud\Magento2\Model\PostalCodeParser;
  * Section D: direct PostalCodeParser coverage. The parser is exercised indirectly
  * via Api but never hit head-on — these tests pin both methods.
  */
+#[AllowMockObjectsWithoutExpectations]
 class PostalCodeParserTest extends TestCase
 {
     /**

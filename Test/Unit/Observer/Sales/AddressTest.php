@@ -10,8 +10,10 @@
 namespace Taxcloud\Magento2\Test\Unit\Observer\Sales;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Observer\Sales\Address;
 
+#[AllowMockObjectsWithoutExpectations]
 class AddressTest extends TestCase
 {
     /**

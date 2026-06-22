@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Api;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\CacheInterface;
@@ -45,6 +46,7 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
  * written to the log file, either by the redaction helper directly or by
  * the SOAP-calling code paths that invoke it.
  */
+#[AllowMockObjectsWithoutExpectations]
 class ApiRedactionTest extends TestCase
 {
     private const SENTINEL_API_ID  = 'SENTINEL_LOGIN_ID_DO_NOT_LEAK';

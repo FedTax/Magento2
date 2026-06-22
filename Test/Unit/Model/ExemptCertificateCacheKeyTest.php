@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Api;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\CacheInterface;
@@ -46,6 +47,7 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
  * into their own profile cannot inherit the original holder's cached
  * state list.
  */
+#[AllowMockObjectsWithoutExpectations]
 class ExemptCertificateCacheKeyTest extends TestCase
 {
     private const CERT_ID    = '11111111-2222-3333-4444-555555555555';
