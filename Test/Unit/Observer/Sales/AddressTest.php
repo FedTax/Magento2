@@ -80,29 +80,19 @@ class AddressTest extends TestCase
             'origin' => [],
         ];
 
-        $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getParams', 'setParams'])
-            ->getMock();
-        $obj->method('getParams')->willReturn($params);
-        $obj->expects($this->once())->method('setParams')->with($this->callback(function ($updated) use ($originalDestination) {
-            return isset($updated['destination']['Address1'])
-                && $updated['destination']['Address1'] === $originalDestination['Address1']
-                && isset($updated['destination']['Address2'])
-                && $updated['destination']['Address2'] === $originalDestination['Address2'];
-        }))->willReturnSelf();
+        $obj = new \Magento\Framework\DataObject(['params' => $params]);
 
-        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getObj'])
-            ->getMock();
-        $event->method('getObj')->willReturn($obj);
-
+        $event = new \Magento\Framework\Event(['obj' => $obj]);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observerObj->method('getEvent')->willReturn($event);
 
         $observer = new Address($scopeConfig, $tcapi, $logger);
         $observer->execute($observerObj);
+
+        // Empty verified Address1/Address2 must not overwrite the originals.
+        $updated = $obj->getParams();
+        $this->assertSame($originalDestination['Address1'], $updated['destination']['Address1']);
+        $this->assertSame($originalDestination['Address2'], $updated['destination']['Address2']);
     }
 
     /**
@@ -142,26 +132,18 @@ class AddressTest extends TestCase
 
         $params = ['destination' => $originalDestination];
 
-        $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getParams', 'setParams'])
-            ->getMock();
-        $obj->method('getParams')->willReturn($params);
-        $obj->expects($this->once())->method('setParams')->with($this->callback(function ($updated) use ($verifiedResult) {
-            return $updated['destination'] === $verifiedResult;
-        }))->willReturnSelf();
+        $obj = new \Magento\Framework\DataObject(['params' => $params]);
 
-        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getObj'])
-            ->getMock();
-        $event->method('getObj')->willReturn($obj);
-
+        $event = new \Magento\Framework\Event(['obj' => $obj]);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observerObj->method('getEvent')->willReturn($event);
 
         $observer = new Address($scopeConfig, $tcapi, $logger);
         $observer->execute($observerObj);
+
+        // A verified result with a non-empty Address1 is used as-is.
+        $updated = $obj->getParams();
+        $this->assertSame($verifiedResult, $updated['destination']);
     }
 
     /**
@@ -192,24 +174,17 @@ class AddressTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getParams', 'setParams'])
-            ->getMock();
-        $obj->method('getParams')->willReturn(['destination' => $originalDestination]);
-        // Critical: setParams MUST NOT be called when verifyAddress returns null.
-        $obj->expects($this->never())->method('setParams');
+        $obj = new \Magento\Framework\DataObject(['params' => ['destination' => $originalDestination]]);
 
-        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getObj'])
-            ->getMock();
-        $event->method('getObj')->willReturn($obj);
+        $event = new \Magento\Framework\Event(['obj' => $obj]);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observerObj->method('getEvent')->willReturn($event);
 
         $observer = new Address($scopeConfig, $tcapi, $logger);
         $observer->execute($observerObj);
+
+        // Critical: when verifyAddress returns null the params must be left untouched.
+        $this->assertSame(['destination' => $originalDestination], $obj->getParams());
     }
 
     /**
@@ -245,18 +220,9 @@ class AddressTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $obj = $this->getMockBuilder(\Magento\Framework\DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getParams', 'setParams'])
-            ->getMock();
-        $obj->method('getParams')->willReturn(['destination' => $originalDestination]);
-        $obj->expects($this->never())->method('setParams');
+        $obj = new \Magento\Framework\DataObject(['params' => ['destination' => $originalDestination]]);
 
-        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getObj'])
-            ->getMock();
-        $event->method('getObj')->willReturn($obj);
+        $event = new \Magento\Framework\Event(['obj' => $obj]);
         $observerObj = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observerObj->method('getEvent')->willReturn($event);
 
@@ -264,6 +230,7 @@ class AddressTest extends TestCase
 
         // Must not throw — checkout cannot be blocked by a TaxCloud address-verification SOAP error.
         $observer->execute($observerObj);
-        $this->assertTrue(true, 'Observer must swallow SOAP errors so checkout proceeds');
+        // params must be left untouched when verification errors out.
+        $this->assertSame(['destination' => $originalDestination], $obj->getParams());
     }
 }

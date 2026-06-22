@@ -316,7 +316,7 @@ class Api
      * @param string $destinationState  Two-letter state abbreviation
      * @return string|null  The certificate ID if it covers the state, null otherwise
      */
-    private function getValidatedCertificateID($certificateID, $customerID, $destinationState)
+    public function getValidatedCertificateID($certificateID, $customerID, $destinationState)
     {
         if (empty($certificateID) || empty($customerID) || empty($destinationState)) {
             return null;
@@ -515,8 +515,7 @@ class Api
         if ($this->client === null) {
             try {
                 $wsdl = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
-                // $this->client = $this->soapClientFactory->create($wsdl);
-                $this->client = new \SoapClient($wsdl, $this->buildSoapOptions());
+                $this->client = $this->soapClientFactory->create($wsdl, $this->buildSoapOptions());
             } catch (Throwable $e) {
                 $this->tclogger->info('Cannot get SoapClient:');
                 $this->tclogger->info($e->getMessage());
@@ -1628,7 +1627,7 @@ class Api
      * @param array $params
      * @return array
      */
-    private function redactParamsForLog(array $params)
+    public function redactParamsForLog(array $params)
     {
         if (array_key_exists('apiLoginID', $params)) {
             $params['apiLoginID'] = self::REDACTED_PLACEHOLDER;

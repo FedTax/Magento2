@@ -20,11 +20,7 @@ class RefundTest extends TestCase
 {
     private function buildObserver($creditmemo): \Magento\Framework\Event\Observer
     {
-        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getCreditmemo'])
-            ->getMock();
-        $event->method('getCreditmemo')->willReturn($creditmemo);
+        $event = new \Magento\Framework\Event(['creditmemo' => $creditmemo]);
 
         $observer = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observer->method('getEvent')->willReturn($event);

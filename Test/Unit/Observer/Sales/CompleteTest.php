@@ -47,23 +47,15 @@ class CompleteTest extends TestCase
      */
     private function buildObserver(string $eventName, array $eventConfig): \Magento\Framework\Event\Observer
     {
-        // getName() is a real method on Event; getOrder/getInvoice/getShipment
-        // are magic DataObject accessors and need addMethods().
-        $event = $this->getMockBuilder(\Magento\Framework\Event::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['getName'])
-            ->addMethods(['getInvoice', 'getOrder', 'getShipment'])
-            ->getMock();
-        $event->method('getName')->willReturn($eventName);
-        if (isset($eventConfig['order'])) {
-            $event->method('getOrder')->willReturn($eventConfig['order']);
+        // Real Event: getName() reads _data['name'] and getOrder/getInvoice/
+        // getShipment are magic DataObject accessors over the same data array.
+        $data = ['name' => $eventName];
+        foreach (['order', 'invoice', 'shipment'] as $key) {
+            if (isset($eventConfig[$key])) {
+                $data[$key] = $eventConfig[$key];
+            }
         }
-        if (isset($eventConfig['invoice'])) {
-            $event->method('getInvoice')->willReturn($eventConfig['invoice']);
-        }
-        if (isset($eventConfig['shipment'])) {
-            $event->method('getShipment')->willReturn($eventConfig['shipment']);
-        }
+        $event = new \Magento\Framework\Event($data);
 
         $observer = $this->createMock(\Magento\Framework\Event\Observer::class);
         $observer->method('getEvent')->willReturn($event);

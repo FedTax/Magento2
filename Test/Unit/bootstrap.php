@@ -46,3 +46,7 @@ if (!is_file($magentoUnitBootstrap)) {
 }
 
 require $magentoUnitBootstrap;
+
+// Unit-test doubles (declare Magento magic accessors / SOAP ops as real methods so
+// they can be stubbed with onlyMethods() — PHPUnit 12 removed addMethods()).
+require __DIR__ . '/Double/Doubles.php';

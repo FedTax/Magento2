@@ -17,6 +17,7 @@ use Magento\Eav\Setup\EavSetupFactory;
 use Magento\Framework\Setup\ModuleDataSetupInterface;
 use Magento\Catalog\Model\Product;
 use Magento\Customer\Model\Customer;
+use Taxcloud\Magento2\Test\Unit\Double as Dbl;
 
 /**
  * Section A3: cover the InstallTaxcloudData setup patch. apply() registers two EAV
@@ -70,9 +71,8 @@ class InstallTaxcloudDataTest extends TestCase
      */
     public function testApplyRegistersTaxcloudTicAndCertAttributes()
     {
-        $eavSetup = $this->getMockBuilder(\stdClass::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['addAttribute'])
+        $eavSetup = $this->getMockBuilder(Dbl\EavSetupDouble::class)
+            ->onlyMethods(['addAttribute'])
             ->getMock();
         $eavSetup->expects($this->once())
             ->method('addAttribute')
@@ -88,28 +88,24 @@ class InstallTaxcloudDataTest extends TestCase
         $eavSetupFactory = $this->createMock(EavSetupFactory::class);
         $eavSetupFactory->method('create')->willReturn($eavSetup);
 
-        $attribute = $this->getMockBuilder(\stdClass::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['addData', 'save'])
+        $attribute = $this->getMockBuilder(Dbl\EavAttributeDouble::class)
+            ->onlyMethods(['addData', 'save'])
             ->getMock();
         $attribute->method('addData')->willReturnSelf();
         $attribute->expects($this->once())->method('save');
 
-        $eavConfig = $this->getMockBuilder(\stdClass::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getAttribute', 'getEntityType'])
+        $eavConfig = $this->getMockBuilder(Dbl\EavConfigDouble::class)
+            ->onlyMethods(['getAttribute', 'getEntityType'])
             ->getMock();
-        $customerEntity = $this->getMockBuilder(\stdClass::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getDefaultAttributeSetId'])
+        $customerEntity = $this->getMockBuilder(Dbl\CustomerEntityDouble::class)
+            ->onlyMethods(['getDefaultAttributeSetId'])
             ->getMock();
         $customerEntity->method('getDefaultAttributeSetId')->willReturn(1);
         $eavConfig->method('getEntityType')->with('customer')->willReturn($customerEntity);
         $eavConfig->method('getAttribute')->with(Customer::ENTITY, 'taxcloud_cert')->willReturn($attribute);
 
-        $customerSetup = $this->getMockBuilder(\stdClass::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['addAttribute', 'getEavConfig'])
+        $customerSetup = $this->getMockBuilder(Dbl\CustomerSetupDouble::class)
+            ->onlyMethods(['addAttribute', 'getEavConfig'])
             ->getMock();
         $customerSetup->method('getEavConfig')->willReturn($eavConfig);
         $customerSetup->expects($this->once())
@@ -121,9 +117,8 @@ class InstallTaxcloudDataTest extends TestCase
         $customerSetupFactory = $this->createMock(CustomerSetupFactory::class);
         $customerSetupFactory->method('create')->willReturn($customerSetup);
 
-        $attributeSet = $this->getMockBuilder(\stdClass::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getDefaultGroupId'])
+        $attributeSet = $this->getMockBuilder(Dbl\AttributeSetDouble::class)
+            ->onlyMethods(['getDefaultGroupId'])
             ->getMock();
         $attributeSet->method('getDefaultGroupId')->willReturn(11);
         $attributeSetFactory = $this->createMock(SetFactory::class);

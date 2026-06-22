@@ -38,6 +38,7 @@ use Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory;
 use Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory;
 use Magento\Customer\Api\Data\AddressInterfaceFactory;
 use Magento\Customer\Api\Data\RegionInterfaceFactory;
+use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 
 /**
  * Verifies that TaxCloud API credentials (apiLoginID, apiKey) are never
@@ -64,11 +65,7 @@ class ApiRedactionTest extends TestCase
             'cartItems'  => [],
         ];
 
-        $method = new \ReflectionMethod(Api::class, 'redactParamsForLog');
-        if (method_exists($method, 'setAccessible')) {
-            @$method->setAccessible(true);
-        }
-        $redacted = $method->invoke($api, $params);
+        $redacted = $api->redactParamsForLog($params);
 
         // Keys preserved so operators can still confirm the fields were sent
         $this->assertArrayHasKey('apiLoginID', $redacted);
@@ -103,11 +100,7 @@ class ApiRedactionTest extends TestCase
 
         $params = ['orderID' => 'X', 'cartItems' => []];
 
-        $method = new \ReflectionMethod(Api::class, 'redactParamsForLog');
-        if (method_exists($method, 'setAccessible')) {
-            @$method->setAccessible(true);
-        }
-        $this->assertSame($params, $method->invoke($api, $params));
+        $this->assertSame($params, $api->redactParamsForLog($params));
     }
 
     /**
@@ -135,38 +128,29 @@ class ApiRedactionTest extends TestCase
         // The observer-pattern handoff: setParams seeds, getParams returns
         // the same (credential-bearing) array back to the caller. The test
         // proves redaction happens AFTER this point, before logging.
-        $mockDataObject = $this->getMockBuilder(\Magento\Framework\DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['getParams', 'getResult', 'setParams', 'setResult'])
-            ->getMock();
-        $mockDataObject->method('setParams')->willReturnSelf();
-        $mockDataObject->method('getParams')->willReturn([
-            'apiLoginID'      => self::SENTINEL_API_ID,
-            'apiKey'          => self::SENTINEL_API_KEY,
-            'customerID'      => '-1',
-            'cartID'          => 1,
-            'orderID'         => 'TEST_ORDER_REDACT',
-            'dateAuthorized'  => '2026-06-09T00:00:00+00:00',
-            'dateCaptured'    => '2026-06-09T00:00:00+00:00',
-        ]);
+        // Real DataObject: authorizeCapture seeds it via setParams() (with the
+        // SENTINEL credentials pulled from scopeConfig) and reads them back via
+        // getParams() — so the credential-bearing params flow through naturally.
+        $mockDataObject = new \Magento\Framework\DataObject();
         $objectFactory->method('create')->willReturn($mockDataObject);
+
+        // Force the SOAP client to throw on every attempt so we hit the
+        // error branch (which is the noisiest logger path).
+        $mockSoapClient = $this->getMockBuilder(SoapClientDouble::class)
+            ->onlyMethods(['authorizedWithCapture'])
+            ->getMock();
+        $mockSoapClient->method('authorizedWithCapture')
+            ->willThrowException(new \RuntimeException('forced soap failure'));
+        $soapClientFactory = $this->createMock(ClientFactory::class);
+        $soapClientFactory->method('create')->willReturn($mockSoapClient);
 
         $api = $this->newApi(
             $logger,
             $scopeConfig,
             $eventManager,
-            $objectFactory
+            $objectFactory,
+            $soapClientFactory
         );
-
-        // Force the SOAP client to throw on every attempt so we hit the
-        // error branch (which is the noisiest logger path).
-        $mockSoapClient = $this->getMockBuilder(\SoapClient::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['authorizedWithCapture'])
-            ->getMock();
-        $mockSoapClient->method('authorizedWithCapture')
-            ->willThrowException(new \RuntimeException('forced soap failure'));
-        $this->injectSoapClient($api, $mockSoapClient);
 
         $order = $this->createMock(\Magento\Sales\Model\Order::class);
         $order->method('getCustomerId')->willReturn(null);
@@ -212,13 +196,14 @@ class ApiRedactionTest extends TestCase
         Logger $logger,
         $scopeConfig = null,
         $eventManager = null,
-        $objectFactory = null
+        $objectFactory = null,
+        $soapClientFactory = null
     ): Api {
         return new Api(
             $scopeConfig   ?: $this->createMock(ScopeConfigInterface::class),
             $this->createMock(CacheInterface::class),
             $eventManager  ?: $this->createMock(ManagerInterface::class),
-            $this->createMock(ClientFactory::class),
+            $soapClientFactory ?: $this->createMock(ClientFactory::class),
             $objectFactory ?: $this->createMock(DataObjectFactory::class),
             $this->createMock(ProductFactory::class),
             $this->createMock(RegionFactory::class),
@@ -234,16 +219,6 @@ class ApiRedactionTest extends TestCase
             $this->createMock(RegionInterfaceFactory::class),
             $this->createMock(RefundDistributor::class)
         );
-    }
-
-    private function injectSoapClient(Api $api, $client): void
-    {
-        $ref = new \ReflectionClass(Api::class);
-        $prop = $ref->getProperty('client');
-        if (method_exists($prop, 'setAccessible')) {
-            @$prop->setAccessible(true);
-        }
-        $prop->setValue($api, $client);
     }
 }
 

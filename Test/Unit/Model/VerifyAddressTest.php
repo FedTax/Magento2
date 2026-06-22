@@ -38,6 +38,7 @@ use Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory;
 use Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory;
 use Magento\Customer\Api\Data\AddressInterfaceFactory;
 use Magento\Customer\Api\Data\RegionInterfaceFactory;
+use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 
 /**
  * Covers Api::verifyAddress across success, SOAP-fault, non-OK response,
@@ -111,54 +112,22 @@ class VerifyAddressTest extends TestCase
         // Cache miss for every load
         $this->cacheType->method('load')->willReturn(false);
 
-        $this->mockSoapClient = $this->getMockBuilder(\SoapClient::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['verifyAddress'])
+        $this->mockSoapClient = $this->getMockBuilder(SoapClientDouble::class)
+            ->onlyMethods(['verifyAddress'])
             ->getMock();
+        // getClient() builds its SoapClient via the injected factory — hand it ours.
+        $this->soapClientFactory->method('create')->willReturn($this->mockSoapClient);
 
-        // DataObject mock for the before/after event handoff. By default it
-        // hands back the same params it was seeded with (i.e. no observer
-        // mutated them), and the after-event result echoes whatever was set.
-        $this->mockDataObject = $this->getMockBuilder(DataObject::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['setParams', 'getParams', 'setResult', 'getResult'])
-            ->getMock();
-        $this->mockDataObject->method('setParams')->willReturnSelf();
-        $this->mockDataObject->method('setResult')->willReturnSelf();
+        // Real DataObject for the before/after event handoff: the SUT calls
+        // setParams()/getParams() and setResult()/getResult() on it, and a real
+        // DataObject round-trips those through its data array — no stubbing needed.
+        $this->mockDataObject = new DataObject();
         $this->objectFactory->method('create')->willReturn($this->mockDataObject);
     }
 
     public function testVerifyAddressReturnsVerifiedArrayOnSuccess()
     {
         $api = $this->newApi();
-        $this->injectSoapClient($api, $this->mockSoapClient);
-
-        // Before-event hands params straight through; after-event echoes the
-        // verifyResult dictionary the SUT constructs from the SOAP response.
-        $this->mockDataObject->method('getParams')->willReturn([
-            'apiLoginID' => 'test_api_id',
-            'apiKey'     => 'test_api_key',
-            'address1'   => self::ADDRESS['Address1'],
-            'address2'   => self::ADDRESS['Address2'],
-            'city'       => self::ADDRESS['City'],
-            'state'      => self::ADDRESS['State'],
-            'zip5'       => self::ADDRESS['Zip5'],
-            'zip4'       => self::ADDRESS['Zip4'],
-        ]);
-        $this->mockDataObject->method('getResult')->willReturnCallback(function () {
-            // The SUT calls setResult($verifyResult) then getResult(); we
-            // return what TaxCloud would have produced.
-            return [
-                'Address1'       => '1 INFINITE LOOP',
-                'Address2'       => '',
-                'City'           => 'CUPERTINO',
-                'State'          => 'CA',
-                'Zip5'           => '95014',
-                'Zip4'           => '2084',
-                'ErrNumber'      => 0,
-                'ErrDescription' => '',
-            ];
-        });
 
         $soapResponse = new \stdClass();
         $soapResponse->VerifyAddressResult = (object)[
@@ -186,18 +155,6 @@ class VerifyAddressTest extends TestCase
     public function testVerifyAddressReturnsFalseWhenSoapFaultsOnBothAttempts()
     {
         $api = $this->newApi();
-        $this->injectSoapClient($api, $this->mockSoapClient);
-
-        $this->mockDataObject->method('getParams')->willReturn([
-            'apiLoginID' => 'test_api_id',
-            'apiKey'     => 'test_api_key',
-            'address1'   => self::ADDRESS['Address1'],
-            'address2'   => self::ADDRESS['Address2'],
-            'city'       => self::ADDRESS['City'],
-            'state'      => self::ADDRESS['State'],
-            'zip5'       => self::ADDRESS['Zip5'],
-            'zip4'       => self::ADDRESS['Zip4'],
-        ]);
 
         $this->mockSoapClient->method('verifyAddress')
             ->willThrowException(new \RuntimeException('soap fault'));
@@ -222,22 +179,6 @@ class VerifyAddressTest extends TestCase
     public function testVerifyAddressReturnsFalseOnNonOkResponse()
     {
         $api = $this->newApi();
-        $this->injectSoapClient($api, $this->mockSoapClient);
-
-        $this->mockDataObject->method('getParams')->willReturn([
-            'apiLoginID' => 'test_api_id',
-            'apiKey'     => 'test_api_key',
-            'address1'   => '12345 Nowhere Rd',
-            'address2'   => '',
-            'city'       => '?',
-            'state'      => 'ZZ',
-            'zip5'       => '00000',
-            'zip4'       => '',
-        ]);
-        $this->mockDataObject->method('getResult')->willReturn([
-            'ErrNumber'      => 99,
-            'ErrDescription' => 'Address not found',
-        ]);
 
         $soapResponse = new \stdClass();
         $soapResponse->VerifyAddressResult = (object)[
@@ -328,15 +269,5 @@ class VerifyAddressTest extends TestCase
             $this->customerAddressRegionFactory,
             $this->refundDistributor
         );
-    }
-
-    private function injectSoapClient(Api $api, $client): void
-    {
-        $ref = new \ReflectionClass(Api::class);
-        $prop = $ref->getProperty('client');
-        if (method_exists($prop, 'setAccessible')) {
-            @$prop->setAccessible(true);
-        }
-        $prop->setValue($api, $client);
     }
 }

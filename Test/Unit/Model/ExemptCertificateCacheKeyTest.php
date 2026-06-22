@@ -37,6 +37,7 @@ use Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory;
 use Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory;
 use Magento\Customer\Api\Data\AddressInterfaceFactory;
 use Magento\Customer\Api\Data\RegionInterfaceFactory;
+use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 
 /**
  * Locks in the security property that the exempt-states cache for an
@@ -68,15 +69,10 @@ class ExemptCertificateCacheKeyTest extends TestCase
 
         $api = $this->buildApiWithMockedSoapClient(self::CERT_ID, ['NY']);
 
-        $reflect = new \ReflectionMethod(Api::class, 'getValidatedCertificateID');
-        if (method_exists($reflect, 'setAccessible')) {
-            @$reflect->setAccessible(true);
-        }
-
         // Customer A — the rightful holder of the certificate.
-        $resultA = $reflect->invoke($api, self::CERT_ID, 'customer_A', self::STATE);
+        $resultA = $api->getValidatedCertificateID(self::CERT_ID, 'customer_A', self::STATE);
         // Customer B — pasted the same certificate UUID into their own profile.
-        $resultB = $reflect->invoke($api, self::CERT_ID, 'customer_B', self::STATE);
+        $resultB = $api->getValidatedCertificateID(self::CERT_ID, 'customer_B', self::STATE);
 
         // Both reach SOAP because cache always misses in this test — but the
         // keys they wrote under must differ. If the bug regresses they would
@@ -126,15 +122,10 @@ class ExemptCertificateCacheKeyTest extends TestCase
             }
         );
 
-        $reflect = new \ReflectionMethod(Api::class, 'getValidatedCertificateID');
-        if (method_exists($reflect, 'setAccessible')) {
-            @$reflect->setAccessible(true);
-        }
-
         // First call: cache miss, populates.
-        $reflect->invoke($api, self::CERT_ID, 'customer_A', self::STATE);
+        $api->getValidatedCertificateID(self::CERT_ID, 'customer_A', self::STATE);
         // Second call: cache hit, must NOT touch SOAP.
-        $reflect->invoke($api, self::CERT_ID, 'customer_A', self::STATE);
+        $api->getValidatedCertificateID(self::CERT_ID, 'customer_A', self::STATE);
 
         $this->assertSame(1, $soapCallCount, 'second lookup for same (customer, cert) must use cache');
     }
@@ -159,13 +150,8 @@ class ExemptCertificateCacheKeyTest extends TestCase
             }
         );
 
-        $reflect = new \ReflectionMethod(Api::class, 'getValidatedCertificateID');
-        if (method_exists($reflect, 'setAccessible')) {
-            @$reflect->setAccessible(true);
-        }
-
-        $this->assertNull($reflect->invoke($api, self::CERT_ID, '', self::STATE));
-        $this->assertNull($reflect->invoke($api, self::CERT_ID, null, self::STATE));
+        $this->assertNull($api->getValidatedCertificateID(self::CERT_ID, '', self::STATE));
+        $this->assertNull($api->getValidatedCertificateID(self::CERT_ID, null, self::STATE));
         $this->assertSame(0, $soapCallCount, 'empty customer must never reach SOAP');
     }
 
@@ -187,27 +173,6 @@ class ExemptCertificateCacheKeyTest extends TestCase
                 ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
             ]);
 
-        $api = new Api(
-            $scopeConfig,
-            $this->cacheType,
-            $this->createMock(ManagerInterface::class),
-            $this->createMock(ClientFactory::class),
-            $this->createMock(DataObjectFactory::class),
-            $this->createMock(ProductFactory::class),
-            $this->createMock(RegionFactory::class),
-            $this->createMock(Logger::class),
-            $this->createMock(SerializerInterface::class),
-            $this->createMock(CartItemResponseHandler::class),
-            $this->createMock(ProductTicService::class),
-            $this->createMock(TaxCalculationInterface::class),
-            $this->createMock(QuoteDetailsInterfaceFactory::class),
-            $this->createMock(QuoteDetailsItemInterfaceFactory::class),
-            $this->createMock(TaxClassKeyInterfaceFactory::class),
-            $this->createMock(AddressInterfaceFactory::class),
-            $this->createMock(RegionInterfaceFactory::class),
-            $this->createMock(RefundDistributor::class)
-        );
-
         // Shape a response that extractExemptStatesFromResponse() will parse
         // into the desired state list for our certificate ID.
         $response = new \stdClass();
@@ -228,9 +193,8 @@ class ExemptCertificateCacheKeyTest extends TestCase
             ],
         ];
 
-        $client = $this->getMockBuilder(\SoapClient::class)
-            ->disableOriginalConstructor()
-            ->addMethods(['GetExemptCertificates'])
+        $client = $this->getMockBuilder(SoapClientDouble::class)
+            ->onlyMethods(['GetExemptCertificates'])
             ->getMock();
         $client->method('GetExemptCertificates')
             ->willReturnCallback(function () use ($response, $onSoapCall) {
@@ -240,13 +204,29 @@ class ExemptCertificateCacheKeyTest extends TestCase
                 return $response;
             });
 
-        $ref = new \ReflectionClass(Api::class);
-        $prop = $ref->getProperty('client');
-        if (method_exists($prop, 'setAccessible')) {
-            @$prop->setAccessible(true);
-        }
-        $prop->setValue($api, $client);
+        // getClient() builds its SoapClient via the injected factory — hand it ours.
+        $soapClientFactory = $this->createMock(ClientFactory::class);
+        $soapClientFactory->method('create')->willReturn($client);
 
-        return $api;
+        return new Api(
+            $scopeConfig,
+            $this->cacheType,
+            $this->createMock(ManagerInterface::class),
+            $soapClientFactory,
+            $this->createMock(DataObjectFactory::class),
+            $this->createMock(ProductFactory::class),
+            $this->createMock(RegionFactory::class),
+            $this->createMock(Logger::class),
+            $this->createMock(SerializerInterface::class),
+            $this->createMock(CartItemResponseHandler::class),
+            $this->createMock(ProductTicService::class),
+            $this->createMock(TaxCalculationInterface::class),
+            $this->createMock(QuoteDetailsInterfaceFactory::class),
+            $this->createMock(QuoteDetailsItemInterfaceFactory::class),
+            $this->createMock(TaxClassKeyInterfaceFactory::class),
+            $this->createMock(AddressInterfaceFactory::class),
+            $this->createMock(RegionInterfaceFactory::class),
+            $this->createMock(RefundDistributor::class)
+        );
     }
 }
