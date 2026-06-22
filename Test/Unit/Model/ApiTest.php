@@ -2818,4 +2818,259 @@ class ApiTest extends TestCase
         });
         $this->objectFactory->method('create')->willReturn($this->mockDataObject);
     }
+
+    // ─── SOAP timeout + bounded retry (DEV-8596) ──────────────────────────────
+
+    /**
+     * buildSoapOptions(): uses the default timeout when api_timeout is unset
+     * and always pins cache_wsdl => WSDL_CACHE_BOTH plus a stream-context timeout.
+     */
+    public function testBuildSoapOptionsUsesDefaultTimeoutAndCachesWsdl()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/api_timeout', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, null],
+            ]);
+
+        $options = $this->api->buildSoapOptions();
+
+        $this->assertSame(Api::DEFAULT_SOAP_TIMEOUT, $options['connection_timeout']);
+        $this->assertSame(WSDL_CACHE_BOTH, $options['cache_wsdl']);
+        $this->assertTrue($options['keep_alive']);
+        $this->assertIsResource($options['stream_context']);
+
+        $ctx = stream_context_get_options($options['stream_context']);
+        $this->assertSame(Api::DEFAULT_SOAP_TIMEOUT, $ctx['http']['timeout']);
+        $this->assertSame(Api::DEFAULT_SOAP_TIMEOUT, $ctx['ssl']['timeout']);
+    }
+
+    /**
+     * buildSoapOptions(): honors a configured api_timeout for both the
+     * connection timeout and the stream-context read timeout.
+     */
+    public function testBuildSoapOptionsUsesConfiguredTimeout()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/api_timeout', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '3'],
+            ]);
+
+        $options = $this->api->buildSoapOptions();
+
+        $this->assertSame(3, $options['connection_timeout']);
+        $ctx = stream_context_get_options($options['stream_context']);
+        $this->assertSame(3, $ctx['http']['timeout']);
+    }
+
+    /**
+     * @dataProvider timeoutErrorProvider
+     */
+    public function testIsTimeoutErrorClassification(\Throwable $error, bool $expected, string $message)
+    {
+        $this->assertSame($expected, $this->api->isTimeoutError($error), $message);
+    }
+
+    public static function timeoutErrorProvider(): array
+    {
+        return [
+            'http faultcode is a timeout' => [
+                new \SoapFault('HTTP', 'Error Fetching http headers'),
+                true,
+                'HTTP faultcode should be treated as a timeout',
+            ],
+            'message says timed out' => [
+                new \SoapFault('Server', 'Connection timed out after 10000ms'),
+                true,
+                'A "timed out" message should be treated as a timeout',
+            ],
+            'could not connect' => [
+                new \SoapFault('Server', 'Could not connect to host'),
+                true,
+                'A connect failure should be treated as a timeout',
+            ],
+            'generic server fault is not a timeout' => [
+                new \SoapFault('Server', 'Internal server error'),
+                false,
+                'A generic server fault should be retried (not a timeout)',
+            ],
+            'generic exception is not a timeout' => [
+                new \RuntimeException('something else'),
+                false,
+                'A non-timeout exception should be retried',
+            ],
+        ];
+    }
+
+    /**
+     * callSoapWithRetry(): retries exactly once on a non-timeout fault.
+     */
+    public function testCallSoapWithRetryRetriesOnceOnTransientFault()
+    {
+        $this->scopeConfig->method('getValue')->willReturn('0');
+
+        $attempts = 0;
+        $result = $this->api->callSoapWithRetry(function () use (&$attempts) {
+            $attempts++;
+            if ($attempts === 1) {
+                throw new \SoapFault('Server', 'Transient blip');
+            }
+            return 'ok';
+        });
+
+        $this->assertSame(2, $attempts, 'A transient fault should trigger exactly one retry');
+        $this->assertSame('ok', $result);
+    }
+
+    /**
+     * callSoapWithRetry(): honors a configurable retry count.
+     */
+    public function testCallSoapWithRetryHonorsMaxRetries()
+    {
+        $this->scopeConfig->method('getValue')->willReturn('0');
+
+        $attempts = 0;
+        $result = $this->api->callSoapWithRetry(function () use (&$attempts) {
+            $attempts++;
+            if ($attempts < 3) {
+                throw new \SoapFault('Server', 'Transient blip');
+            }
+            return 'ok';
+        }, 2);
+
+        $this->assertSame(3, $attempts, 'maxRetries=2 should allow up to three total attempts');
+        $this->assertSame('ok', $result);
+    }
+
+    /**
+     * callSoapWithRetry(): does NOT retry on a timeout — rethrows immediately.
+     */
+    public function testCallSoapWithRetryDoesNotRetryOnTimeout()
+    {
+        $this->scopeConfig->method('getValue')->willReturn('0');
+
+        $attempts = 0;
+        $this->expectException(\SoapFault::class);
+        try {
+            $this->api->callSoapWithRetry(function () use (&$attempts) {
+                $attempts++;
+                throw new \SoapFault('HTTP', 'Error Fetching http headers');
+            });
+        } finally {
+            $this->assertSame(1, $attempts, 'A timeout must not be retried');
+        }
+    }
+
+    /**
+     * Configure a minimal-but-complete lookup context so lookupTaxes() reaches
+     * the SOAP lookup() call. Leaves the lookup() stub to the caller.
+     *
+     * @param string $fallbackEnabled '0' or '1'
+     * @return array [$itemsByType, $shippingAssignment, $quote]
+     */
+    private function configureLookupContext(string $fallbackEnabled): array
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/cache_lifetime', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
+                ['tax/taxcloud_settings/fallback_to_magento', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, $fallbackEnabled],
+                ['shipping/origin/postcode', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '60005'],
+                ['shipping/origin/street_line1', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '71 W Seegers Rd'],
+                ['shipping/origin/street_line2', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, ''],
+                ['shipping/origin/city', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'Arlington Heights'],
+                ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $region = $this->createMock(\Magento\Directory\Model\Region::class);
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn('GA');
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(1);
+        $customer->method('getCustomAttribute')->willReturn(null);
+
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+        $quote->method('getId')->willReturn(999);
+
+        $address = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $address->method('getPostcode')->willReturn('30097');
+        $address->method('getStreet')->willReturn(['405 Victorian Ln']);
+        $address->method('getCity')->willReturn('Duluth');
+        $address->method('getRegionId')->willReturn(1);
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getShippingAmount')->willReturn(5.00);
+
+        $shipping = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $shipping->method('getAddress')->willReturn($address);
+
+        $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getShipping')->willReturn($shipping);
+        $shippingAssignment->method('getItems')->willReturn([]);
+
+        $shippingTaxDetailItem = $this->createMock(\Magento\Tax\Api\Data\QuoteDetailsItemInterface::class);
+        $shippingTaxDetailItem->method('getRowTotal')->willReturn(5.00);
+        $itemsByType = [
+            Api::ITEM_TYPE_SHIPPING => [
+                'shipping' => [Api::KEY_ITEM => $shippingTaxDetailItem],
+            ],
+        ];
+
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+        $this->cacheType->method('load')->willReturn(false);
+
+        // DataObject pass-through for the taxcloud_lookup_before event.
+        $capturedParams = null;
+        $this->mockDataObject->method('setParams')->willReturnCallback(function ($p) use (&$capturedParams) {
+            $capturedParams = $p;
+            return $this->mockDataObject;
+        });
+        $this->mockDataObject->method('getParams')->willReturnCallback(function () use (&$capturedParams) {
+            return $capturedParams;
+        });
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+
+        return [$itemsByType, $shippingAssignment, $quote];
+    }
+
+    /**
+     * lookupTaxes(): a transient (non-timeout) SOAP fault is retried once.
+     * With fallback disabled and the retry also failing, a zero result returns.
+     */
+    public function testLookupTaxesRetriesOnceOnTransientSoapFault()
+    {
+        [$itemsByType, $shippingAssignment, $quote] = $this->configureLookupContext('0');
+
+        $this->mockSoapClient->expects($this->exactly(2))
+            ->method('lookup')
+            ->willThrowException(new \SoapFault('Server', 'Transient blip'));
+
+        $result = $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertSame(0, $result[Api::ITEM_TYPE_SHIPPING]);
+        $this->assertSame([], $result[Api::ITEM_TYPE_PRODUCT]);
+    }
+
+    /**
+     * lookupTaxes(): a timeout fails fast — lookup() is called exactly once
+     * (no retry) so checkout doesn't wait through a second stall.
+     */
+    public function testLookupTaxesDoesNotRetryOnTimeout()
+    {
+        [$itemsByType, $shippingAssignment, $quote] = $this->configureLookupContext('0');
+
+        $this->mockSoapClient->expects($this->once())
+            ->method('lookup')
+            ->willThrowException(new \SoapFault('HTTP', 'Error Fetching http headers'));
+
+        $result = $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertSame(0, $result[Api::ITEM_TYPE_SHIPPING]);
+    }
 }

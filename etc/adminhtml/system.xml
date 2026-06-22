@@ -129,6 +129,16 @@
           </depends>
         </field>
 
+        <field id="api_timeout" translate="label" type="text" sortOrder="95" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
+          <label>API Timeout (seconds)</label>
+          <validate>validate-number</validate>
+          <config_path>tax/taxcloud_settings/api_timeout</config_path>
+          <tooltip>Max seconds to wait for a TaxCloud API call before failing fast (Default 10). Lower values fail over to the Magento fallback sooner; leave blank to use the default.</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
         <field id="fallback_to_magento" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
           <label>Fallback to Magento Tax Rates</label>
           <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
