@@ -2,7 +2,7 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
-## 1.1.3
+## 1.2.0
 
 ### Security
 
