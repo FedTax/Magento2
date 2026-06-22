@@ -43,6 +43,16 @@ class Api
     const KEY_BASE_ITEM = 'base_item';
 
     /**
+     * Default SOAP connection/read timeout in seconds.
+     */
+    const DEFAULT_SOAP_TIMEOUT = 10;
+
+    /**
+     * Backoff between SOAP retry attempts, in microseconds.
+     */
+    const SOAP_RETRY_BACKOFF_US = 250000;
+
+    /**
      * Magento Config Object
      *
      * @var \Magento\Framework\App\Config\ScopeConfigInterface
@@ -456,6 +466,45 @@ class Api
     }
 
     /**
+     * Get the configured SOAP timeout (seconds), falling back to the default.
+     * @return int
+     */
+    protected function getSoapTimeout()
+    {
+        $configured = (int) $this->scopeConfig->getValue(
+            'tax/taxcloud_settings/api_timeout',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
+        return $configured > 0 ? $configured : self::DEFAULT_SOAP_TIMEOUT;
+    }
+
+    /**
+     * Build the option array passed to the SoapClient constructor.
+     *
+     * - connection_timeout: caps how long we wait to establish the connection.
+     * - stream_context http/ssl timeout: caps the read so a slow response
+     *   doesn't hang the checkout thread for default_socket_timeout (~60s).
+     * - cache_wsdl => WSDL_CACHE_BOTH: cache the WSDL in memory and on disk so
+     *   we don't refetch api.taxcloud.net's WSDL on every client construction.
+     *
+     * @return array
+     */
+    protected function buildSoapOptions()
+    {
+        $timeout = $this->getSoapTimeout();
+
+        return array(
+            'connection_timeout' => $timeout,
+            'cache_wsdl'         => WSDL_CACHE_BOTH,
+            'keep_alive'         => true,
+            'stream_context'     => stream_context_create(array(
+                'http' => array('timeout' => $timeout),
+                'ssl'  => array('timeout' => $timeout),
+            )),
+        );
+    }
+
+    /**
      * Get SoapClient
      * @return \SoapClient
      */
@@ -465,13 +514,64 @@ class Api
             try {
                 $wsdl = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
                 // $this->client = $this->soapClientFactory->create($wsdl);
-                $this->client = new \SoapClient($wsdl);
+                $this->client = new \SoapClient($wsdl, $this->buildSoapOptions());
             } catch (Throwable $e) {
                 $this->tclogger->info('Cannot get SoapClient:');
                 $this->tclogger->info($e->getMessage());
             }
         }
         return $this->client;
+    }
+
+    /**
+     * Return whether a SOAP failure represents a connection or read timeout,
+     * based on its fault code and message.
+     *
+     * @param Throwable $e
+     * @return bool
+     */
+    protected function isTimeoutError(Throwable $e)
+    {
+        if ($e instanceof \SoapFault && isset($e->faultcode)
+            && stripos((string) $e->faultcode, 'HTTP') !== false) {
+            return true;
+        }
+        return (bool) preg_match(
+            '/timed out|timeout|Error Fetching http headers|Could not connect|failed to open/i',
+            $e->getMessage()
+        );
+    }
+
+    /**
+     * Execute a SOAP call, retrying up to $maxRetries times on transient faults.
+     *
+     * Timeouts are rethrown immediately and never retried. Any other fault is
+     * retried after a short backoff until $maxRetries is exhausted, then the
+     * final exception is rethrown so each call site's existing error handling
+     * (Magento fallback / return false) still applies.
+     *
+     * @param callable $call
+     * @param int      $maxRetries Retries after the initial attempt (default 1)
+     * @return mixed
+     */
+    protected function callSoapWithRetry(callable $call, $maxRetries = 1)
+    {
+        $attempt = 0;
+        while (true) {
+            try {
+                return $call();
+            } catch (Throwable $e) {
+                if ($this->isTimeoutError($e) || $attempt >= $maxRetries) {
+                    throw $e;
+                }
+                $attempt++;
+                $this->tclogger->info(
+                    'SOAP call failed, retrying (' . $attempt . '/' . $maxRetries
+                    . ') after backoff: ' . $e->getMessage()
+                );
+                usleep(self::SOAP_RETRY_BACKOFF_US);
+            }
+        }
     }
 
     /**
@@ -654,22 +754,19 @@ class Api
         $this->tclogger->info(print_r($params, true));
 
         try {
-            $lookupResponse = $client->lookup($params);
+            $lookupResponse = $this->callSoapWithRetry(function () use ($client, $params) {
+                return $client->lookup($params);
+            });
         } catch (Throwable $e) {
-            // Retry
-            try {
-                $lookupResponse = $client->lookup($params);
-            } catch (Throwable $e) {
-                $this->tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
-                
-                // Check if fallback to Magento is enabled
-                if ($this->isFallbackToMagentoEnabled()) {
-                    $this->tclogger->info('TaxCloud lookup failed, falling back to Magento tax rates');
-                    return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
-                }
-                
-                return $result;
+            $this->tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
+
+            // Check if fallback to Magento is enabled
+            if ($this->isFallbackToMagentoEnabled()) {
+                $this->tclogger->info('TaxCloud lookup failed, falling back to Magento tax rates');
+                return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
             }
+
+            return $result;
         }
 
         // Force into array
@@ -879,15 +976,12 @@ class Api
         $this->tclogger->info(print_r($params, true));
 
         try {
-            $authorizedResponse = $client->authorizedWithCapture($params);
+            $authorizedResponse = $this->callSoapWithRetry(function () use ($client, $params) {
+                return $client->authorizedWithCapture($params);
+            });
         } catch (Throwable $e) {
-            // Retry
-            try {
-                $authorizedResponse = $client->authorizedWithCapture($params);
-            } catch (Throwable $e) {
-                $this->tclogger->info('Error encountered during authorizeCapture: ' . $e->getMessage());
-                return false;
-            }
+            $this->tclogger->info('Error encountered during authorizeCapture: ' . $e->getMessage());
+            return false;
         }
 
         // Force into array
@@ -1054,17 +1148,13 @@ class Api
         $this->tclogger->info(print_r($soapParams, true));
 
         try {
-            $returnResponse = $client->Returned($soapParams);
+            $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
+                return $client->Returned($soapParams);
+            });
         } catch (Throwable $e) {
-            $this->tclogger->info('First attempt failed: ' . $e->getMessage());
-            // Retry with explicit parameter mapping
-            try {
-                $returnResponse = $client->Returned($soapParams);
-            } catch (Throwable $e) {
-                $this->tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
-                $this->tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
-                return false;
-            }
+            $this->tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
+            $this->tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
+            return false;
         }
 
         // Force into array
@@ -1223,17 +1313,13 @@ class Api
         $this->tclogger->info(print_r($soapParams, true));
 
         try {
-            $returnResponse = $client->Returned($soapParams);
+            $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
+                return $client->Returned($soapParams);
+            });
         } catch (Throwable $e) {
-            $this->tclogger->info('First attempt failed: ' . $e->getMessage());
-            // Retry
-            try {
-                $returnResponse = $client->Returned($soapParams);
-            } catch (Throwable $e) {
-                $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $e->getMessage());
-                $this->tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
-                return false;
-            }
+            $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $e->getMessage());
+            $this->tclogger->info('SOAP parameters that failed: ' . print_r($soapParams, true));
+            return false;
         }
 
         // Force into array
@@ -1452,8 +1538,8 @@ class Api
         $client = $this->getClient();
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during lookupTaxes: Cannot get SoapClient');
-            return $result;
+            $this->tclogger->info('Error encountered during verifyAddress: Cannot get SoapClient');
+            return false;
         }
 
         // Call before event
@@ -1474,15 +1560,12 @@ class Api
         $this->tclogger->info(print_r($params, true));
 
         try {
-            $verifyResponse = $client->verifyAddress($params);
+            $verifyResponse = $this->callSoapWithRetry(function () use ($client, $params) {
+                return $client->verifyAddress($params);
+            });
         } catch (Throwable $e) {
-            // Retry
-            try {
-                $verifyResponse = $client->verifyAddress($params);
-            } catch (Throwable $e) {
-                $this->tclogger->info('Error encountered during verifyAddress: ' . $e->getMessage());
-                return $result;
-            }
+            $this->tclogger->info('Error encountered during verifyAddress: ' . $e->getMessage());
+            return false;
         }
 
         // Force into array

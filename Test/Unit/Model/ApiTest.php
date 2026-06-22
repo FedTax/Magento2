@@ -738,7 +738,7 @@ class ApiTest extends TestCase
         ]);
         $this->objectFactory->method('create')->willReturn($this->mockDataObject);
 
-        $lookupParams = null;
+        $shipLookupParams = null;
         $mockLookupResponse = new \stdClass();
         $mockLookupResponse->LookupResult = new \stdClass();
         $mockLookupResponse->LookupResult->ResponseType = 'OK';
@@ -746,15 +746,15 @@ class ApiTest extends TestCase
         $mockLookupResponse->LookupResult->CartItemsResponse->CartItemResponse = [
             (object)['CartItemIndex' => 0, 'TaxAmount' => 0],
         ];
-        $this->mockSoapClient->method('lookup')->willReturnCallback(function ($params) use (&$lookupParams, $mockLookupResponse) {
-            $lookupParams = $params;
+        $this->mockSoapClient->method('lookup')->willReturnCallback(function ($params) use (&$shipLookupParams, $mockLookupResponse) {
+            $shipLookupParams = $params;
             return $mockLookupResponse;
         });
 
         $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
 
-        $this->assertNotNull($lookupParams, 'lookup should have been called');
-        $cartItems = $lookupParams['cartItems'] ?? [];
+        $this->assertNotNull($shipLookupParams, 'lookup should have been called');
+        $cartItems = $shipLookupParams['cartItems'] ?? [];
         $shippingItem = null;
         foreach ($cartItems as $item) {
             if (isset($item['ItemID']) && $item['ItemID'] === 'shipping') {
@@ -914,8 +914,9 @@ class ApiTest extends TestCase
     /**
      * Common setup for the exemption-certificate lookup tests.
      *
-     * Returns an array [$itemsByType, $shippingAssignment, $quote, &$lookupParams]
-     * so each test can call lookupTaxes() and inspect what was sent to the SOAP lookup.
+     * Returns an array [$itemsByType, $shippingAssignment, $quote, $lookupHolder]
+     * where $lookupHolder->params captures what was sent to the SOAP lookup,
+     * so each test can call lookupTaxes() and inspect it afterward.
      *
      * @param string      $certID            Certificate UUID on the customer (empty string = no cert)
      * @param string      $destinationState  Two-letter state code for the shipping address
@@ -943,6 +944,14 @@ class ApiTest extends TestCase
             ->addMethods(['setParams', 'getParams', 'setResult', 'getResult'])
             ->getMock();
 
+        $this->taxCalculationService = $this->createMock(TaxCalculationInterface::class);
+        $this->quoteDetailsFactory = $this->createMock(QuoteDetailsInterfaceFactory::class);
+        $this->quoteDetailsItemFactory = $this->createMock(QuoteDetailsItemInterfaceFactory::class);
+        $this->taxClassKeyFactory = $this->createMock(TaxClassKeyInterfaceFactory::class);
+        $this->customerAddressFactory = $this->createMock(AddressInterfaceFactory::class);
+        $this->customerAddressRegionFactory = $this->createMock(RegionInterfaceFactory::class);
+        $this->refundDistributor = $this->createMock(RefundDistributor::class);
+
         $this->api = new Api(
             $this->scopeConfig,
             $this->cacheType,
@@ -954,7 +963,14 @@ class ApiTest extends TestCase
             $this->logger,
             $this->serializer,
             $this->cartItemResponseHandler,
-            $this->productTicService
+            $this->productTicService,
+            $this->taxCalculationService,
+            $this->quoteDetailsFactory,
+            $this->quoteDetailsItemFactory,
+            $this->taxClassKeyFactory,
+            $this->customerAddressFactory,
+            $this->customerAddressRegionFactory,
+            $this->refundDistributor
         );
         $this->injectMockSoapClientIntoApi();
 
@@ -1037,8 +1053,11 @@ class ApiTest extends TestCase
         ]);
         $this->objectFactory->method('create')->willReturn($this->mockDataObject);
 
-        // Standard lookup SOAP response
-        $lookupParams = null;
+        // Standard lookup SOAP response. The params sent to lookup() are
+        // captured into a holder object (avoids fragile by-reference list
+        // destructuring, which is not portable across PHP versions).
+        $lookupHolder = new \stdClass();
+        $lookupHolder->params = null;
         $mockLookupResponse = new \stdClass();
         $mockLookupResponse->LookupResult = new \stdClass();
         $mockLookupResponse->LookupResult->ResponseType = 'OK';
@@ -1047,13 +1066,13 @@ class ApiTest extends TestCase
             (object)['CartItemIndex' => 0, 'TaxAmount' => 0],
         ];
         $this->mockSoapClient->method('lookup')->willReturnCallback(
-            function ($params) use (&$lookupParams, $mockLookupResponse) {
-                $lookupParams = $params;
+            function ($params) use ($lookupHolder, $mockLookupResponse) {
+                $lookupHolder->params = $params;
                 return $mockLookupResponse;
             }
         );
 
-        return [$itemsByType, $shippingAssignment, $quote, &$lookupParams];
+        return [$itemsByType, $shippingAssignment, $quote, $lookupHolder];
     }
 
     /**
@@ -1066,7 +1085,7 @@ class ApiTest extends TestCase
         bool $expectCertSent
     ) {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote, $lookupHolder] =
             $this->setUpLookupWithCert($certID, $destinationState);
 
         $this->mockSoapClient->method('GetExemptCertificates')
@@ -1076,11 +1095,11 @@ class ApiTest extends TestCase
 
         $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
 
-        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertNotNull($lookupHolder->params, 'lookup should have been called');
         if ($expectCertSent) {
-            $this->assertSame($certID, $lookupParams['exemptCert']['CertificateID'], $description);
+            $this->assertSame($certID, $lookupHolder->params['exemptCert']['CertificateID'], $description);
         } else {
-            $this->assertNull($lookupParams['exemptCert']['CertificateID'], $description);
+            $this->assertNull($lookupHolder->params['exemptCert']['CertificateID'], $description);
         }
     }
 
@@ -1130,7 +1149,7 @@ class ApiTest extends TestCase
         bool $expectCertSent
     ) {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote, $lookupHolder] =
             $this->setUpLookupWithCert($certID, $destinationState);
 
         $certCacheKey = 'taxcloud_cert_states_' . $certID;
@@ -1146,11 +1165,11 @@ class ApiTest extends TestCase
 
         $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
 
-        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertNotNull($lookupHolder->params, 'lookup should have been called');
         if ($expectCertSent) {
-            $this->assertSame($certID, $lookupParams['exemptCert']['CertificateID'], $description);
+            $this->assertSame($certID, $lookupHolder->params['exemptCert']['CertificateID'], $description);
         } else {
-            $this->assertNull($lookupParams['exemptCert']['CertificateID'], $description);
+            $this->assertNull($lookupHolder->params['exemptCert']['CertificateID'], $description);
         }
     }
 
@@ -1178,7 +1197,7 @@ class ApiTest extends TestCase
     public function testLookupTaxesOmitsCertWhenGetExemptCertificatesFails()
     {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote, $lookupHolder] =
             $this->setUpLookupWithCert($certID, 'GA');
 
         $this->mockSoapClient->method('GetExemptCertificates')
@@ -1188,9 +1207,9 @@ class ApiTest extends TestCase
 
         $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
 
-        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertNotNull($lookupHolder->params, 'lookup should have been called');
         $this->assertNull(
-            $lookupParams['exemptCert']['CertificateID'],
+            $lookupHolder->params['exemptCert']['CertificateID'],
             'CertificateID must be null when GetExemptCertificates SOAP call fails'
         );
     }
@@ -1200,7 +1219,7 @@ class ApiTest extends TestCase
      */
     public function testLookupTaxesNoCertOnCustomerSendsNullCertificateID()
     {
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote, $lookupHolder] =
             $this->setUpLookupWithCert('', 'GA');
 
         $this->cacheType->method('load')->willReturn(false);
@@ -1208,9 +1227,9 @@ class ApiTest extends TestCase
 
         $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
 
-        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertNotNull($lookupHolder->params, 'lookup should have been called');
         $this->assertNull(
-            $lookupParams['exemptCert']['CertificateID'],
+            $lookupHolder->params['exemptCert']['CertificateID'],
             'CertificateID should be null when customer has no cert'
         );
     }
@@ -1221,7 +1240,7 @@ class ApiTest extends TestCase
     public function testLookupTaxesHandlesSingleCertSoapResponse()
     {
         $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-        [$itemsByType, $shippingAssignment, $quote, &$lookupParams] =
+        [$itemsByType, $shippingAssignment, $quote, $lookupHolder] =
             $this->setUpLookupWithCert($certID, 'GA');
 
         // Build response where ExemptionCertificate is a single object, not an array
@@ -1234,11 +1253,282 @@ class ApiTest extends TestCase
 
         $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
 
-        $this->assertNotNull($lookupParams, 'lookup should have been called');
+        $this->assertNotNull($lookupHolder->params, 'lookup should have been called');
         $this->assertSame(
             $certID,
-            $lookupParams['exemptCert']['CertificateID'],
+            $lookupHolder->params['exemptCert']['CertificateID'],
             'Should handle single-cert SOAP response (object instead of array)'
         );
     }
-} 
+
+    // ─── SOAP Timeout / Retry Tests (INT-504) ───────────────────────────
+
+    /**
+     * Invoke a protected method on the Api under test.
+     *
+     * @param string $method
+     * @param array  $args
+     * @return mixed
+     */
+    private function callProtected(string $method, array $args = [])
+    {
+        $ref = new \ReflectionMethod(Api::class, $method);
+        if (method_exists($ref, 'setAccessible')) {
+            @$ref->setAccessible(true);
+        }
+        return $ref->invokeArgs($this->api, $args);
+    }
+
+    /**
+     * buildSoapOptions(): uses the default timeout when api_timeout is unset
+     * and always pins cache_wsdl => WSDL_CACHE_BOTH plus a stream-context timeout.
+     */
+    public function testBuildSoapOptionsUsesDefaultTimeoutAndCachesWsdl()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/api_timeout', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, null],
+            ]);
+
+        $options = $this->callProtected('buildSoapOptions');
+
+        $this->assertSame(Api::DEFAULT_SOAP_TIMEOUT, $options['connection_timeout']);
+        $this->assertSame(WSDL_CACHE_BOTH, $options['cache_wsdl']);
+        $this->assertTrue($options['keep_alive']);
+        $this->assertIsResource($options['stream_context']);
+
+        $ctx = stream_context_get_options($options['stream_context']);
+        $this->assertSame(Api::DEFAULT_SOAP_TIMEOUT, $ctx['http']['timeout']);
+        $this->assertSame(Api::DEFAULT_SOAP_TIMEOUT, $ctx['ssl']['timeout']);
+    }
+
+    /**
+     * buildSoapOptions(): honors a configured api_timeout for both the
+     * connection timeout and the stream-context read timeout.
+     */
+    public function testBuildSoapOptionsUsesConfiguredTimeout()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/api_timeout', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '3'],
+            ]);
+
+        $options = $this->callProtected('buildSoapOptions');
+
+        $this->assertSame(3, $options['connection_timeout']);
+        $ctx = stream_context_get_options($options['stream_context']);
+        $this->assertSame(3, $ctx['http']['timeout']);
+    }
+
+    /**
+     * @dataProvider timeoutErrorProvider
+     */
+    public function testIsTimeoutErrorClassification(\Throwable $error, bool $expected, string $message)
+    {
+        $this->assertSame($expected, $this->callProtected('isTimeoutError', [$error]), $message);
+    }
+
+    public static function timeoutErrorProvider(): array
+    {
+        return [
+            'http faultcode is a timeout' => [
+                new \SoapFault('HTTP', 'Error Fetching http headers'),
+                true,
+                'HTTP faultcode should be treated as a timeout',
+            ],
+            'message says timed out' => [
+                new \SoapFault('Server', 'Connection timed out after 10000ms'),
+                true,
+                'A "timed out" message should be treated as a timeout',
+            ],
+            'could not connect' => [
+                new \SoapFault('Server', 'Could not connect to host'),
+                true,
+                'A connect failure should be treated as a timeout',
+            ],
+            'generic server fault is not a timeout' => [
+                new \SoapFault('Server', 'Internal server error'),
+                false,
+                'A generic server fault should be retried (not a timeout)',
+            ],
+            'generic exception is not a timeout' => [
+                new \RuntimeException('something else'),
+                false,
+                'A non-timeout exception should be retried',
+            ],
+        ];
+    }
+
+    /**
+     * callSoapWithRetry(): retries exactly once on a non-timeout fault.
+     */
+    public function testCallSoapWithRetryRetriesOnceOnTransientFault()
+    {
+        $this->scopeConfig->method('getValue')->willReturn('0');
+
+        $attempts = 0;
+        $result = $this->callProtected('callSoapWithRetry', [function () use (&$attempts) {
+            $attempts++;
+            if ($attempts === 1) {
+                throw new \SoapFault('Server', 'Transient blip');
+            }
+            return 'ok';
+        }]);
+
+        $this->assertSame(2, $attempts, 'A transient fault should trigger exactly one retry');
+        $this->assertSame('ok', $result);
+    }
+
+    /**
+     * callSoapWithRetry(): honors a configurable retry count.
+     */
+    public function testCallSoapWithRetryHonorsMaxRetries()
+    {
+        $this->scopeConfig->method('getValue')->willReturn('0');
+
+        $attempts = 0;
+        $result = $this->callProtected('callSoapWithRetry', [function () use (&$attempts) {
+            $attempts++;
+            if ($attempts < 3) {
+                throw new \SoapFault('Server', 'Transient blip');
+            }
+            return 'ok';
+        }, 2]);
+
+        $this->assertSame(3, $attempts, 'maxRetries=2 should allow up to three total attempts');
+        $this->assertSame('ok', $result);
+    }
+
+    /**
+     * callSoapWithRetry(): does NOT retry on a timeout — rethrows immediately.
+     */
+    public function testCallSoapWithRetryDoesNotRetryOnTimeout()
+    {
+        $this->scopeConfig->method('getValue')->willReturn('0');
+
+        $attempts = 0;
+        $this->expectException(\SoapFault::class);
+        try {
+            $this->callProtected('callSoapWithRetry', [function () use (&$attempts) {
+                $attempts++;
+                throw new \SoapFault('HTTP', 'Error Fetching http headers');
+            }]);
+        } finally {
+            $this->assertSame(1, $attempts, 'A timeout must not be retried');
+        }
+    }
+
+    /**
+     * Configure a minimal-but-complete lookup context so lookupTaxes() reaches
+     * the SOAP lookup() call. Leaves the lookup() stub to the caller.
+     *
+     * @param string $fallbackEnabled '0' or '1'
+     * @return array [$itemsByType, $shippingAssignment, $quote]
+     */
+    private function configureLookupContext(string $fallbackEnabled): array
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/cache_lifetime', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
+                ['tax/taxcloud_settings/fallback_to_magento', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, $fallbackEnabled],
+                ['shipping/origin/postcode', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '60005'],
+                ['shipping/origin/street_line1', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '71 W Seegers Rd'],
+                ['shipping/origin/street_line2', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, ''],
+                ['shipping/origin/city', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'Arlington Heights'],
+                ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $region = $this->createMock(\Magento\Directory\Model\Region::class);
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn('GA');
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(1);
+        $customer->method('getCustomAttribute')->willReturn(null);
+
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+        $quote->method('getId')->willReturn(999);
+
+        $address = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $address->method('getPostcode')->willReturn('30097');
+        $address->method('getStreet')->willReturn(['405 Victorian Ln']);
+        $address->method('getCity')->willReturn('Duluth');
+        $address->method('getRegionId')->willReturn(1);
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getShippingAmount')->willReturn(5.00);
+
+        $shipping = $this->createMock(\Magento\Quote\Model\Quote\Address::class);
+        $shipping->method('getAddress')->willReturn($address);
+
+        $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getShipping')->willReturn($shipping);
+        $shippingAssignment->method('getItems')->willReturn([]);
+
+        $shippingTaxDetailItem = $this->createMock(\Magento\Tax\Api\Data\QuoteDetailsItemInterface::class);
+        $shippingTaxDetailItem->method('getRowTotal')->willReturn(5.00);
+        $itemsByType = [
+            Api::ITEM_TYPE_SHIPPING => [
+                'shipping' => [Api::KEY_ITEM => $shippingTaxDetailItem],
+            ],
+        ];
+
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+        $this->cacheType->method('load')->willReturn(false);
+
+        // DataObject pass-through for the taxcloud_lookup_before event.
+        $capturedParams = null;
+        $this->mockDataObject->method('setParams')->willReturnCallback(function ($p) use (&$capturedParams) {
+            $capturedParams = $p;
+            return $this->mockDataObject;
+        });
+        $this->mockDataObject->method('getParams')->willReturnCallback(function () use (&$capturedParams) {
+            return $capturedParams;
+        });
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+
+        return [$itemsByType, $shippingAssignment, $quote];
+    }
+
+    /**
+     * lookupTaxes(): a transient (non-timeout) SOAP fault is retried once.
+     * With fallback disabled and the retry also failing, a zero result returns.
+     */
+    public function testLookupTaxesRetriesOnceOnTransientSoapFault()
+    {
+        [$itemsByType, $shippingAssignment, $quote] = $this->configureLookupContext('0');
+
+        $this->mockSoapClient->expects($this->exactly(2))
+            ->method('lookup')
+            ->willThrowException(new \SoapFault('Server', 'Transient blip'));
+
+        $result = $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertSame(0, $result[Api::ITEM_TYPE_SHIPPING]);
+        $this->assertSame([], $result[Api::ITEM_TYPE_PRODUCT]);
+    }
+
+    /**
+     * lookupTaxes(): a timeout fails fast — lookup() is called exactly once
+     * (no retry) so checkout doesn't wait through a second stall.
+     */
+    public function testLookupTaxesDoesNotRetryOnTimeout()
+    {
+        [$itemsByType, $shippingAssignment, $quote] = $this->configureLookupContext('0');
+
+        $this->mockSoapClient->expects($this->once())
+            ->method('lookup')
+            ->willThrowException(new \SoapFault('HTTP', 'Error Fetching http headers'));
+
+        $result = $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertSame(0, $result[Api::ITEM_TYPE_SHIPPING]);
+    }
+}
