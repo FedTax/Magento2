@@ -1,22 +1,53 @@
-name: Test Suite
+name: CI
+
+# Unified pipeline. One run per event:
+#   - pull_request / push to branches -> unit tests (community only) + lint + security
+#   - push tag v* (and manual dispatch) -> the SAME unit tests PLUS the full
+#     integration matrix (community + enterprise across all supported versions),
+#     so a release tag is gated by a single run covering unit + integration.
+#
+# Unit tests mock all collaborators, so edition makes no difference at that level —
+# the unit job runs community-only. Integration exercises both editions.
+#
+# Required repo secrets:
+#   MAGENTO_PUBLIC_KEY, MAGENTO_PRIVATE_KEY  - Marketplace keys (repo.magento.com),
+#                                              needed by unit AND integration.
+#   TAXCLOUD_API_ID, TAXCLOUD_API_KEY        - sandbox creds, integration only.
+# Enterprise integration rows are skipped (not failed) when Marketplace keys are
+# absent, so forks without a Commerce contract still exercise the community rows.
+#
+# Locally these run in isolation via the Makefile:
+#   make test-unit                       # unit, against the dev Magento install
+#   make test-unit-version MAGENTO_VERSION=2.4.7-p10 PHP_VERSION=8.2 [MAGENTO_EDITION=enterprise]
+#   make integration-test  MAGENTO_VERSION=2.4.9    PHP_VERSION=8.5 [MAGENTO_EDITION=enterprise]
 
 on:
   push:
     branches: [ main, develop, DEV-* ]
-    # Release tags also run the full suite, alongside integration-tests.yml's
-    # own v* trigger, so a tagged release gets both gates from one push.
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      magento_versions:
+        description: 'Integration: comma-separated versions to run (e.g. "2.4.9,2.4.8-p5"). Empty = full matrix.'
+        required: false
+        default: ''
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Don't cancel an in-progress release-tag run; do cancel superseded branch/PR runs.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  # Unit tests run against a real Magento codebase (no DB needed) using
-  # Magento's own PHPUnit. The module has no vendor/ of its own — see
-  # Test/Unit/bootstrap.php. composer create-project needs Marketplace keys
-  # (MAGENTO_PUBLIC_KEY / MAGENTO_PRIVATE_KEY repo secrets); the Magento
-  # codebase is cached between runs so warm runs skip the download.
+  # ---------------------------------------------------------------------------
+  # Unit tests — community only, run on every event (PR, push, tag, dispatch).
+  # Against a real Magento codebase (no DB) using that version's bundled PHPUnit,
+  # so the matrix doubles as a PHPUnit-compatibility gate (2.4.7/2.4.8 -> PHPUnit
+  # 9/10, 2.4.9 -> PHPUnit 12). The module has no vendor/ of its own — see
+  # Test/Unit/bootstrap.php. The codebase is cached between runs.
+  # ---------------------------------------------------------------------------
   unit-tests:
-    name: Unit tests — Magento ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
+    name: Unit — Magento ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -81,30 +112,152 @@ jobs:
           -c app/code/Taxcloud/Magento2/phpunit.xml.dist \
           app/code/Taxcloud/Magento2/Test/Unit/ --testdox
 
+  # ---------------------------------------------------------------------------
+  # Integration tests — community + enterprise across the full version matrix.
+  # EXPENSIVE (10-15 min/row, real Magento install in Docker). Gated to release
+  # tags and manual dispatch only, so it never runs on PRs/branch pushes.
+  # ---------------------------------------------------------------------------
+  integration:
+    name: Integration — ${{ matrix.magento-edition }} ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # MariaDB/OpenSearch versions are derived from the Magento version by
+        # scripts/install-magento.sh (2.4.9+ needs MariaDB 11.4 + OpenSearch 3.0).
+        include:
+          - magento-edition: community
+            magento-version: '2.4.7-p10'
+            php-version: '8.2'
+          - magento-edition: community
+            magento-version: '2.4.8-p5'
+            php-version: '8.3'
+          - magento-edition: community
+            magento-version: '2.4.9'
+            php-version: '8.5'
+          - magento-edition: enterprise
+            magento-version: '2.4.7-p10'
+            php-version: '8.2'
+          - magento-edition: enterprise
+            magento-version: '2.4.8-p5'
+            php-version: '8.3'
+          - magento-edition: enterprise
+            magento-version: '2.4.9'
+            php-version: '8.5'
+
+    env:
+      MAGENTO_EDITION: ${{ matrix.magento-edition }}
+      MAGENTO_VERSION: ${{ matrix.magento-version }}
+      PHP_VERSION: ${{ matrix.php-version }}
+      MAGENTO_INSTALL_DIR: ${{ github.workspace }}/../magento-install
+      COMPOSER_CACHE_DIR: ${{ github.workspace }}/.composer-cache
+      TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
+      TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
+      MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
+      MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gate matrix row
+        id: gate
+        env:
+          REQUESTED_VERSIONS: ${{ github.event.inputs.magento_versions }}
+        run: |
+          # Skip rows the dispatcher excluded via the magento_versions input.
+          if [[ -n "${REQUESTED_VERSIONS}" ]] && [[ ",${REQUESTED_VERSIONS}," != *",${MAGENTO_VERSION},"* ]]; then
+            echo "::notice::Row ${MAGENTO_EDITION} ${MAGENTO_VERSION} excluded by workflow_dispatch input."
+            echo "skip=true"   >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Gracefully skip enterprise rows when Marketplace creds are absent.
+          if [[ "${MAGENTO_EDITION}" == "enterprise" && -z "${MAGENTO_PUBLIC_KEY}" ]]; then
+            echo "::warning::Skipping enterprise row — MAGENTO_PUBLIC_KEY secret not set."
+            echo "skip=true"   >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Verify required secrets
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          missing=()
+          [[ -z "$TAXCLOUD_API_ID"     ]] && missing+=(TAXCLOUD_API_ID)
+          [[ -z "$TAXCLOUD_API_KEY"    ]] && missing+=(TAXCLOUD_API_KEY)
+          [[ -z "$MAGENTO_PUBLIC_KEY"  ]] && missing+=(MAGENTO_PUBLIC_KEY)
+          [[ -z "$MAGENTO_PRIVATE_KEY" ]] && missing+=(MAGENTO_PRIVATE_KEY)
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Cache Composer downloads
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-
+            composer-${{ matrix.magento-edition }}-
+
+      - name: Install Magento + module
+        if: steps.gate.outputs.skip != 'true'
+        run: ./scripts/install-magento.sh "${MAGENTO_EDITION}" "${MAGENTO_VERSION}"
+
+      - name: Run integration test suite
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          docker compose exec -T -w /var/www/html app \
+            vendor/bin/phpunit -c /srv/module/phpunit.integration.xml.dist --testdox
+
+      - name: Collect debug logs on failure
+        if: failure() && steps.gate.outputs.skip != 'true'
+        run: |
+          mkdir -p ./debug-logs
+          docker compose logs --no-color > ./debug-logs/docker-compose.log 2>&1 || true
+          docker compose exec -T app sh -c \
+            'tail -n 500 var/log/exception.log var/log/system.log var/log/debug.log 2>/dev/null' \
+            > ./debug-logs/magento.log 2>&1 || true
+          docker compose exec -T app php -v > ./debug-logs/php-version.txt 2>&1 || true
+
+      - name: Upload debug logs
+        if: failure() && steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
+          path: ./debug-logs/
+          retention-days: 7
+
   lint-code:
     name: Lint Code
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Set up PHP
       uses: shivammathur/setup-php@v2
       with:
         php-version: '8.1'
         extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
-        
+
     - name: Install PHP CodeSniffer
       run: |
         composer global require squizlabs/php_codesniffer
         echo "$HOME/.composer/vendor/bin" >> $GITHUB_PATH
-        
+
     - name: Run PHP CodeSniffer
       run: |
         # Run linting and capture output
         lint_output=$(phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/ 2>&1 || true)
-        
+
         # Check if there are any errors (not just warnings)
         if echo "$lint_output" | grep -q "FOUND [1-9][0-9]* ERROR"; then
           echo "❌ Linting failed - errors found:"
@@ -114,15 +267,15 @@ jobs:
           echo "✅ Linting passed - only warnings found (non-fatal):"
           echo "$lint_output"
         fi
-        
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
@@ -130,7 +283,7 @@ jobs:
         scan-ref: '.'
         format: 'sarif'
         output: 'trivy-results.sarif'
-        
+
     - name: Upload Trivy scan results to GitHub Security tab
       uses: github/codeql-action/upload-sarif@v2
       if: always()

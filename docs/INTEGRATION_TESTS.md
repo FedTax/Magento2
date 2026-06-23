@@ -176,14 +176,19 @@ download Open Source but get a 403 from `repo.magento.com` for
 There are no per-version artifacts to generate — the seed script works
 against any installed Magento. Adding a version is two steps:
 
-1. **Add a row to `.github/workflows/integration-tests.yml`:**
+1. **Add a row to the `integration` job's matrix in `.github/workflows/test.yml`**
+   (add both editions, and a matching row to the `unit-tests` matrix if it's a
+   new version line):
    ```yaml
    - magento-edition: community
      magento-version: '2.4.10'
      php-version: '8.5'
+   - magento-edition: enterprise
+     magento-version: '2.4.10'
+     php-version: '8.5'
    ```
-2. **Test the row before merging:** Actions tab → Integration Tests → Run
-   workflow → set `magento_versions=2.4.10`.
+2. **Test the row before merging:** Actions tab → CI → Run workflow → set
+   `magento_versions=2.4.10` (dispatch runs the integration job too).
 
 If a row needs a different PHP version than the others, the compose stack
 already supports it — the `PHP_VERSION` env var is honored both locally and
@@ -198,14 +203,18 @@ vars.
 
 ---
 
-## Triggering the workflow manually
+## Triggering the integration matrix manually
+
+Integration runs as a job within the unified **CI** workflow
+(`.github/workflows/test.yml`). It is gated to release tags (`v*`) and manual
+dispatch — it does not run on ordinary PRs or branch pushes.
 
 From the GitHub UI:
 
-1. Actions tab → **Integration Tests** workflow.
+1. Actions tab → **CI** workflow.
 2. **Run workflow** → choose the branch.
-3. Optional: set **Comma-separated versions** (e.g. `2.4.8-p5` to run only
-   that version's matrix rows). Empty = full matrix.
+3. Optional: set **Integration: comma-separated versions** (e.g. `2.4.8-p5` to
+   run only that version's matrix rows). Empty = full matrix.
 4. Watch the per-row jobs. On failure, the **debug-\<edition\>-\<version\>**
    artifact contains `docker compose logs` and Magento's `var/log/*.log`
    tail — start there.
@@ -213,11 +222,12 @@ From the GitHub UI:
 From the CLI:
 
 ```bash
-gh workflow run integration-tests.yml --ref main
-gh workflow run integration-tests.yml --ref main -f magento_versions=2.4.8-p5
+gh workflow run test.yml --ref main
+gh workflow run test.yml --ref main -f magento_versions=2.4.8-p5
 ```
 
-The workflow also runs automatically on `push` to release tags (`v*`).
+A pushed release tag (`v*`) runs the whole thing — unit + the full integration
+matrix — in a single CI run.
 
 ### Required GitHub Actions secrets
 
