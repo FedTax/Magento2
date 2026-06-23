@@ -230,6 +230,12 @@ class ApiRedactionTest extends TestCase
  * Taxcloud\Magento2\Logger\Logger instance (a Monolog\Logger subclass), so
  * overriding with Monolog-compatible signatures gives a truthful capture of
  * exactly what would have been written to disk.
+ *
+ * The $message parameter is intentionally left untyped: Monolog 2 (Magento
+ * <= 2.4.8) declares the parent as `info($message, ...)` while Monolog 3
+ * (Magento 2.4.9+) declares `info(string|\Stringable $message, ...)`. An
+ * untyped child param is contravariantly compatible with both; typing it
+ * `string|\Stringable` fatals on Monolog 2 (a child may not narrow a param).
  */
 class CapturingLogger extends Logger
 {
@@ -241,17 +247,17 @@ class CapturingLogger extends Logger
         parent::__construct('taxcloud-test');
     }
 
-    public function info(string|\Stringable $message, array $context = []): void
+    public function info($message, array $context = []): void
     {
         $this->messages[] = $message;
     }
 
-    public function error(string|\Stringable $message, array $context = []): void
+    public function error($message, array $context = []): void
     {
         $this->messages[] = $message;
     }
 
-    public function debug(string|\Stringable $message, array $context = []): void
+    public function debug($message, array $context = []): void
     {
         $this->messages[] = $message;
     }

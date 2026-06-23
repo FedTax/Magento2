@@ -103,8 +103,15 @@ mkdir -p "$COMPOSER_CACHE_DIR_RESOLVED"
 # The container runs as a non-root user; relax host perms so it can write.
 chmod 777 "$COMPOSER_CACHE_DIR_RESOLVED"
 
-echo "==> Bringing up integration test stack (Magento $EDITION $VERSION, PHP $PHP_VERSION, MariaDB $MARIADB_VERSION, OpenSearch $OPENSEARCH_VERSION)..."
-docker compose up -d --wait
+# UNIT_ONLY=1 provisions just the Magento codebase for running unit tests:
+# only the app (PHP) container — no MariaDB/OpenSearch/Redis, no setup:install.
+if [ "${UNIT_ONLY:-0}" = "1" ]; then
+    echo "==> Bringing up app container only (unit mode — Magento $EDITION $VERSION, PHP $PHP_VERSION; no DB/search)..."
+    docker compose up -d --no-deps --wait app
+else
+    echo "==> Bringing up integration test stack (Magento $EDITION $VERSION, PHP $PHP_VERSION, MariaDB $MARIADB_VERSION, OpenSearch $OPENSEARCH_VERSION)..."
+    docker compose up -d --wait
+fi
 
 # --- 2. Composer auth ------------------------------------------------------
 
@@ -177,6 +184,16 @@ docker compose exec -T app sh -c '
     mkdir -p Test
     ln -s /srv/module/Test/Integration Test/Integration
 '
+
+# Unit mode stops here: the codebase + the module linked into app/code is all
+# the unit suite needs (production classes autoload via the symlink; the suite
+# runs from /srv/module with MAGENTO_ROOT=/var/www/html). No DB, setup:install,
+# di:compile or seeding required.
+if [ "${UNIT_ONLY:-0}" = "1" ]; then
+    echo
+    echo "==> Codebase ready (unit mode). Magento $EDITION $VERSION at $MAGENTO_INSTALL_DIR"
+    exit 0
+fi
 
 # --- 5. Reset Magento install state ---------------------------------------
 #

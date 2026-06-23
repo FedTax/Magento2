@@ -65,7 +65,7 @@ test-unit-version:
 		echo "  cp .env.example .env   # fill in Magento Marketplace keys"; \
 		exit 1; \
 	fi
-	@./scripts/install-magento.sh $(MAGENTO_EDITION) $(MAGENTO_VERSION) $(PHP_VERSION)
+	@UNIT_ONLY=1 ./scripts/install-magento.sh $(MAGENTO_EDITION) $(MAGENTO_VERSION) $(PHP_VERSION)
 	@echo "==> Running unit suite against Magento $(MAGENTO_VERSION) (PHP $(PHP_VERSION))..."
 	@docker compose exec -T -w /srv/module -e MAGENTO_ROOT=/var/www/html app \
 		/var/www/html/vendor/bin/phpunit -c /srv/module/phpunit.xml.dist Test/Unit/ --testdox

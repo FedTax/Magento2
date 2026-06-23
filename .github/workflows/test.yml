@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - magento-version: '2.4.7-p3'
+          - magento-version: '2.4.7-p10'
             php-version: '8.2'
           - magento-version: '2.4.8-p5'
             php-version: '8.3'
