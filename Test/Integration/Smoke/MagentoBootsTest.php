@@ -21,6 +21,7 @@ namespace Taxcloud\Magento2\Test\Integration\Smoke;
 
 use Magento\Framework\Module\ModuleList;
 use PHPUnit\Framework\TestCase;
+use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Test\Integration\TestEnvironment;
 
 /**
@@ -51,6 +52,29 @@ class MagentoBootsTest extends TestCase
             'Taxcloud_Magento2 is not in the registered module list. Verify the '
             . 'install script symlinked this repo into app/code/Taxcloud/Magento2 '
             . 'and that setup:upgrade ran cleanly.'
+        );
+    }
+
+    /**
+     * Runtime proof that setup:di:compile produced loadable generated code for
+     * this module: the ObjectManager can build Taxcloud\Magento2\Model\Api
+     * (and the constructor-injected graph behind it) without error.
+     *
+     * The install pipeline's `setup:di:compile` step (run under `set -e`)
+     * already gates *compilation* — a failure there aborts the install before
+     * PHPUnit runs. This adds the complementary runtime signal that the
+     * compiled graph is actually resolvable, which is the only part of a
+     * standalone DI-compilation test that isn't redundant with the install.
+     */
+    public function testCompiledDiGraphCanInstantiateApi(): void
+    {
+        $api = TestEnvironment::get(Api::class);
+
+        $this->assertInstanceOf(
+            Api::class,
+            $api,
+            'ObjectManager could not build Taxcloud\\Magento2\\Model\\Api from the '
+            . 'compiled DI graph — check setup:di:compile output for this module.'
         );
     }
 }

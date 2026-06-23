@@ -153,6 +153,118 @@ idempotent) or `INSERT` from within the test via Magento's
 
 ---
 
+## Mocking the TaxCloud SOAP client
+
+Real TaxCloud SOAP calls cannot run in CI — they need live sandbox
+connectivity and would make tests slow, flaky, and dependent on an external
+service's state. Every behavioural test instead swaps the SOAP client for a
+controllable double **while keeping the rest of Magento real** (real DB, real
+order/invoice/credit-memo flow, real event dispatch, real observers). This is
+the same approach Magento core uses when stubbing external services.
+
+### How the swap works
+
+`Taxcloud\Magento2\Model\Api` gets its client from Magento's
+`Magento\Framework\Webapi\Soap\ClientFactory` (`create()` returns a
+`\SoapClient`). The harness in
+[`Test/Integration/IntegrationTestCase.php`](../Test/Integration/IntegrationTestCase.php)
+does two things in `installSoapMock()`:
+
+1. **Rebinds the factory.** It puts an anonymous `ClientFactory` subclass into
+   the ObjectManager whose `create()` returns a
+   [`RecordingSoapClient`](../Test/Integration/Doubles/RecordingSoapClient.php)
+   instead of a real `\SoapClient`.
+2. **Evicts the cached singletons** that would otherwise still hold the real
+   client — `Api`, the TaxCloud `Tax` total model, and the four observers.
+   On the next resolution Magento rebuilds that graph around the mock.
+
+> **Why not `addSharedInstance()`?** That method only exists on Magento's
+> *integration-test-framework* ObjectManager. This suite deliberately boots the
+> real installed Magento (see "Why a custom bootstrap" below), whose production
+> ObjectManager keeps its shared instances in a protected array. The harness
+> reaches them with a closure bound to the ObjectManager's class scope — the
+> minimal seam that lets us swap one binding without dragging in the whole
+> framework.
+
+`RecordingSoapClient` extends `\SoapClient` (so it satisfies the factory's
+return contract) but never calls the parent constructor, so **no WSDL is ever
+fetched**. Every TaxCloud operation is a magic method on `\SoapClient`, so the
+double intercepts them all through `__call()`, where it both **records the
+call** (method name + argument payload) and **returns a canned response**.
+
+### Canned responses
+
+Reusable happy-path responses live as PHP fixtures under
+[`Test/Integration/_files/soap_responses/`](../Test/Integration/_files/soap_responses/),
+one file per operation, each returning an array shaped like the real WSDL's
+response element:
+
+| Fixture | SOAP op (as the code calls it) | Result element |
+| ------- | ------------------------------ | -------------- |
+| `lookup_ok_empty.php` | `lookup` | `LookupResult` (OK, empty cart response = zero tax) |
+| `verify_address_ok.php` | `verifyAddress` | `VerifyAddressResult` (`ErrNumber` 0) |
+| `get_exempt_certificates_empty.php` | `GetExemptCertificates` | `GetExemptCertificatesResult` (OK, none) |
+| `authorized_with_capture_ok.php` | `authorizedWithCapture` | `AuthorizedWithCaptureResult` (OK) |
+| `returned_ok.php` | `Returned` | `ReturnedResult` (OK) |
+| `order_details_captured.php` | `OrderDetails` | `OrderDetailsResult` (non-empty `CapturedDate`) |
+
+`installSoapMock()` loads all six by default. Note the keys match the **casing
+the code uses** when calling the client (`lookup`, `verifyAddress`, …), not the
+WSDL's PascalCase — `__call()` receives the name exactly as written in `Api`.
+Override or add a response per test with
+`$soap->setResponse('OperationName', $arrayOrClosure)`; a `\Closure(array $args)`
+lets you compute a per-call response.
+
+### Writing an observer-wiring test
+
+Extend `IntegrationTestCase`, install the mock, drive a real sales-flow action,
+then assert on what reached the SOAP layer:
+
+```php
+final class CaptureOnOrderPlaceTest extends IntegrationTestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->installSoapMock();
+        $this->setCaptureTrigger(CaptureTrigger::ORDER_CREATION);
+    }
+
+    public function testCaptureFiresOnPlacement(): void
+    {
+        $soap  = $this->soapClient();
+        $order = $this->placeOrder();        // fires sales_order_place_after
+
+        $this->assertSame(1, $soap->callCount('authorizedWithCapture'));
+        $this->assertSame(
+            $order->getIncrementId(),
+            $soap->firstCallArgs('authorizedWithCapture')['orderID']
+        );
+    }
+}
+```
+
+The base class provides the whole real lifecycle so the events actually fire:
+`placeOrder()`, `payInvoice()`, `createShipment()`, `cancelOrder()`,
+`refundOrder()`, plus `setCaptureTrigger()` / `writeConfig()` (which persist
+config and `reinit()` the shared config). Current coverage lives in
+[`Test/Integration/Observer/Sales/`](../Test/Integration/Observer/Sales/):
+
+| Test | Proves |
+| ---- | ------ |
+| `CaptureOnOrderPlaceTest` | trigger=order_creation → capture on `sales_order_place_after` |
+| `CaptureOnInvoicePayTest` | trigger=payment → capture on invoice pay, not on placement |
+| `CaptureOnShipmentTest` | trigger=shipment → capture on shipment save only |
+| `CancelOnRealOrderStateTransitionTest` | cancelling a captured, uninvoiced order calls `Returned` once across both cancel events |
+| `RefundOnCreditmemoTest` | credit memo → `Returned`, with payload items matching the memo |
+
+> These tests place real orders and therefore **write to the test database** —
+> run them against the integration stack (`make integration-test`), never the
+> shared dev database. Each test creates and asserts on its own order, so they
+> don't depend on each other's state.
+
+---
+
 ## The CI matrix
 
 The workflow currently runs four rows:
