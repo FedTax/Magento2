@@ -1,4 +1,4 @@
-.PHONY: test test-unit lint lint-fix help \
+.PHONY: test test-unit test-unit-version lint lint-fix help \
         integration-test integration-shell integration-clean
 
 # Defaults — override on the command line, e.g.:
@@ -21,6 +21,12 @@ help:
 	@echo "  make test-unit         - Run unit tests via Magento's PHPUnit"
 	@echo "  make test              - Alias for test-unit"
 	@echo "                           Override install path with MAGENTO_ROOT=..."
+	@echo ""
+	@echo "  make test-unit-version - Run unit tests against a SPECIFIC Magento/PHP in Docker"
+	@echo "                           (uses the integration stack's versioned install — that"
+	@echo "                           version's bundled PHPUnit). Override with"
+	@echo "                           MAGENTO_EDITION / MAGENTO_VERSION / PHP_VERSION, e.g.:"
+	@echo "                             make test-unit-version MAGENTO_VERSION=2.4.7-p3 PHP_VERSION=8.2"
 	@echo ""
 	@echo "Integration tests (see docs/INTEGRATION_TESTS.md for setup):"
 	@echo "  make integration-test  - Install Magento + run integration tests"
@@ -46,6 +52,23 @@ test-unit:
 		-c phpunit.xml.dist Test/Unit/ --testdox
 
 test: test-unit
+
+# Run the UNIT suite against a SPECIFIC Magento/PHP combination in Docker, using
+# that version's bundled PHPUnit (e.g. 2.4.7-p3 → PHPUnit 9/10, 2.4.9 → PHPUnit 12).
+# Reuses the integration stack to provision the versioned Magento codebase; unit
+# tests run from the full module mount at /srv/module (Test/Unit isn't linked into
+# app/code), with MAGENTO_ROOT pointing at the install.
+#   make test-unit-version MAGENTO_VERSION=2.4.7-p3 PHP_VERSION=8.2
+test-unit-version:
+	@if [ ! -f .env ]; then \
+		echo "ERROR: .env not found."; \
+		echo "  cp .env.example .env   # fill in Magento Marketplace keys"; \
+		exit 1; \
+	fi
+	@./scripts/install-magento.sh $(MAGENTO_EDITION) $(MAGENTO_VERSION) $(PHP_VERSION)
+	@echo "==> Running unit suite against Magento $(MAGENTO_VERSION) (PHP $(PHP_VERSION))..."
+	@docker compose exec -T -w /srv/module -e MAGENTO_ROOT=/var/www/html app \
+		/var/www/html/vendor/bin/phpunit -c /srv/module/phpunit.xml.dist Test/Unit/ --testdox
 
 # Run PHP CodeSniffer linting
 lint:

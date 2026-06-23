@@ -26,6 +26,8 @@ jobs:
             php-version: '8.2'
           - magento-version: '2.4.8-p5'
             php-version: '8.3'
+          - magento-version: '2.4.9'
+            php-version: '8.5'
 
     env:
       MAGENTO_ROOT: ${{ github.workspace }}/../magento
