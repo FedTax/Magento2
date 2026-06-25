@@ -137,6 +137,14 @@ $configValues = [
     // Guarantee at least one active shipping carrier + payment method.
     'carriers/flatrate/active' => '1',
     'payment/checkmo/active'   => '1',
+
+    // Take stock out of the equation for the test catalog. Product salability
+    // (Quote::addProduct -> isSalable()) otherwise depends on the MSI salable-qty
+    // index, which is populated differently across editions/versions (Enterprise
+    // and 2.4.7 left seeded products "not available" even after a full reindex).
+    // With manage_stock off, products are salable regardless of the index, so the
+    // same seed behaves identically on every matrix row.
+    'cataloginventory/item_options/manage_stock' => '0',
 ];
 
 // Go through PreparedValueFactory (what `bin/magento config:set` uses) so any
