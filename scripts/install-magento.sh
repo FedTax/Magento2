@@ -249,6 +249,16 @@ echo "==> Seeding test environment (scripts/seed-test-data.php)..."
 docker compose exec -T -w /var/www/html app \
     php /srv/module/scripts/seed-test-data.php
 
+# --- 9. Reindex in a fresh process -----------------------------------------
+#
+# The seed reindexes in-process, but on some versions (seen on 2.4.7) that
+# leaves a configurable product's MSI salability index stale — the parent isn't
+# marked salable even though its children are, so Quote::addProduct() rejects it
+# with "Product that you are trying to add is not available." A fresh-process
+# `indexer:reindex` rebuilds it correctly. Cheap insurance; runs once per install.
+echo "==> Reindexing (fresh process, fixes configurable salability)..."
+docker compose exec -T -w /var/www/html app bin/magento indexer:reindex
+
 echo
 echo "==> Install complete."
 echo "    Magento $EDITION $VERSION at $MAGENTO_INSTALL_DIR"
