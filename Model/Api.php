@@ -636,7 +636,13 @@ class Api
 
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
-            $keyedAddressItems[$item->getTaxCalculationItemId()] = $item;
+            // Skip composite child lines with no tax calculation id (null array
+            // key is a PHP 8 deprecation, fatal in developer mode).
+            $taxCalculationItemId = $item->getTaxCalculationItemId();
+            if ($taxCalculationItemId === null) {
+                continue;
+            }
+            $keyedAddressItems[$taxCalculationItemId] = $item;
         }
 
         $index = 0;
@@ -862,7 +868,13 @@ class Api
             
             $keyedAddressItems = [];
             foreach ($shippingAssignment->getItems() as $item) {
-                $keyedAddressItems[$item->getTaxCalculationItemId()] = $item;
+                // Skip composite child lines with no tax calculation id (null
+                // array key is a PHP 8 deprecation, fatal in developer mode).
+                $taxCalculationItemId = $item->getTaxCalculationItemId();
+                if ($taxCalculationItemId === null) {
+                    continue;
+                }
+                $keyedAddressItems[$taxCalculationItemId] = $item;
             }
             
             $items = [];

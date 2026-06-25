@@ -141,7 +141,15 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
-            $keyedAddressItems[$item->getTaxCalculationItemId()] = $item;
+            // Configurable/composite lines expose a child item with no tax
+            // calculation id; using null as an array key is a PHP 8 deprecation
+            // (fatal in developer mode). Tax details are keyed by the parent's
+            // id, so children are safe to skip here.
+            $taxCalculationItemId = $item->getTaxCalculationItemId();
+            if ($taxCalculationItemId === null) {
+                continue;
+            }
+            $keyedAddressItems[$taxCalculationItemId] = $item;
         }
 
         $productTaxTotal = 0.0;
