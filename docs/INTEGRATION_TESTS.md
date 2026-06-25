@@ -117,6 +117,7 @@ The seeded baseline every test can rely on:
 | Admin user | `admin` / `1234567a` (`admin@example.com`, Administrators role) |
 | Category | "Test Category" (`test-category`) |
 | Product | `test-product` — simple, $10.00, in stock, in Test Category |
+| Configurable | `test-configurable` on a `test_variant_color` attribute, with variants `test-variant-red` (TIC 20010) and `test-variant-blue` (TIC 00000); parent has no TIC |
 | TaxCloud config | `enabled`, `logging`, `verify_address` = 1; `default_tic` = 20000; `api_id`/`api_key` from env |
 | Shipping origin | 1401 Lavaca St, Austin TX 78701-1634 (region 57) |
 | Checkout methods | `carriers/flatrate` + `payment/checkmo` active |
@@ -258,7 +259,18 @@ config and `reinit()` the shared config). Current coverage lives in
 | `CancelOnRealOrderStateTransitionTest` | cancelling a captured, uninvoiced order calls `Returned` once across both cancel events |
 | `RefundOnCreditmemoTest` | credit memo → `Returned`, with payload items matching the memo |
 
-> These tests place real orders and therefore **write to the test database** —
+Beyond observer wiring, [`Test/Integration/Model/`](../Test/Integration/Model/)
+exercises tax collection, EAV, and config through the real stack:
+
+| Test | Proves |
+| ---- | ------ |
+| `TaxCollectorWiringTest` | Magento's total-collector pipeline actually calls our `Tax::collect()`, and the mocked lookup tax flows into the item + grand total |
+| `ModuleDisabledFallsBackToNativeTaxTest` | with `enabled=0`, `Tax::collect()` defers to native Magento tax (a real 8.25% rule) and makes no SOAP lookup |
+| `ProductTicResolutionFromEavTest` | `ProductTicService` reads `taxcloud_tic` from the real installed EAV attribute |
+| `ConfigurableProductVariantTicTest` | the chosen simple variant's TIC (not the parent's) reaches the lookup payload |
+| `ConfigInjectionTest` | credentials in `core_config_data` are what `Api::getApiId()/getApiKey()` read back |
+
+> These tests place real orders / collect real quotes and therefore **write to the test database** —
 > run them against the integration stack (`make integration-test`), never the
 > shared dev database. Each test creates and asserts on its own order, so they
 > don't depend on each other's state.

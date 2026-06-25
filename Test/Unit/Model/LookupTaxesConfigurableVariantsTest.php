@@ -105,6 +105,50 @@ class LookupTaxesConfigurableVariantsTest extends TestCase
     }
 
     /**
+     * Section 2.1 (real shape): the line item carries the *configurable parent*
+     * (Magento's tax collector maps the parent, not the chosen simple). The
+     * service must redirect to the purchased child variant and use ITS TIC —
+     * the parent here has none, so without redirection it would wrongly fall
+     * back to the default TIC.
+     */
+    public function testTicForConfigurableRedirectsToChosenChildVariant()
+    {
+        $parentId = 1001;
+        $variantId = 4242;
+
+        // Parent configurable product — no TIC of its own.
+        $parentProduct = $this->createMock(Product::class);
+        $parentProduct->method('getId')->willReturn($parentId);
+        $parentProduct->method('getTypeId')->willReturn('configurable');
+
+        // Chosen child simple, referenced by a child order item.
+        $childProduct = $this->createMock(Product::class);
+        $childProduct->method('getId')->willReturn($variantId);
+        $childItem = $this->createMock(Item::class);
+        $childItem->method('getProduct')->willReturn($childProduct);
+
+        $item = $this->createMock(Item::class);
+        $item->method('getProduct')->willReturn($parentProduct);
+        $item->method('getSku')->willReturn('configurable-sku');
+        $item->method('getChildrenItems')->willReturn([$childItem]);
+
+        // The repository resolves the variant's TIC by the CHILD's id.
+        $repoProduct = $this->createMock(Product::class);
+        $attr = $this->createMock(AttributeValue::class);
+        $attr->method('getValue')->willReturn('20010');
+        $repoProduct->method('getCustomAttribute')->with('taxcloud_tic')->willReturn($attr);
+        $this->productRepository->method('getById')->with($variantId)->willReturn($repoProduct);
+
+        $tic = $this->productTicService->getProductTic($item, 'lookupTaxes');
+
+        $this->assertSame(
+            '20010',
+            $tic,
+            'A configurable line item must resolve the chosen child variant TIC, not the parent default.'
+        );
+    }
+
+    /**
      * Section 2.2: bundle parent carries the TIC and children don't — bundle TIC wins.
      *
      * In Magento, bundle items reference the bundle product itself on the quote/order item.

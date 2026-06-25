@@ -11,6 +11,9 @@
  *   - Category        "Test Category" (url key: test-category)
  *   - Product         "Test Product"  (sku: test-product, simple, $10,
  *                     in stock, assigned to Test Category)
+ *   - Configurable    "Test Configurable" (sku: test-configurable) with two
+ *                     simple variants on a test_variant_color attribute:
+ *                     test-variant-red (TIC 20010), test-variant-blue (TIC 00000)
  *   - Config          tax/taxcloud_settings/* (enabled, logging,
  *                     verify_address, default_tic, api creds from env)
  *                     shipping/origin/*       (1401 Lavaca St, Austin TX)
@@ -222,6 +225,156 @@ $om->get(\Magento\Catalog\Api\CategoryLinkManagementInterface::class)
     ->assignProductToCategories(PRODUCT_SKU, [$categoryId]);
 $step('product "' . PRODUCT_SKU . "\" assigned to category $categoryId");
 
+// --- 4b. Configurable test product (two color variants, distinct TICs) -------
+//
+// A configurable product with two simple variants that carry different TaxCloud
+// TICs (Red = 20010, Blue = 00000); the parent carries none. Used by integration
+// and e2e tests that need real configurable handling — e.g. proving the chosen
+// variant's taxcloud_tic (not the parent's) flows into the TaxCloud lookup.
+// Idempotent like everything else here.
+
+const CONFIGURABLE_SKU       = 'test-configurable';
+const CONFIGURABLE_ATTRIBUTE = 'test_variant_color';
+const VARIANT_RED_SKU        = 'test-variant-red';
+const VARIANT_BLUE_SKU       = 'test-variant-blue';
+const VARIANT_RED_TIC        = '20010';
+const VARIANT_BLUE_TIC       = '00000';
+
+$eavConfig = $om->get(\Magento\Eav\Model\Config::class);
+$colorAttribute = $eavConfig->getAttribute(\Magento\Catalog\Model\Product::ENTITY, CONFIGURABLE_ATTRIBUTE);
+
+if (!$colorAttribute || !$colorAttribute->getAttributeId()) {
+    /** @var \Magento\Eav\Setup\EavSetup $eavSetup */
+    $eavSetup = $om->create(\Magento\Eav\Setup\EavSetup::class);
+    $configAttrSetId = (int) $eavSetup->getAttributeSetId(\Magento\Catalog\Model\Product::ENTITY, 'Default');
+    $configGroupId = (int) $eavSetup->getDefaultAttributeGroupId(
+        \Magento\Catalog\Model\Product::ENTITY,
+        $configAttrSetId
+    );
+
+    $attribute = $om->get(\Magento\Catalog\Api\Data\ProductAttributeInterfaceFactory::class)->create();
+    $attribute->setData([
+        'attribute_code' => CONFIGURABLE_ATTRIBUTE,
+        'entity_type_id' => $eavSetup->getEntityTypeId(\Magento\Catalog\Model\Product::ENTITY),
+        'is_global' => 1,
+        'is_user_defined' => 1,
+        'frontend_input' => 'select',
+        'is_required' => 0,
+        'frontend_label' => ['Test Variant Color'],
+        'backend_type' => 'int',
+        'option' => [
+            'value' => ['opt_red' => ['Red'], 'opt_blue' => ['Blue']],
+            'order' => ['opt_red' => 1, 'opt_blue' => 2],
+        ],
+    ]);
+    $attribute = $om->get(\Magento\Catalog\Api\ProductAttributeRepositoryInterface::class)->save($attribute);
+    $eavSetup->addAttributeToGroup(
+        \Magento\Catalog\Model\Product::ENTITY,
+        $configAttrSetId,
+        $configGroupId,
+        $attribute->getId()
+    );
+    $eavConfig->clear();
+    $colorAttribute = $eavConfig->getAttribute(\Magento\Catalog\Model\Product::ENTITY, CONFIGURABLE_ATTRIBUTE);
+    $step('attribute "' . CONFIGURABLE_ATTRIBUTE . '" created (id ' . $colorAttribute->getId() . ')');
+} else {
+    $step('attribute "' . CONFIGURABLE_ATTRIBUTE . '" already exists (id ' . $colorAttribute->getId() . ')');
+}
+
+$configAttributeId = (int) $colorAttribute->getId();
+$valueByLabel = [];
+foreach ($colorAttribute->getOptions() as $opt) {
+    if ($opt->getLabel() !== null && $opt->getLabel() !== '') {
+        $valueByLabel[$opt->getLabel()] = (int) $opt->getValue();
+    }
+}
+$redValueIndex = $valueByLabel['Red'];
+$blueValueIndex = $valueByLabel['Blue'];
+
+$variantAttributeSetId = (int) $om->get(\Magento\Eav\Model\Config::class)
+    ->getEntityType(\Magento\Catalog\Model\Product::ENTITY)
+    ->getDefaultAttributeSetId();
+$variantWebsiteId = (int) $storeManager->getDefaultStoreView()->getWebsiteId();
+
+$ensureVariant = function (string $sku, string $name, int $valueIndex, string $tic) use (
+    $om,
+    $productRepository,
+    $variantAttributeSetId,
+    $variantWebsiteId,
+    $step
+): int {
+    try {
+        $existing = $productRepository->get($sku);
+        $step('variant "' . $sku . '" already exists');
+        return (int) $existing->getId();
+    } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+        // fall through and create
+    }
+
+    /** @var \Magento\Catalog\Model\Product $variant */
+    $variant = $om->create(\Magento\Catalog\Model\ProductFactory::class)->create();
+    $variant->setSku($sku)
+        ->setName($name)
+        ->setTypeId(\Magento\Catalog\Model\Product\Type::TYPE_SIMPLE)
+        ->setAttributeSetId($variantAttributeSetId)
+        ->setPrice(10.00)
+        ->setStatus(\Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED)
+        ->setVisibility(\Magento\Catalog\Model\Product\Visibility::VISIBILITY_NOT_VISIBLE)
+        ->setWebsiteIds([$variantWebsiteId])
+        ->setStockData(['use_config_manage_stock' => 1, 'qty' => 100, 'is_in_stock' => 1])
+        ->setData(CONFIGURABLE_ATTRIBUTE, $valueIndex)
+        ->setData('taxcloud_tic', $tic);
+    $saved = $productRepository->save($variant);
+    $step('variant "' . $sku . '" created (tic ' . $tic . ')');
+    return (int) $saved->getId();
+};
+
+$redVariantId = $ensureVariant(VARIANT_RED_SKU, 'Test Variant Red', $redValueIndex, VARIANT_RED_TIC);
+$blueVariantId = $ensureVariant(VARIANT_BLUE_SKU, 'Test Variant Blue', $blueValueIndex, VARIANT_BLUE_TIC);
+
+try {
+    $productRepository->get(CONFIGURABLE_SKU);
+    $step('configurable "' . CONFIGURABLE_SKU . '" already exists');
+} catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+    $optionsFactory = $om->create(\Magento\ConfigurableProduct\Helper\Product\Options\Factory::class);
+    $configurableOptions = $optionsFactory->create([
+        [
+            'attribute_id' => $configAttributeId,
+            'code' => CONFIGURABLE_ATTRIBUTE,
+            'label' => $colorAttribute->getStoreLabel(),
+            'position' => '0',
+            'values' => [
+                ['label' => 'Red', 'attribute_id' => $configAttributeId, 'value_index' => $redValueIndex],
+                ['label' => 'Blue', 'attribute_id' => $configAttributeId, 'value_index' => $blueValueIndex],
+            ],
+        ],
+    ]);
+
+    /** @var \Magento\Catalog\Model\Product $configurable */
+    $configurable = $om->create(\Magento\Catalog\Model\ProductFactory::class)->create();
+    $configurable->setSku(CONFIGURABLE_SKU)
+        ->setName('Test Configurable')
+        ->setTypeId(\Magento\ConfigurableProduct\Model\Product\Type\Configurable::TYPE_CODE)
+        ->setAttributeSetId($variantAttributeSetId)
+        ->setStatus(\Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED)
+        ->setVisibility(\Magento\Catalog\Model\Product\Visibility::VISIBILITY_BOTH)
+        ->setWebsiteIds([$variantWebsiteId])
+        ->setStockData(['use_config_manage_stock' => 1, 'is_in_stock' => 1]);
+
+    $extension = $configurable->getExtensionAttributes();
+    $extension->setConfigurableProductOptions($configurableOptions);
+    $extension->setConfigurableProductLinks([$redVariantId, $blueVariantId]);
+    $configurable->setExtensionAttributes($extension);
+
+    $productRepository->save($configurable);
+    $step('configurable "' . CONFIGURABLE_SKU . '" created (variants: '
+        . VARIANT_RED_SKU . ', ' . VARIANT_BLUE_SKU . ')');
+}
+
+$om->get(\Magento\Catalog\Api\CategoryLinkManagementInterface::class)
+    ->assignProductToCategories(CONFIGURABLE_SKU, [$categoryId]);
+$step('configurable "' . CONFIGURABLE_SKU . "\" assigned to category $categoryId");
+
 // --- 5. Reindex + cache flush --------------------------------------------------
 
 $indexers = $om->create(\Magento\Indexer\Model\Indexer\CollectionFactory::class)
@@ -240,3 +393,5 @@ echo "\n[seed] Done. Test environment ready:\n";
 echo '       admin:    ' . ADMIN_USERNAME . ' / ' . ADMIN_PASSWORD . ' <' . ADMIN_EMAIL . ">\n";
 echo '       category: ' . CATEGORY_NAME . ' (' . CATEGORY_URL_KEY . ")\n";
 echo '       product:  ' . PRODUCT_SKU . ' ($' . number_format(PRODUCT_PRICE, 2) . ")\n";
+echo '       config.:  ' . CONFIGURABLE_SKU . ' (' . VARIANT_RED_SKU . ' tic '
+    . VARIANT_RED_TIC . ', ' . VARIANT_BLUE_SKU . ' tic ' . VARIANT_BLUE_TIC . ")\n";

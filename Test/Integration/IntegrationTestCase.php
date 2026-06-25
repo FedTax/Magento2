@@ -151,27 +151,69 @@ abstract class IntegrationTestCase extends TestCase
         };
 
         // The production ObjectManager has no addSharedInstance(); its shared
-        // instances live in a protected array. A closure bound to its class
-        // scope lets us evict the SOAP-dependent singletons and seed the mock
-        // factory so the next resolution rebuilds the graph around the mock.
-        // The const is captured into locals because the bound closure runs in
-        // the ObjectManager's scope, not this class's, and couldn't read a
-        // private member of IntegrationTestCase.
-        $typesToEvict = self::SOAP_DEPENDENT_TYPES;
-        $factoryKey   = ClientFactory::class;
-        $evictAndSeed = \Closure::bind(
-            function () use ($typesToEvict, $factoryKey, $factory) {
-                foreach ($typesToEvict as $type) {
+        // instances live in a protected array. Evict the SOAP-dependent
+        // singletons and seed the mock factory so the next resolution rebuilds
+        // the graph around the mock.
+        $this->mutateSharedInstances(self::SOAP_DEPENDENT_TYPES, [ClientFactory::class => $factory]);
+
+        // The tax total collector (Taxcloud\Model\Tax) is built once via
+        // TotalFactory::create() and then cached inside TotalsCollectorList — so
+        // evicting the shared Api alone does NOT reach it. Drop that cache so the
+        // next collectTotals() rebuilds the collector around this test's mock
+        // (its freshly-evicted Api) instead of the first test's client.
+        $this->resetTotalsCollector();
+
+        // lookup/verifyAddress results are cached (cache_lifetime defaults to
+        // 86400s, in Redis) keyed by request hash — and an unsaved quote has a
+        // null cartID, so the key collides across tests. Clear the TaxCloud cache
+        // tags so each test's first lookup actually reaches the (mock) SOAP layer.
+        $this->get(\Magento\Framework\App\CacheInterface::class)->clean(['taxcloud_rates', 'taxcloud_address']);
+
+        return $client;
+    }
+
+    /**
+     * Force the quote tax-total collector to be rebuilt on the next totals
+     * collection by clearing TotalsCollectorList's cached collector.
+     */
+    private function resetTotalsCollector(): void
+    {
+        $collectorList = $this->get(\Magento\Quote\Model\Quote\TotalsCollectorList::class);
+        \Closure::bind(
+            function () {
+                $this->totalCollector = null;
+            },
+            $collectorList,
+            \Magento\Quote\Model\Quote\TotalsCollectorList::class
+        )();
+    }
+
+    /**
+     * Drop and/or replace shared (singleton) instances held by the production
+     * ObjectManager. Used to force parts of the object graph to rebuild — e.g.
+     * around the SOAP mock, or to clear Magento's in-request tax-rate cache so a
+     * freshly created tax rule is seen.
+     *
+     * @param string[]              $unset class names to evict
+     * @param array<string, object> $set   class name => instance to seed
+     */
+    protected function mutateSharedInstances(array $unset, array $set = []): void
+    {
+        // Captured into locals because the bound closure runs in the
+        // ObjectManager's scope, not this class's.
+        $mutate = \Closure::bind(
+            function () use ($unset, $set) {
+                foreach ($unset as $type) {
                     unset($this->_sharedInstances[$type]);
                 }
-                $this->_sharedInstances[$factoryKey] = $factory;
+                foreach ($set as $type => $instance) {
+                    $this->_sharedInstances[$type] = $instance;
+                }
             },
             $this->objectManager(),
             ConcreteObjectManager::class
         );
-        $evictAndSeed();
-
-        return $client;
+        $mutate();
     }
 
     protected function soapClient(): RecordingSoapClient
@@ -239,7 +281,16 @@ abstract class IntegrationTestCase extends TestCase
      * Magento\Quote\Api\CartManagementInterface::placeOrder(). Placing the
      * order fires sales_order_place_after.
      */
-    protected function placeOrder(): Order
+    /**
+     * Build a guest quote (store, billing/shipping address, checkmo payment) with
+     * no items yet. Caller adds products, then calls {@see collectAndSaveQuote()}.
+     *
+     * @param array<string, mixed> $addressOverride fields to override on the
+     *        ship-to/bill-to address (e.g. region_id/region/postcode) — used by
+     *        the native-tax test to ship to a state no other test touches, so it
+     *        doesn't collide on Magento's region|postcode-keyed tax-rate cache.
+     */
+    protected function newGuestQuote(array $addressOverride = []): Quote
     {
         $om = $this->objectManager();
 
@@ -247,20 +298,13 @@ abstract class IntegrationTestCase extends TestCase
         $storeManager = $this->get(StoreManagerInterface::class);
         $store = $storeManager->getStore('default');
 
-        $product = $this->get(ProductRepositoryInterface::class)->get(self::TEST_PRODUCT_SKU);
-
-        /** @var Quote $quote */
-        $quote = $om->create(Quote::class);
-        $quote->setStoreId((int) $store->getId());
-        $quote->setIsActive(true);
-        $quote->setCustomerIsGuest(true);
-        $quote->setCustomerEmail('guest@example.com');
-        $quote->addProduct($product, 1);
-
-        $address = [
+        // Ship-to in Austin TX (region 57), matching the seeded origin. SOAP is
+        // mocked, so the actual tax/destination is immaterial to most assertions
+        // (the native-tax test overrides what matters with its own tax rule).
+        $addressData = array_merge([
             'firstname'  => 'Test',
             'lastname'   => 'Buyer',
-            'street'     => ['1401 Lavaca St'],
+            'street'     => '1401 Lavaca St',
             'city'       => 'Austin',
             'country_id' => 'US',
             'region_id'  => 57, // Texas
@@ -268,20 +312,64 @@ abstract class IntegrationTestCase extends TestCase
             'postcode'   => '78701',
             'telephone'  => '5125550100',
             'email'      => 'guest@example.com',
-        ];
-        $quote->getBillingAddress()->addData($address);
+        ], $addressOverride);
 
-        $shippingAddress = $quote->getShippingAddress();
-        $shippingAddress->addData($address);
-        $shippingAddress->setCollectShippingRates(true)
-            ->collectShippingRates()
-            ->setShippingMethod('flatrate_flatrate');
+        // Build addresses as Quote\Address objects (Magento's own headless-order
+        // fixtures do this) rather than addData() on lazily-created addresses.
+        $billingAddress = $om->create(\Magento\Quote\Model\Quote\Address::class, ['data' => $addressData]);
+        $billingAddress->setAddressType('billing');
+        $shippingAddress = clone $billingAddress;
+        $shippingAddress->setId(null)->setAddressType('shipping');
 
-        $quote->setPaymentMethod('checkmo');
-        $quote->getPayment()->importData(['method' => 'checkmo']);
+        /** @var Quote $quote */
+        $quote = $om->create(Quote::class);
+        $quote->setCustomerIsGuest(true)
+            ->setStoreId((int) $store->getId())
+            ->setCustomerEmail('guest@example.com')
+            ->setBillingAddress($billingAddress)
+            ->setShippingAddress($shippingAddress);
+
+        // setMethod() (not importData()) avoids getMethodInstance() touching the
+        // quote before it has an ID — see Quote\Payment::getMethodInstance().
+        $quote->getPayment()->setMethod('checkmo');
+        $quote->setIsMultiShipping('0');
+
+        return $quote;
+    }
+
+    /**
+     * Set the shipping method, run totals collection (which drives the tax
+     * collector pipeline), and persist the quote.
+     */
+    protected function collectAndSaveQuote(Quote $quote): Quote
+    {
+        $quote->getShippingAddress()
+            ->setShippingMethod('flatrate_flatrate')
+            ->setCollectShippingRates(true);
 
         $quote->collectTotals();
         $this->get(CartRepositoryInterface::class)->save($quote);
+
+        return $quote;
+    }
+
+    /**
+     * Build, collect and save a guest quote containing the seeded test product.
+     *
+     * @param array<string, mixed> $addressOverride see {@see newGuestQuote()}
+     */
+    protected function buildQuoteWithTestProduct(int $qty = 1, array $addressOverride = []): Quote
+    {
+        $quote = $this->newGuestQuote($addressOverride);
+        $product = $this->get(ProductRepositoryInterface::class)->get(self::TEST_PRODUCT_SKU);
+        $quote->addProduct($product, $qty);
+
+        return $this->collectAndSaveQuote($quote);
+    }
+
+    protected function placeOrder(): Order
+    {
+        $quote = $this->buildQuoteWithTestProduct(1);
 
         $orderId = $this->get(CartManagementInterface::class)->placeOrder((int) $quote->getId());
 
