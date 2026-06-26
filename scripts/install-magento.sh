@@ -249,6 +249,16 @@ echo "==> Seeding test environment (scripts/seed-test-data.php)..."
 docker compose exec -T -w /var/www/html app \
     php /srv/module/scripts/seed-test-data.php
 
+# --- 8b. Enable test products in a fresh process ---------------------------
+#
+# On Adobe Commerce, Content Staging means the status set on a just-created
+# product does NOT persist within the seed's process — products stay Disabled
+# and Quote::addProduct() rejects them. Running the enable from a fresh process
+# (which re-reads the committed version) sticks. No-op on Open Source.
+echo "==> Enabling test products (fresh process; Adobe Commerce staging fix)..."
+docker compose exec -T -w /var/www/html app \
+    php /srv/module/scripts/enable-test-products.php
+
 # --- 9. Reindex in a fresh process -----------------------------------------
 #
 # The seed reindexes in-process, but on some versions (seen on 2.4.7) that

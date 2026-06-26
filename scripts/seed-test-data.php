@@ -383,30 +383,12 @@ $om->get(\Magento\Catalog\Api\CategoryLinkManagementInterface::class)
     ->assignProductToCategories(CONFIGURABLE_SKU, [$categoryId]);
 $step('configurable "' . CONFIGURABLE_SKU . "\" assigned to category $categoryId");
 
-// --- 4c. Force-enable every seeded product -----------------------------------
-//
-// On Adobe Commerce (Enterprise), Content Staging (Magento_Staging) means the
-// `status` set on a repository-saved product in a script does not stick to the
-// active version — products land DISABLED, so Quote::addProduct() rejects them
-// as "not available". The admin mass-action path (Product\Action) writes status
-// directly and is staging-safe. Harmless on Open Source (already enabled).
-$enableSkus = [PRODUCT_SKU, VARIANT_RED_SKU, VARIANT_BLUE_SKU, CONFIGURABLE_SKU];
-$enableIds = [];
-foreach ($enableSkus as $enableSku) {
-    try {
-        $enableIds[] = (int) $productRepository->get($enableSku)->getId();
-    } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
-        // product not present; skip
-    }
-}
-if ($enableIds) {
-    $om->get(\Magento\Catalog\Model\Product\Action::class)->updateAttributes(
-        $enableIds,
-        ['status' => \Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED],
-        0
-    );
-    $step('force-enabled products (' . implode(', ', $enableSkus) . ')');
-}
+// NOTE: enabling the products does NOT happen here. On Adobe Commerce (Content
+// Staging), the status set on a just-created product does not persist within the
+// same process — products land DISABLED and Quote::addProduct() rejects them.
+// scripts/enable-test-products.php fixes this from a FRESH process; the installer
+// runs it right after this seed. If you run this seed standalone on Enterprise,
+// run that script afterward (it's a harmless no-op on Open Source).
 
 // --- 5. Reindex + cache flush --------------------------------------------------
 
