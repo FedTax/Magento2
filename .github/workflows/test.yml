@@ -225,6 +225,11 @@ jobs:
             'tail -n 500 var/log/exception.log var/log/system.log var/log/debug.log 2>/dev/null' \
             > ./debug-logs/magento.log 2>&1 || true
           docker compose exec -T app php -v > ./debug-logs/php-version.txt 2>&1 || true
+          # Why is a seeded product "not available"? Dumps edition, salability
+          # gates (CatalogPermissions / B2B Shared Catalog), indexer modes, and
+          # isSalable() per SKU. Read this first on Enterprise rows.
+          docker compose exec -T -w /var/www/html app \
+            php /srv/module/scripts/diagnose-salable.php > ./debug-logs/salability.txt 2>&1 || true
 
       - name: Upload debug logs
         if: failure() && steps.gate.outputs.skip != 'true'

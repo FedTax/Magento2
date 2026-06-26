@@ -76,12 +76,42 @@ $repo = $om->get(\Magento\Catalog\Api\ProductRepositoryInterface::class);
 $line = str_repeat('-', 60);
 
 echo "Magento root : $magentoRoot\n";
+$productMeta = $om->get(\Magento\Framework\App\ProductMetadataInterface::class);
+echo "Edition      : " . $productMeta->getEdition() . " " . $productMeta->getVersion() . "\n";
 echo "Store        : " . $store->getCode() . " (id " . $store->getId()
     . ", website " . $store->getWebsiteId() . ")\n";
 echo "manage_stock : " . var_export(
     $scopeConfig->getValue('cataloginventory/item_options/manage_stock'),
     true
 ) . " (global)\n";
+
+// Salability gates that commonly differ on Adobe Commerce (Enterprise) and
+// leave an otherwise-stocked product "not available".
+$gates = [
+    'catalog/magento_catalogpermissions/enabled' => 'CatalogPermissions (EE)',
+    'btob/website_configuration/sharedcatalog_active' => 'B2B Shared Catalog (EE)',
+    'cataloginventory/options/show_out_of_stock' => 'Show out-of-stock',
+];
+foreach ($gates as $path => $label) {
+    echo str_pad($label, 28) . ": " . var_export($scopeConfig->getValue($path), true) . "  ($path)\n";
+}
+
+// Indexer modes — a scheduled inventory/stock indexer that hasn't run leaves
+// salability stale.
+try {
+    $indexerRegistry = $om->get(\Magento\Framework\Indexer\IndexerRegistry::class);
+    foreach (['cataloginventory_stock', 'inventory'] as $indexerId) {
+        try {
+            $ix = $indexerRegistry->get($indexerId);
+            echo str_pad("indexer:$indexerId", 28) . ": mode=" . ($ix->isScheduled() ? 'schedule' : 'realtime')
+                . " valid=" . var_export($ix->isValid(), true) . "\n";
+        } catch (\Throwable $e) {
+            // indexer not present on this edition/version
+        }
+    }
+} catch (\Throwable $e) {
+    // no indexer registry
+}
 echo "$line\n";
 
 $describe = function ($sku) use ($repo, $store, $om, $line) {
