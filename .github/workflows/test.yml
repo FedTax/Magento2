@@ -3,8 +3,9 @@ name: CI
 # Unified pipeline. One run per event:
 #   - pull_request / push to branches -> unit tests (community only) + lint + security
 #   - push tag v* (and manual dispatch) -> the SAME unit tests PLUS the full
-#     integration matrix (community + enterprise across all supported versions),
-#     so a release tag is gated by a single run covering unit + integration.
+#     integration AND e2e matrices (community + enterprise across all supported
+#     versions), so a release tag is gated by a single run covering unit +
+#     integration + e2e.
 #
 # Unit tests mock all collaborators, so edition makes no difference at that level —
 # the unit job runs community-only. Integration exercises both editions.
@@ -231,6 +232,159 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: debug-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
+          path: ./debug-logs/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # E2E tests — Playwright against a real, served storefront. Same matrix and
+  # gating as integration (release tags + manual dispatch only). Shares the
+  # install script via E2E=1, which overlays docker-compose.e2e.yml (adds nginx
+  # and runs php-fpm) so Magento is reachable over HTTP. The browser runs on the
+  # runner and drives the published port. See docs/E2E_TESTS.md.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: E2E — ${{ matrix.magento-edition }} ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mirrors the integration matrix exactly.
+        include:
+          - magento-edition: community
+            magento-version: '2.4.7-p10'
+            php-version: '8.2'
+          - magento-edition: community
+            magento-version: '2.4.8-p5'
+            php-version: '8.3'
+          - magento-edition: community
+            magento-version: '2.4.9'
+            php-version: '8.5'
+          - magento-edition: enterprise
+            magento-version: '2.4.7-p10'
+            php-version: '8.2'
+          - magento-edition: enterprise
+            magento-version: '2.4.8-p5'
+            php-version: '8.3'
+          - magento-edition: enterprise
+            magento-version: '2.4.9'
+            php-version: '8.5'
+
+    env:
+      MAGENTO_EDITION: ${{ matrix.magento-edition }}
+      MAGENTO_VERSION: ${{ matrix.magento-version }}
+      PHP_VERSION: ${{ matrix.php-version }}
+      MAGENTO_INSTALL_DIR: ${{ github.workspace }}/../magento-e2e
+      COMPOSER_CACHE_DIR: ${{ github.workspace }}/.composer-cache
+      MAGENTO_HTTP_PORT: '8080'
+      MAGENTO_BASE_URL: 'http://localhost:8080'
+      TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
+      TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
+      MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
+      MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gate matrix row
+        id: gate
+        env:
+          REQUESTED_VERSIONS: ${{ github.event.inputs.magento_versions }}
+        run: |
+          # Skip rows the dispatcher excluded via the magento_versions input.
+          if [[ -n "${REQUESTED_VERSIONS}" ]] && [[ ",${REQUESTED_VERSIONS}," != *",${MAGENTO_VERSION},"* ]]; then
+            echo "::notice::Row ${MAGENTO_EDITION} ${MAGENTO_VERSION} excluded by workflow_dispatch input."
+            echo "skip=true"   >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Gracefully skip enterprise rows when Marketplace creds are absent.
+          if [[ "${MAGENTO_EDITION}" == "enterprise" && -z "${MAGENTO_PUBLIC_KEY}" ]]; then
+            echo "::warning::Skipping enterprise row — MAGENTO_PUBLIC_KEY secret not set."
+            echo "skip=true"   >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Verify required secrets
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          missing=()
+          [[ -z "$TAXCLOUD_API_ID"     ]] && missing+=(TAXCLOUD_API_ID)
+          [[ -z "$TAXCLOUD_API_KEY"    ]] && missing+=(TAXCLOUD_API_KEY)
+          [[ -z "$MAGENTO_PUBLIC_KEY"  ]] && missing+=(MAGENTO_PUBLIC_KEY)
+          [[ -z "$MAGENTO_PRIVATE_KEY" ]] && missing+=(MAGENTO_PRIVATE_KEY)
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Set up Node
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: Test/E2E/package-lock.json
+
+      - name: Cache Composer downloads
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-
+            composer-${{ matrix.magento-edition }}-
+
+      - name: Cache Playwright browsers
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('Test/E2E/package-lock.json') }}
+
+      - name: Install Magento + module + serve (E2E overlay)
+        if: steps.gate.outputs.skip != 'true'
+        run: E2E=1 ./scripts/install-magento.sh "${MAGENTO_EDITION}" "${MAGENTO_VERSION}"
+
+      - name: Install E2E dependencies + Chromium
+        if: steps.gate.outputs.skip != 'true'
+        working-directory: Test/E2E
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E suite
+        if: steps.gate.outputs.skip != 'true'
+        working-directory: Test/E2E
+        run: npx playwright test
+
+      - name: Upload Playwright artifacts
+        if: failure() && steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
+          path: |
+            Test/E2E/playwright-report/
+            Test/E2E/test-results/
+          retention-days: 14
+
+      - name: Collect Docker logs on failure
+        if: failure() && steps.gate.outputs.skip != 'true'
+        run: |
+          mkdir -p ./debug-logs
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --no-color \
+            > ./debug-logs/docker-compose-e2e.log 2>&1 || true
+
+      - name: Upload Docker logs
+        if: failure() && steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-e2e-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
           path: ./debug-logs/
           retention-days: 7
 

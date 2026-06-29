@@ -151,32 +151,35 @@ lands. Do not fork a parallel seed — extend the shared one.
 
 ## CI
 
-The workflow is [`.github/workflows/e2e-tests.yml`](../.github/workflows/e2e-tests.yml),
-separate from the unit/integration workflow.
+E2E runs as the **`e2e` job** in the unified pipeline
+[`.github/workflows/test.yml`](../.github/workflows/test.yml), alongside
+`unit-tests`, `integration`, `lint-code`, and `security-scan` — the same single
+workflow that gates a release.
 
-**Triggers:** `workflow_dispatch` (with an optional `magento_versions` input to
-subset the matrix) and `push` of `v*` tags. **No** `pull_request`, **no** branch
-pushes.
+**Triggers:** like the `integration` job, the `e2e` job runs **only** on
+`workflow_dispatch` (with an optional `magento_versions` input to subset the
+matrix) and `push` of `v*` tags. **No** `pull_request`, **no** branch pushes
+(only `unit-tests` + `lint` + `security` run on those).
 
-**Matrix:** one row to start — community `2.4.8-p5` / PHP 8.3. The
-storefront/checkout DOM is far more stable across patch versions than API-level
-behavior, so E2E deliberately does **not** mirror the full integration matrix.
+**Matrix:** mirrors the integration matrix exactly — community + enterprise
+across `2.4.7-p10` / `2.4.8-p5` / `2.4.9` (PHP 8.2 / 8.3 / 8.5). Enterprise rows
+are **auto-skipped** (not failed) when Marketplace keys are absent, same as
+integration.
 
 **Secrets:** the same four as integration (`TAXCLOUD_API_ID`, `TAXCLOUD_API_KEY`,
 `MAGENTO_PUBLIC_KEY`, `MAGENTO_PRIVATE_KEY`). No new secrets.
 
 ### Adding a Magento version to the matrix
 
-Edit the `matrix.include` list in `e2e-tests.yml`:
+Edit the `matrix.include` list under the `e2e` job in `test.yml` (keep it in step
+with the `integration` job's matrix):
 
 ```yaml
 include:
   - magento-edition: community
-    magento-version: '2.4.8-p5'
-    php-version: '8.3'
-  - magento-edition: community      # new row
     magento-version: '2.4.9'
     php-version: '8.5'
+  # ... add a row here (and the matching enterprise row)
 ```
 
 The DB/search-engine versions are derived from the Magento version automatically
