@@ -1,5 +1,7 @@
 .PHONY: test test-unit test-unit-version lint lint-fix help \
-        integration-test integration-shell integration-clean
+        integration-test integration-shell integration-clean \
+        e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
+        e2e-trace e2e-clean
 
 # Defaults — override on the command line, e.g.:
 #   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
@@ -33,6 +35,18 @@ help:
 	@echo "                           Override with MAGENTO_EDITION / MAGENTO_VERSION / PHP_VERSION"
 	@echo "  make integration-shell - Open a shell in the Magento container"
 	@echo "  make integration-clean - Tear down docker compose volumes / containers"
+	@echo ""
+	@echo "E2E tests (Playwright; see docs/E2E_TESTS.md):"
+	@echo "  make e2e-setup         - Install Magento + nginx and serve it over HTTP"
+	@echo "                           (Magento install with the e2e overlay; ~10-15 min)"
+	@echo "  make e2e-install       - Install Node deps + Chromium in Test/E2E"
+	@echo "  make e2e-test          - Run the E2E suite headless against the running store"
+	@echo "  make e2e-test-ui       - Open Playwright's interactive UI mode"
+	@echo "  make e2e-test-headed   - Run headed (visible browser) for debugging"
+	@echo "  make e2e-trace         - Open the trace viewer for the last failed run"
+	@echo "  make e2e-clean         - Remove E2E artifacts (test-results, playwright-report)"
+	@echo "                           First run from scratch:"
+	@echo "                             make e2e-setup && make e2e-test"
 	@echo ""
 	@echo "Lint:"
 	@echo "  make lint              - Run PHP CodeSniffer linting"
@@ -119,3 +133,79 @@ integration-clean:
 	@echo "For a truly fresh install, also remove:"
 	@echo "  $${MAGENTO_INSTALL_DIR:-../magento-$(MAGENTO_EDITION)-$(MAGENTO_VERSION)}"
 	@echo "  ./.composer-cache"
+
+# ---------------------------------------------------------------------------
+# E2E tests (Playwright) — see docs/E2E_TESTS.md
+#
+# Same one-time setup as integration (cp .env.example .env; fill in keys), then:
+#   make e2e-setup     # install Magento + nginx, serve over HTTP
+#   make e2e-test      # run the browser suite (auto-installs Node deps first run)
+#
+# MAGENTO_BASE_URL must match the port nginx publishes (MAGENTO_HTTP_PORT in the
+# install). Override here too if you changed it, e.g.:
+#   make e2e-test MAGENTO_BASE_URL=http://localhost:9000
+# ---------------------------------------------------------------------------
+
+E2E_DIR ?= Test/E2E
+MAGENTO_BASE_URL ?= http://localhost:8080
+
+# Provision Magento with the e2e overlay (php-fpm + nginx) and serve it. Reuses
+# scripts/install-magento.sh with E2E=1; the script ends by confirming the
+# storefront is reachable.
+e2e-setup:
+	@if [ ! -f .env ]; then \
+		echo "ERROR: .env not found."; \
+		echo ""; \
+		echo "First-time setup:"; \
+		echo "  cp .env.example .env"; \
+		echo "  \$$EDITOR .env   # fill in TaxCloud sandbox + Magento Marketplace keys"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@E2E=1 ./scripts/install-magento.sh $(MAGENTO_EDITION) $(MAGENTO_VERSION) $(PHP_VERSION)
+
+# Install the Node toolchain + the Chromium browser binary. `npm ci` is keyed to
+# package-lock.json for reproducible installs.
+e2e-install:
+	@cd $(E2E_DIR) && npm ci && npx playwright install chromium
+
+# Run the suite headless. Auto-installs Node deps on the first run, then refuses
+# to run (with a pointer to e2e-setup) if the storefront isn't up.
+e2e-test:
+	@if [ ! -d $(E2E_DIR)/node_modules ]; then \
+		echo "==> Installing E2E dependencies (first run)..."; \
+		$(MAKE) e2e-install; \
+	fi
+	@curl -fsS -o /dev/null "$(MAGENTO_BASE_URL)/health_check.php" || { \
+		echo "ERROR: Magento is not reachable at $(MAGENTO_BASE_URL)."; \
+		echo "Bring the E2E stack up first:  make e2e-setup"; \
+		echo "(If you changed the port, pass MAGENTO_BASE_URL=... to make as well.)"; \
+		exit 1; \
+	}
+	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test
+
+# Interactive UI mode — watch/step through tests in a GUI.
+e2e-test-ui:
+	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --ui
+
+# Headed run (visible browser) for debugging.
+e2e-test-headed:
+	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --headed
+
+# Open the trace viewer for the most recent failed test (traces are
+# retain-on-failure, so this only finds something after a failure).
+e2e-trace:
+	@cd $(E2E_DIR) && latest=$$(ls -dt test-results/*/trace.zip 2>/dev/null | head -1); \
+	if [ -z "$$latest" ]; then \
+		echo "No trace found under $(E2E_DIR)/test-results/."; \
+		echo "Traces are captured on failure — run a failing test first."; \
+	else \
+		echo "==> Opening $$latest"; \
+		npx playwright show-trace "$$latest"; \
+	fi
+
+# Remove E2E run artifacts (keeps node_modules and the browser cache).
+e2e-clean:
+	@echo "Removing E2E artifacts..."
+	@rm -rf $(E2E_DIR)/test-results $(E2E_DIR)/playwright-report
+	@echo "Removed $(E2E_DIR)/test-results and $(E2E_DIR)/playwright-report"

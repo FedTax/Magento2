@@ -77,6 +77,27 @@ DEFAULT_INSTALL_DIR="$MODULE_ROOT/../magento-${EDITION}-${VERSION}"
 MAGENTO_INSTALL_DIR="${MAGENTO_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 export MAGENTO_INSTALL_DIR
 
+# --- E2E mode --------------------------------------------------------------
+#
+# E2E=1 overlays docker-compose.e2e.yml (adds an nginx container and runs
+# php-fpm in the app container) and serves Magento over HTTP so Playwright can
+# reach it. Integration installs (E2E unset) are byte-for-byte unchanged: no
+# nginx, app still runs `sleep infinity`, base URL still http://localhost/.
+if [ "${E2E:-0}" = "1" ]; then
+    # docker compose honors COMPOSE_FILE (':'-separated) on every invocation in
+    # this script, so we set it once instead of threading -f flags everywhere.
+    export COMPOSE_FILE="docker-compose.yml:docker-compose.e2e.yml"
+    MAGENTO_BASE_URL="${MAGENTO_BASE_URL:-http://localhost:8080/}"
+else
+    MAGENTO_BASE_URL="${MAGENTO_BASE_URL:-http://localhost/}"
+fi
+# Magento requires the base URL to end in a slash.
+case "$MAGENTO_BASE_URL" in
+    */) ;;
+    *)  MAGENTO_BASE_URL="$MAGENTO_BASE_URL/" ;;
+esac
+export MAGENTO_BASE_URL
+
 # --- 1. Preflight ----------------------------------------------------------
 
 if [[ -z "${TAXCLOUD_API_ID:-}" || -z "${TAXCLOUD_API_KEY:-}" ]]; then
@@ -195,6 +216,17 @@ if [ "${UNIT_ONLY:-0}" = "1" ]; then
     exit 0
 fi
 
+# --- 4c. E2E: install Magento's nginx vhost --------------------------------
+#
+# The E2E nginx container (docker-compose.e2e.yml) includes
+# /var/www/html/nginx.conf. Magento ships it as nginx.conf.sample; copy it into
+# place so the include resolves. nginx was started (empty) by `up` above; it
+# gets reloaded at the end of this script once Magento is fully installed.
+if [ "${E2E:-0}" = "1" ]; then
+    echo "==> Installing Magento nginx.conf (from nginx.conf.sample)..."
+    docker compose exec -T app sh -c 'cp /var/www/html/nginx.conf.sample /var/www/html/nginx.conf'
+fi
+
 # --- 5. Reset Magento install state ---------------------------------------
 #
 # setup:install refuses to run if env.php exists, and Magento's own data
@@ -216,7 +248,7 @@ docker compose exec -T -u root app sh -c '
 
 echo "==> bin/magento setup:install (clean baseline)..."
 docker compose exec -T app bin/magento setup:install \
-    --base-url=http://localhost/ \
+    --base-url="$MAGENTO_BASE_URL" \
     --db-host=db --db-name=magento --db-user=magento --db-password=magento \
     --admin-firstname=Admin --admin-lastname=User \
     --admin-email=admin@example.com \
@@ -268,6 +300,34 @@ docker compose exec -T -w /var/www/html app \
 # `indexer:reindex` rebuilds it correctly. Cheap insurance; runs once per install.
 echo "==> Reindexing (fresh process, fixes configurable salability)..."
 docker compose exec -T -w /var/www/html app bin/magento indexer:reindex
+
+# --- 10. E2E: reload nginx and confirm the storefront serves ---------------
+#
+# nginx came up before nginx.conf existed (so it started with an empty vhost).
+# Now that Magento is installed and nginx.conf is in place, reload so the real
+# config takes effect, then probe health_check.php so a broken serving setup
+# fails here with a clear message rather than as a wall of Playwright errors.
+if [ "${E2E:-0}" = "1" ]; then
+    echo "==> Reloading nginx..."
+    docker compose exec -T nginx nginx -s reload 2>/dev/null \
+        || docker compose restart nginx
+
+    echo "==> Waiting for storefront at ${MAGENTO_BASE_URL} ..."
+    reachable=0
+    for _ in $(seq 1 20); do
+        if curl -fsS -o /dev/null "${MAGENTO_BASE_URL}health_check.php"; then
+            reachable=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$reachable" != "1" ]; then
+        echo "ERROR: storefront did not become reachable at ${MAGENTO_BASE_URL}health_check.php" >&2
+        echo "       Check 'docker compose logs nginx app'." >&2
+        exit 1
+    fi
+    echo "==> Storefront reachable at ${MAGENTO_BASE_URL}"
+fi
 
 echo
 echo "==> Install complete."
