@@ -390,6 +390,65 @@ $step('configurable "' . CONFIGURABLE_SKU . "\" assigned to category $categoryId
 // runs it right after this seed. If you run this seed standalone on Enterprise,
 // run that script afterward (it's a harmless no-op on Open Source).
 
+// --- 4c. Registered customer + default address ------------------------------
+//
+// A storefront customer with a default shipping/billing address, for E2E tests
+// that exercise logged-in flows (e.g. tax shown in the cart before checkout).
+// Created via CustomerRepository with a pre-hashed password so NO welcome email
+// is dispatched — the test stack has no working mail transport, and
+// AccountManagement::createAccount() would try to send one. Integration tests
+// use guest quotes and are unaffected. Idempotent.
+
+const CUSTOMER_EMAIL    = 'customer@example.com';
+const CUSTOMER_PASSWORD = 'Test1234!';
+
+$defaultStore = $storeManager->getStore();
+$customerWebsiteId = (int) $defaultStore->getWebsiteId();
+$customerRepository = $om->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
+
+try {
+    $customerRepository->get(CUSTOMER_EMAIL, $customerWebsiteId);
+    $step('customer "' . CUSTOMER_EMAIL . '" already exists');
+} catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+    /** @var \Magento\Customer\Api\Data\CustomerInterface $customer */
+    $customer = $om->create(\Magento\Customer\Api\Data\CustomerInterfaceFactory::class)->create();
+    $customer->setWebsiteId($customerWebsiteId)
+        ->setStoreId((int) $defaultStore->getId())
+        ->setEmail(CUSTOMER_EMAIL)
+        ->setFirstname('Test')
+        ->setLastname('Customer')
+        ->setGroupId(1); // General
+
+    // save($customer, $passwordHash) sets the password directly, bypassing the
+    // welcome email that AccountManagement::createAccount() would send.
+    $passwordHash = $om->get(\Magento\Framework\Encryption\EncryptorInterface::class)
+        ->getHash(CUSTOMER_PASSWORD, true);
+    $customer = $customerRepository->save($customer, $passwordHash);
+    $step('customer "' . CUSTOMER_EMAIL . '" created (password ' . CUSTOMER_PASSWORD . ')');
+
+    // Default shipping + billing: Austin TX 78701 — in-state with the seeded
+    // origin, so a logged-in customer's cart computes deterministic in-state tax.
+    $region = $om->create(\Magento\Customer\Api\Data\RegionInterfaceFactory::class)->create();
+    $region->setRegionId(57)->setRegionCode('TX')->setRegion('Texas');
+
+    /** @var \Magento\Customer\Api\Data\AddressInterface $address */
+    $address = $om->create(\Magento\Customer\Api\Data\AddressInterfaceFactory::class)->create();
+    $address->setFirstname('Test')
+        ->setLastname('Customer')
+        ->setStreet(['1401 Lavaca St'])
+        ->setCity('Austin')
+        ->setCountryId('US')
+        ->setRegion($region)
+        ->setRegionId(57)
+        ->setPostcode('78701')
+        ->setTelephone('5125550100')
+        ->setCustomerId((int) $customer->getId())
+        ->setIsDefaultBilling(true)
+        ->setIsDefaultShipping(true);
+    $om->get(\Magento\Customer\Api\AddressRepositoryInterface::class)->save($address);
+    $step('customer default address set (1401 Lavaca St, Austin TX 78701)');
+}
+
 // --- 5. Reindex + cache flush --------------------------------------------------
 
 $indexers = $om->create(\Magento\Indexer\Model\Indexer\CollectionFactory::class)
@@ -406,6 +465,7 @@ $step('flushed all caches');
 
 echo "\n[seed] Done. Test environment ready:\n";
 echo '       admin:    ' . ADMIN_USERNAME . ' / ' . ADMIN_PASSWORD . ' <' . ADMIN_EMAIL . ">\n";
+echo '       customer: ' . CUSTOMER_EMAIL . ' / ' . CUSTOMER_PASSWORD . " (default addr Austin TX)\n";
 echo '       category: ' . CATEGORY_NAME . ' (' . CATEGORY_URL_KEY . ")\n";
 echo '       product:  ' . PRODUCT_SKU . ' ($' . number_format(PRODUCT_PRICE, 2) . ")\n";
 echo '       config.:  ' . CONFIGURABLE_SKU . ' (' . VARIANT_RED_SKU . ' tic '
