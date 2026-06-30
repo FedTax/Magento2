@@ -68,7 +68,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Verify Marketplace secrets
       run: |
@@ -86,7 +86,7 @@ jobs:
 
     - name: Cache Magento codebase
       id: magento-cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ env.MAGENTO_ROOT }}
         key: magento-unit-${{ matrix.magento-version }}-php${{ matrix.php-version }}
@@ -161,7 +161,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Gate matrix row
         id: gate
@@ -199,7 +199,7 @@ jobs:
 
       - name: Cache Composer downloads
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.COMPOSER_CACHE_DIR }}
           key: composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-${{ hashFiles('composer.json') }}
@@ -229,7 +229,7 @@ jobs:
 
       - name: Upload debug logs
         if: failure() && steps.gate.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: debug-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
           path: ./debug-logs/
@@ -286,7 +286,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Gate matrix row
         id: gate
@@ -324,15 +324,15 @@ jobs:
 
       - name: Set up Node
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: Test/E2E/package-lock.json
 
       - name: Cache Composer downloads
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.COMPOSER_CACHE_DIR }}
           key: composer-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-${{ hashFiles('composer.json') }}
@@ -342,7 +342,7 @@ jobs:
 
       - name: Cache Playwright browsers
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('Test/E2E/package-lock.json') }}
@@ -365,7 +365,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: failure() && steps.gate.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
           path: |
@@ -382,7 +382,7 @@ jobs:
 
       - name: Upload Docker logs
         if: failure() && steps.gate.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: debug-e2e-${{ matrix.magento-edition }}-${{ matrix.magento-version }}-php${{ matrix.php-version }}
           path: ./debug-logs/
@@ -394,7 +394,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set up PHP
       uses: shivammathur/setup-php@v2
@@ -428,7 +428,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
@@ -439,7 +439,7 @@ jobs:
         output: 'trivy-results.sarif'
 
     - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'
