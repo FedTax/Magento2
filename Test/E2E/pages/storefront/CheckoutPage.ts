@@ -94,6 +94,11 @@ export class CheckoutPage {
     await this.successBlock.waitFor({ timeout: 90_000 });
   }
 
+  /** The tax amount currently shown in the checkout summary, e.g. "$1.24". */
+  async taxAmount(): Promise<string> {
+    return (await this.tax.first().innerText()).trim();
+  }
+
   /** The numeric order increment from the confirmation page. */
   async orderNumber(): Promise<string> {
     const text = await this.successBlock.innerText();
