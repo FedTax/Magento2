@@ -247,8 +247,12 @@ docker compose exec -T -u root app sh -c '
 # --- 6. setup:install (clean baseline) -------------------------------------
 
 echo "==> bin/magento setup:install (clean baseline)..."
+# Fixed backend frontName (Magento randomizes it by default) so E2E admin tests
+# can use a stable /admin/ URL. Harmless for unit/integration (they never hit the
+# admin over HTTP); this is a throwaway test install, not production.
 docker compose exec -T app bin/magento setup:install \
     --base-url="$MAGENTO_BASE_URL" \
+    --backend-frontname=admin \
     --db-host=db --db-name=magento --db-user=magento --db-password=magento \
     --admin-firstname=Admin --admin-lastname=User \
     --admin-email=admin@example.com \
@@ -267,6 +271,16 @@ docker compose exec -T app bin/magento setup:install \
 
 echo "==> bin/magento module:enable / setup:upgrade / di:compile..."
 docker compose exec -T app bin/magento module:enable Taxcloud_Magento2 || true
+
+# E2E drives the admin UI, but Magento 2.4 forces admin Two-Factor Auth on first
+# login, which can't be satisfied headlessly. Disable the 2FA modules for E2E
+# installs only (integration/unit never touch the admin over HTTP). Names vary by
+# version/edition, so tolerate absence.
+if [ "${E2E:-0}" = "1" ]; then
+    echo "==> Disabling admin 2FA modules (E2E admin tests)..."
+    docker compose exec -T app bin/magento module:disable \
+        Magento_TwoFactorAuth Magento_AdminAdobeImsTwoFactorAuth 2>/dev/null || true
+fi
 docker compose exec -T app bin/magento setup:upgrade --no-interaction
 docker compose exec -T app bin/magento setup:di:compile
 
