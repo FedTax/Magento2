@@ -280,6 +280,12 @@ if [ "${E2E:-0}" = "1" ]; then
     echo "==> Disabling admin 2FA modules (E2E admin tests)..."
     docker compose exec -T app bin/magento module:disable \
         Magento_TwoFactorAuth Magento_AdminAdobeImsTwoFactorAuth 2>/dev/null || true
+
+    # Admin action URLs normally carry a per-session secret key, which blocks
+    # deep-linking straight to admin pages (e.g. the Stores > Config editor).
+    # Turn it off so E2E can navigate to admin URLs directly.
+    echo "==> Disabling admin URL secret key (E2E admin tests)..."
+    docker compose exec -T app bin/magento config:set admin/security/use_form_key 0 2>/dev/null || true
 fi
 docker compose exec -T app bin/magento setup:upgrade --no-interaction
 docker compose exec -T app bin/magento setup:di:compile
