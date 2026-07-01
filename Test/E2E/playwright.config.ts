@@ -42,6 +42,11 @@ export default defineConfig({
   use: {
     baseURL,
     headless: process.env.PLAYWRIGHT_HEADED !== 'true',
+    // PLAYWRIGHT_SLOWMO=<ms> adds a delay before each action (headed only) so
+    // you can watch a run. Ignored/harmless in CI where it's unset.
+    launchOptions: {
+      slowMo: process.env.PLAYWRIGHT_SLOWMO ? parseInt(process.env.PLAYWRIGHT_SLOWMO, 10) : 0,
+    },
     // Cheap insurance for debugging CI failures — captured only when a test
     // fails, so green runs stay fast and produce no artifacts.
     trace: 'retain-on-failure',
