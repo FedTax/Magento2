@@ -1,11 +1,13 @@
 name: CI
 
-# Unified pipeline. One run per event:
-#   - pull_request / push to branches -> unit tests (community only) + lint + security
-#   - push tag v* (and manual dispatch) -> the SAME unit tests PLUS the full
-#     integration AND e2e matrices (community + enterprise across all supported
-#     versions), so a release tag is gated by a single run covering unit +
-#     integration + e2e.
+# Unified pipeline. What runs depends on the event:
+#   - push tag v* / manual dispatch / PR into main -> the full pipeline: unit
+#     tests (community only) + lint + security + the full integration AND e2e
+#     matrices (community + enterprise across all supported versions).
+#   - any other pull_request (e.g. into develop) / push to branches -> unit +
+#     lint + security only; the expensive integration/e2e matrices are skipped.
+#   A release tag and a PR into main are therefore gated by the same full run
+#   covering unit + integration + e2e.
 #
 # Unit tests mock all collaborators, so edition makes no difference at that level —
 # the unit job runs community-only. Integration exercises both editions.
@@ -115,13 +117,15 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Integration tests — community + enterprise across the full version matrix.
-  # EXPENSIVE (10-15 min/row, real Magento install in Docker). Gated to release
-  # tags and manual dispatch only, so it never runs on PRs/branch pushes.
+  # EXPENSIVE (10-15 min/row, real Magento install in Docker). Runs on release
+  # tags, manual dispatch, and PRs into main (so a main-bound PR is gated by the
+  # same checks as a release tag); skipped on branch pushes and PRs into other
+  # branches.
   # ---------------------------------------------------------------------------
   integration:
     name: Integration — ${{ matrix.magento-edition }} ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main')
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -237,7 +241,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # E2E tests — Playwright against a real, served storefront. Same matrix and
-  # gating as integration (release tags + manual dispatch only). Shares the
+  # gating as integration (release tags + manual dispatch + PRs into main). Shares the
   # install script via E2E=1, which overlays docker-compose.e2e.yml (adds nginx
   # and runs php-fpm) so Magento is reachable over HTTP. The browser runs on the
   # runner and drives the published port. See docs/E2E_TESTS.md.
@@ -245,7 +249,7 @@ jobs:
   e2e:
     name: E2E — ${{ matrix.magento-edition }} ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main')
     timeout-minutes: 45
     strategy:
       fail-fast: false
