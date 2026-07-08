@@ -67,6 +67,32 @@ bin/magento setup:di:compile
 }
 ```
 
+### Uninstalling the Module
+
+Installing the module adds two EAV attributes via the `InstallTaxcloudData`
+data patch:
+
+- `taxcloud_tic` on products (the TaxCloud TIC), and
+- `taxcloud_cert` on customers (the exemption certificate ID).
+
+The patch is revertable (`InstallTaxcloudData` implements
+`PatchRevertableInterface`), so these attributes are cleaned up automatically
+when the module is uninstalled. Magento invokes the patch's `revert()` from the
+uninstall-data flow:
+
+```
+bin/magento module:uninstall Taxcloud_Magento2
+```
+
+(`module:uninstall` applies to Composer-installed modules; it runs the data
+patch's `revert()` before removing the module's files.)
+
+Reverting drops both attributes (and, because EAV value storage cascades on the
+attribute, any TIC/certificate values stored against products and customers).
+Re-installing and running `bin/magento setup:upgrade` re-applies the patch and
+recreates the attribute definitions — but not the previously stored values — so
+revert is a destructive, one-way cleanup. It only runs on uninstall.
+
 ## Development
 
 ### Contributing

@@ -52,19 +52,46 @@ class InstallTaxcloudDataTest extends TestCase
     }
 
     /**
-     * A3.3: revert is a no-op today — confirm calling it does not throw.
+     * A3.3: revert() must undo apply() — drop the taxcloud_tic Product attribute
+     * via EavSetup and the taxcloud_cert Customer attribute via CustomerSetup,
+     * wrapped in the connection's start/end setup guard.
      */
-    public function testRevertDoesNotThrow()
+    public function testRevertRemovesTaxcloudTicAndCertAttributes()
     {
+        $eavSetup = $this->getMockBuilder(Dbl\EavSetupDouble::class)
+            ->onlyMethods(['removeAttribute'])
+            ->getMock();
+        $eavSetup->expects($this->once())
+            ->method('removeAttribute')
+            ->with(Product::ENTITY, 'taxcloud_tic');
+        $eavSetupFactory = $this->createMock(EavSetupFactory::class);
+        $eavSetupFactory->method('create')->willReturn($eavSetup);
+
+        $customerSetup = $this->getMockBuilder(Dbl\CustomerSetupDouble::class)
+            ->onlyMethods(['removeAttribute'])
+            ->getMock();
+        $customerSetup->expects($this->once())
+            ->method('removeAttribute')
+            ->with(Customer::ENTITY, 'taxcloud_cert');
+        $customerSetupFactory = $this->createMock(CustomerSetupFactory::class);
+        $customerSetupFactory->method('create')->willReturn($customerSetup);
+
+        // revert() brackets the removals in startSetup()/endSetup() on the
+        // module's DB connection — assert both fire.
+        $connection = $this->createMock(\Magento\Framework\DB\Adapter\AdapterInterface::class);
+        $connection->expects($this->once())->method('startSetup')->willReturnSelf();
+        $connection->expects($this->once())->method('endSetup')->willReturnSelf();
+        $moduleDataSetup = $this->createMock(ModuleDataSetupInterface::class);
+        $moduleDataSetup->method('getConnection')->willReturn($connection);
+
         $patch = $this->buildPatchWithMockedDependencies(
-            $this->createMock(EavSetupFactory::class),
-            $this->createMock(CustomerSetupFactory::class),
+            $eavSetupFactory,
+            $customerSetupFactory,
             $this->createMock(SetFactory::class),
-            $this->createMock(ModuleDataSetupInterface::class)
+            $moduleDataSetup
         );
 
         $patch->revert();
-        $this->assertTrue(true, 'revert() must not throw');
     }
 
     /**

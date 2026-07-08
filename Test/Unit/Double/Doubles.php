@@ -126,6 +126,7 @@ class TaxDetailDouble
 class EavSetupDouble
 {
     public function addAttribute($entityType = null, $code = null, $attr = null) {}
+    public function removeAttribute($entityType = null, $code = null) {}
 }
 
 class EavAttributeDouble
@@ -148,6 +149,7 @@ class CustomerEntityDouble
 class CustomerSetupDouble
 {
     public function addAttribute($entityType = null, $code = null, $attr = null) {}
+    public function removeAttribute($entityType = null, $code = null) {}
     public function getEavConfig() { return null; }
 }
 
