@@ -34,4 +34,15 @@
 
   <preference for="Magento\Tax\Model\Sales\Total\Quote\Tax" type="Taxcloud\Magento2\Model\Tax" />
 
+  <!--
+    Bind the TaxCloud gateway contracts to the SOAP implementation. Consumers
+    type-hint the finer-grained interface they need; the REST migration can
+    swap the concrete type here without touching any call site.
+  -->
+  <preference for="Taxcloud\Magento2\Api\GatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\ExemptionGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+
 </config>

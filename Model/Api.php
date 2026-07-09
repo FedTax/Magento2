@@ -19,15 +19,31 @@ namespace Taxcloud\Magento2\Model;
 
 use Magento\Framework\Serialize\SerializerInterface;
 use Magento\Directory\Model\RegionFactory;
+use Taxcloud\Magento2\Api\GatewayInterface;
+use Taxcloud\Magento2\Model\Cache\ResultCache;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Event\GatewayEventDispatcher;
+use Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback;
+use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
+use Taxcloud\Magento2\Model\Gateway\ExemptionValidator;
+use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
+use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
+use Taxcloud\Magento2\Model\Gateway\RetryPolicy;
+use Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Throwable;
 
 /**
  * Tax Calculation Model
+ *
+ * SOAP implementation of the TaxCloud gateway contract. Consumers depend on the
+ * finer-grained interfaces under {@see \Taxcloud\Magento2\Api}; this concrete
+ * class is what di.xml binds them to.
+ *
  * @SuppressWarnings(PHPMD.TooManyFields)
  * @SuppressWarnings(PHPMD.CouplingBetweenObjects)
  */
-class Api
+class Api implements GatewayInterface
 {
 
     /**#@+
@@ -72,13 +88,6 @@ class Api
      * @var \Magento\Framework\Event\ManagerInterface
      */
     protected $eventManager;
-
-    /**
-     * Soap client
-     *
-     * @var \SoapClient
-     */
-    protected $client = null;
 
     /**
      * Soap loader
@@ -174,6 +183,76 @@ class Api
     private $refundDistributor;
 
     /**
+     * Store-scoped configuration reader.
+     *
+     * @var \Taxcloud\Magento2\Model\Config\TaxcloudConfig
+     */
+    private $config;
+
+    /**
+     * Retry discipline for SOAP calls.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\RetryPolicy
+     */
+    private $retryPolicy;
+
+    /**
+     * Cache-key construction for gateway responses.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder
+     */
+    private $cacheKeyBuilder;
+
+    /**
+     * Wire-format normalization and extraction.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\ResponseMapper
+     */
+    private $responseMapper;
+
+    /**
+     * Request payload construction.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\RequestBuilder
+     */
+    private $requestBuilder;
+
+    /**
+     * SOAP transport (client provisioning).
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway
+     */
+    private $soapGateway;
+
+    /**
+     * Serialize-and-store response cache.
+     *
+     * @var \Taxcloud\Magento2\Model\Cache\ResultCache
+     */
+    private $resultCache;
+
+    /**
+     * Exemption-certificate validation.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\ExemptionValidator
+     */
+    private $exemptionValidator;
+
+    /**
+     * Magento-native tax fallback.
+     *
+     * @var \Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback
+     */
+    private $magentoTaxFallback;
+
+    /**
+     * Before/after gateway event dispatch.
+     *
+     * @var \Taxcloud\Magento2\Model\Event\GatewayEventDispatcher
+     */
+    private $eventDispatcher;
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Magento\Framework\App\CacheInterface $cacheType
      * @param \Magento\Framework\Event\ManagerInterface $eventManager
@@ -234,12 +313,41 @@ class Api
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->tclogger = $tclogger;
         } else {
-            $this->tclogger = new class {
-                public function info()
-                {
-                }
-            };
+            $this->tclogger = new \Psr\Log\NullLogger();
         }
+
+        // Focused collaborators. RetryPolicy is handed the resolved logger so it
+        // stays silent when logging is disabled, matching prior behavior.
+        $this->config = new TaxcloudConfig($scopeConfig);
+        $this->soapGateway = new SoapGateway($soapClientFactory, $this->config, $this->tclogger);
+        $this->retryPolicy = new RetryPolicy($this->tclogger);
+        $this->cacheKeyBuilder = new CacheKeyBuilder();
+        $this->responseMapper = new ResponseMapper($this->tclogger);
+        $this->requestBuilder = new RequestBuilder(
+            $this->config,
+            $scopeConfig,
+            $this->regionFactory,
+            $this->productTicService,
+            $this->tclogger
+        );
+        $this->resultCache = new ResultCache($cacheType, $serializer, $this->config);
+        $this->exemptionValidator = new ExemptionValidator(
+            $this->soapGateway,
+            $this->config,
+            $cacheType,
+            $this->cacheKeyBuilder,
+            $this->responseMapper,
+            $this->tclogger
+        );
+        $this->magentoTaxFallback = new MagentoTaxFallback(
+            $this->customerAddressFactory,
+            $this->quoteDetailsFactory,
+            $this->quoteDetailsItemFactory,
+            $this->taxClassKeyFactory,
+            $this->taxCalculationService,
+            $this->tclogger
+        );
+        $this->eventDispatcher = new GatewayEventDispatcher($eventManager, $objectFactory);
     }
 
     /**
@@ -248,10 +356,7 @@ class Api
      */
     protected function getApiId()
     {
-        return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/api_id',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
+        return $this->config->getApiId();
     }
 
     /**
@@ -260,10 +365,7 @@ class Api
      */
     protected function getApiKey()
     {
-        return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/api_key',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
+        return $this->config->getApiKey();
     }
 
     /**
@@ -272,10 +374,7 @@ class Api
      */
     protected function getGuestCustomerId()
     {
-        return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/guest_customer_id',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        ) ?? '-1';
+        return $this->config->getGuestCustomerId();
     }
 
 
@@ -285,10 +384,7 @@ class Api
      */
     protected function getCacheLifetime()
     {
-        return intval($this->scopeConfig->getValue(
-            'tax/taxcloud_settings/cache_lifetime',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        ));
+        return $this->config->getCacheLifetime();
     }
 
     /**
@@ -297,10 +393,7 @@ class Api
      */
     private function isFallbackToMagentoEnabled()
     {
-        return (bool) $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/fallback_to_magento',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
+        return $this->config->isFallbackToMagentoEnabled();
     }
 
     /**
@@ -318,123 +411,7 @@ class Api
      */
     public function getValidatedCertificateID($certificateID, $customerID, $destinationState)
     {
-        if (empty($certificateID) || empty($customerID) || empty($destinationState)) {
-            return null;
-        }
-
-        // Keyed per (customer, certificate) so a customer who pastes another
-        // customer's certificate UUID into their own profile cannot reuse the
-        // other customer's cached state list.
-        $cacheKey = 'taxcloud_cert_states_' . $customerID . '_' . $certificateID;
-        $cached = $this->cacheType->load($cacheKey);
-        if ($cached) {
-            $exemptStates = json_decode($cached, true);
-            if (is_array($exemptStates)) {
-                $match = in_array($destinationState, $exemptStates, true);
-                $this->tclogger->info(
-                    'Exemption cert ' . $certificateID . ' covers [' . implode(', ', $exemptStates) . ']'
-                    . ' — destination ' . $destinationState . ($match ? ' MATCHES' : ' does NOT match')
-                );
-                return $match ? $certificateID : null;
-            }
-        }
-
-        // Fetch certificate details from TaxCloud
-        $client = $this->getClient();
-        if (!$client) {
-            $this->tclogger->info('Cannot validate exemption cert: no SOAP client');
-            return null;
-        }
-
-        try {
-            $response = $client->GetExemptCertificates(array(
-                'apiLoginID' => $this->getApiId(),
-                'apiKey'     => $this->getApiKey(),
-                'customerID' => $customerID,
-            ));
-        } catch (Throwable $e) {
-            // Fail closed — don't apply an unverified exemption
-            $this->tclogger->info('GetExemptCertificates SOAP error: ' . $e->getMessage());
-            return null;
-        }
-
-        $exemptStates = $this->extractExemptStatesFromResponse($response, $certificateID);
-
-        // Cache for 1 hour so we don't hammer the SOAP endpoint on every page load
-        $this->cacheType->save(
-            json_encode($exemptStates),
-            $cacheKey,
-            [],
-            3600
-        );
-
-        $match = in_array($destinationState, $exemptStates, true);
-        $this->tclogger->info(
-            'Exemption cert ' . $certificateID . ' covers [' . implode(', ', $exemptStates) . ']'
-            . ' — destination ' . $destinationState . ($match ? ' MATCHES' : ' does NOT match')
-        );
-        return $match ? $certificateID : null;
-    }
-
-    /**
-     * Extract the list of exempt state abbreviations for a specific certificate
-     * from a GetExemptCertificates SOAP response.
-     *
-     * @param object $response  Raw SOAP response
-     * @param string $certificateID
-     * @return string[]  State abbreviations (e.g. ['NY', 'NJ'])
-     */
-    private function extractExemptStatesFromResponse($response, $certificateID)
-    {
-        $result = $response->GetExemptCertificatesResult ?? null;
-        if (!$result || ($result->ResponseType ?? '') !== 'OK') {
-            $this->tclogger->info('GetExemptCertificates returned non-OK response');
-            return [];
-        }
-
-        $certs = $result->ExemptCertificates->ExemptionCertificate ?? [];
-        // SOAP may return a single object instead of an array when there is only one cert
-        if (!is_array($certs)) {
-            $certs = [$certs];
-        }
-
-        foreach ($certs as $cert) {
-            if (($cert->CertificateID ?? '') !== $certificateID) {
-                continue;
-            }
-
-            $states = [];
-            $exemptStates = $cert->Detail->ExemptStates->ExemptState ?? [];
-            if (!is_array($exemptStates)) {
-                $exemptStates = [$exemptStates];
-            }
-            foreach ($exemptStates as $es) {
-                // The SOAP response uses StateAbbr or StateAbbreviation
-                $abbr = $es->StateAbbr ?? $es->StateAbbreviation ?? null;
-                if ($abbr) {
-                    $states[] = $abbr;
-                }
-            }
-            return $states;
-        }
-
-        $this->tclogger->info('Certificate ' . $certificateID . ' not found in GetExemptCertificates response');
-        return [];
-    }
-
-    /**
-     * Set customer address data from quote address
-     * @param \Magento\Customer\Api\Data\AddressInterface $customerAddress
-     * @param \Magento\Quote\Model\Quote\Address $quoteAddress
-     * @return void
-     */
-    private function setFromAddress($customerAddress, $quoteAddress)
-    {
-        $customerAddress->setCountryId($quoteAddress->getCountryId());
-        $customerAddress->setRegionId($quoteAddress->getRegionId());
-        $customerAddress->setPostcode($quoteAddress->getPostcode());
-        $customerAddress->setCity($quoteAddress->getCity());
-        $customerAddress->setStreet($quoteAddress->getStreet());
+        return $this->exemptionValidator->validate($certificateID, $customerID, $destinationState);
     }
 
     /**
@@ -443,28 +420,7 @@ class Api
      */
     protected function getOrigin()
     {
-        $scope = \Magento\Store\Model\ScopeInterface::SCOPE_STORE;
-
-        $originPostcode = $this->scopeConfig->getValue('shipping/origin/postcode', $scope);
-        $parsedZip = PostalCodeParser::parse($originPostcode);
-        
-        // Validate the parsed ZIP code
-        if (!PostalCodeParser::isValid($parsedZip)) {
-            $this->tclogger->info('Invalid origin ZIP code format: ' . $originPostcode);
-            // For origin address, we need a valid ZIP code - return null to indicate invalid origin
-            return null;
-        }
-        
-        return array(
-            'Address1' => $this->scopeConfig->getValue('shipping/origin/street_line1', $scope),
-            'Address2' => $this->scopeConfig->getValue('shipping/origin/street_line2', $scope),
-            'City' => $this->scopeConfig->getValue('shipping/origin/city', $scope),
-            'State' => $this->regionFactory->create()->load(
-                $this->scopeConfig->getValue('shipping/origin/region_id', $scope)
-            )->getCode(),
-            'Zip5' => $parsedZip['Zip5'],
-            'Zip4' => $parsedZip['Zip4'],
-        );
+        return $this->requestBuilder->buildOrigin();
     }
 
     /**
@@ -473,11 +429,7 @@ class Api
      */
     public function getSoapTimeout()
     {
-        $configured = (int) $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/api_timeout',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-        return $configured > 0 ? $configured : self::DEFAULT_SOAP_TIMEOUT;
+        return $this->config->getSoapTimeout();
     }
 
     /**
@@ -493,17 +445,7 @@ class Api
      */
     public function buildSoapOptions()
     {
-        $timeout = $this->getSoapTimeout();
-
-        return array(
-            'connection_timeout' => $timeout,
-            'cache_wsdl'         => WSDL_CACHE_BOTH,
-            'keep_alive'         => true,
-            'stream_context'     => stream_context_create(array(
-                'http' => array('timeout' => $timeout),
-                'ssl'  => array('timeout' => $timeout),
-            )),
-        );
+        return $this->soapGateway->buildSoapOptions();
     }
 
     /**
@@ -512,16 +454,7 @@ class Api
      */
     public function getClient()
     {
-        if ($this->client === null) {
-            try {
-                $wsdl = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
-                $this->client = $this->soapClientFactory->create($wsdl, $this->buildSoapOptions());
-            } catch (Throwable $e) {
-                $this->tclogger->info('Cannot get SoapClient:');
-                $this->tclogger->info($e->getMessage());
-            }
-        }
-        return $this->client;
+        return $this->soapGateway->getClient();
     }
 
     /**
@@ -533,14 +466,7 @@ class Api
      */
     public function isTimeoutError(Throwable $e)
     {
-        if ($e instanceof \SoapFault && isset($e->faultcode)
-            && stripos((string) $e->faultcode, 'HTTP') !== false) {
-            return true;
-        }
-        return (bool) preg_match(
-            '/timed out|timeout|Error Fetching http headers|Could not connect|failed to open/i',
-            $e->getMessage()
-        );
+        return $this->retryPolicy->isTimeoutError($e);
     }
 
     /**
@@ -557,22 +483,7 @@ class Api
      */
     public function callSoapWithRetry(callable $call, $maxRetries = 1)
     {
-        $attempt = 0;
-        while (true) {
-            try {
-                return $call();
-            } catch (Throwable $e) {
-                if ($this->isTimeoutError($e) || $attempt >= $maxRetries) {
-                    throw $e;
-                }
-                $attempt++;
-                $this->tclogger->info(
-                    'SOAP call failed, retrying (' . $attempt . '/' . $maxRetries
-                    . ') after backoff: ' . $e->getMessage()
-                );
-                usleep(self::SOAP_RETRY_BACKOFF_US);
-            }
-        }
+        return $this->retryPolicy->execute($call, $maxRetries);
     }
 
     /**
@@ -721,11 +632,7 @@ class Api
         );
 
         // Call before event (observers may modify $params, e.g. address verification)
-        $lookupParamsHolder = $this->objectFactory->create();
-        $lookupParamsHolder->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_lookup_before', array(
-            'obj' => $lookupParamsHolder,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_lookup_before', $params, array(
             'customer' => $customer,
             'address' => $address,
             'quote' => $quote,
@@ -733,16 +640,10 @@ class Api
             'shippingAssignment' => $shippingAssignment,
         ));
 
-        $params = $lookupParamsHolder->getParams();
-
         // hash, check cache (use post-observer params so cache key matches what we send to TaxCloud)
-        $cacheKeyApi = 'taxcloud_rates_' . hash('sha256', json_encode($params));
-        $cacheResult = null;
-        if ($this->cacheType->load($cacheKeyApi)) {
-            $cacheResult = $this->serializer->unserialize($this->cacheType->load($cacheKeyApi));
-        }
-
-        if ($this->getCacheLifetime() && $cacheResult) {
+        $cacheKeyApi = $this->cacheKeyBuilder->forLookup($params);
+        $cacheResult = $this->resultCache->get($cacheKeyApi);
+        if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
         }
@@ -770,14 +671,14 @@ class Api
             // Check if fallback to Magento is enabled
             if ($this->isFallbackToMagentoEnabled()) {
                 $this->tclogger->info('TaxCloud lookup failed, falling back to Magento tax rates');
-                return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
+                return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
 
             return $result;
         }
 
         // Force into array
-        $lookupResponse = json_decode(json_encode($lookupResponse), true);
+        $lookupResponse = $this->responseMapper->toArray($lookupResponse);
 
         $this->tclogger->info('lookupTaxes RESPONSE:');
         $this->tclogger->info(print_r($lookupResponse, true));
@@ -785,19 +686,13 @@ class Api
         $lookupResult = $lookupResponse['LookupResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($lookupResult);
-
-        $this->eventManager->dispatch('taxcloud_lookup_after', array(
-            'obj' => $obj,
+        $lookupResult = $this->eventDispatcher->dispatchAfter('taxcloud_lookup_after', $lookupResult, array(
             'customer' => $customer,
             'address' => $address,
             'quote' => $quote,
             'itemsByType' => $itemsByType,
             'shippingAssignment' => $shippingAssignment,
         ));
-
-        $lookupResult = $obj->getResult();
 
         if ($lookupResult['ResponseType'] == 'OK' || $lookupResult['ResponseType'] == 'Informational') {
             $cartItemResponse = $lookupResult['CartItemsResponse']['CartItemResponse'];
@@ -814,12 +709,7 @@ class Api
             );
 
             $this->tclogger->info('Caching lookupTaxes result for ' . $this->getCacheLifetime());
-            $this->cacheType->save(
-                $this->serializer->serialize($result),
-                $cacheKeyApi,
-                array('taxcloud_rates'),
-                $this->getCacheLifetime()
-            );
+            $this->resultCache->save($cacheKeyApi, $result, array('taxcloud_rates'));
 
             return $result;
         } else {
@@ -829,117 +719,9 @@ class Api
             // Check if fallback to Magento is enabled
             if ($this->isFallbackToMagentoEnabled()) {
                 $this->tclogger->info('TaxCloud lookup returned error response, falling back to Magento tax rates');
-                return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
+                return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
             
-            return $result;
-        }
-    }
-
-    /**
-     * Get Magento's default tax rates for fallback when TaxCloud fails
-     * @param $itemsByType
-     * @param $shippingAssignment
-     * @param $quote
-     * @return array
-     */
-    private function getMagentoTaxRates($itemsByType, $shippingAssignment, $quote)
-    {
-        $this->tclogger->info('Falling back to Magento tax rates');
-        
-        $result = array(self::ITEM_TYPE_PRODUCT => array(), self::ITEM_TYPE_SHIPPING => 0);
-        
-        $address = $shippingAssignment->getShipping()->getAddress();
-        if (!$address) {
-            return $result;
-        }
-        
-        try {
-            // Build customer address for tax calculation
-            $customerAddress = $this->customerAddressFactory->create();
-            $this->setFromAddress($customerAddress, $address);
-            
-            // Create quote details
-            $quoteDetails = $this->quoteDetailsFactory->create();
-            $quoteDetails->setBillingAddress($customerAddress);
-            $quoteDetails->setShippingAddress($customerAddress);
-            $quoteDetails->setCustomerTaxClassId($quote->getCustomerTaxClassId());
-            $quoteDetails->setItems([]);
-            
-            $keyedAddressItems = [];
-            foreach ($shippingAssignment->getItems() as $item) {
-                // Skip composite child lines with no tax calculation id (null
-                // array key is a PHP 8 deprecation, fatal in developer mode).
-                $taxCalculationItemId = $item->getTaxCalculationItemId();
-                if ($taxCalculationItemId === null) {
-                    continue;
-                }
-                $keyedAddressItems[$taxCalculationItemId] = $item;
-            }
-            
-            $items = [];
-            if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
-                foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
-                    $item = $keyedAddressItems[$code];
-                    if ($item->getProduct()->getTaxClassId() === '0') {
-                        continue;
-                    }
-                    
-                    $quoteDetailsItem = $this->quoteDetailsItemFactory->create();
-                    $quoteDetailsItem->setCode($code);
-                    $quoteDetailsItem->setType(self::ITEM_TYPE_PRODUCT);
-                    $taxClassKey = $this->taxClassKeyFactory->create();
-                    $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
-                    $taxClassKey->setValue($item->getProduct()->getTaxClassId());
-                    $quoteDetailsItem->setTaxClassKey($taxClassKey);
-                    $quoteDetailsItem->setUnitPrice($item->getPrice());
-                    $quoteDetailsItem->setQuantity($item->getQty());
-                    $quoteDetailsItem->setDiscountAmount($item->getDiscountAmount());
-                    $quoteDetailsItem->setIsTaxIncluded(false);
-                    
-                    $items[] = $quoteDetailsItem;
-                }
-            }
-            
-            if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
-                foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
-                    $quoteDetailsItem = $this->quoteDetailsItemFactory->create();
-                    $quoteDetailsItem->setCode($code);
-                    $quoteDetailsItem->setType(self::ITEM_TYPE_SHIPPING);
-                    $taxClassKey = $this->taxClassKeyFactory->create();
-                    $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
-                    $taxClassKey->setValue(0); // Default tax class for shipping
-                    $quoteDetailsItem->setTaxClassKey($taxClassKey);
-                    $quoteDetailsItem->setUnitPrice($itemTaxDetail[self::KEY_ITEM]->getRowTotal());
-                    $quoteDetailsItem->setQuantity(1);
-                    $quoteDetailsItem->setDiscountAmount(0);
-                    $quoteDetailsItem->setIsTaxIncluded(false);
-                    
-                    $items[] = $quoteDetailsItem;
-                }
-            }
-            
-            $quoteDetails->setItems($items);
-            
-            // Calculate tax using Magento's service
-            $taxDetails = $this->taxCalculationService->calculateTax($quoteDetails, $quote->getStoreId());
-            
-            // Process results
-            foreach ($taxDetails->getItems() as $item) {
-                $code = $item->getCode();
-                $taxAmount = $item->getRowTax();
-                
-                if ($item->getType() === self::ITEM_TYPE_SHIPPING) {
-                    $result[self::ITEM_TYPE_SHIPPING] += $taxAmount;
-                } else {
-                    $result[self::ITEM_TYPE_PRODUCT][$code] = $taxAmount;
-                }
-            }
-            
-            $this->tclogger->info('Successfully calculated Magento tax rates: ' . json_encode($result));
-            return $result;
-        } catch (\Throwable $e) {
-            $this->tclogger->info('Error calculating Magento tax rates: ' . $e->getMessage());
             return $result;
         }
     }
@@ -964,26 +746,12 @@ class Api
 
         $dup = 'This transaction has already been marked as authorized';
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
-            'cartID' => $order->getQuoteId(),
-            'orderID' => $order->getIncrementId(),
-            'dateAuthorized' => date('c'), // date('Y-m-d') . 'T00:00:00'
-            'dateCaptured' => date('c'), // date('Y-m-d') . 'T00:00:00'
-        );
+        $params = $this->requestBuilder->buildAuthorizeCaptureParams($order);
 
         // Call before event
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_authorized_with_capture_before', array(
-            'obj' => $obj,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_authorized_with_capture_before', $params, array(
             'order' => $order,
         ));
-
-        $params = $obj->getParams();
 
         $this->tclogger->info('authorizedWithCapture PARAMS:');
         $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
@@ -998,7 +766,7 @@ class Api
         }
 
         // Force into array
-        $authorizedResponse = json_decode(json_encode($authorizedResponse), true);
+        $authorizedResponse = $this->responseMapper->toArray($authorizedResponse);
 
         $this->tclogger->info('authorizedWithCapture RESPONSE:');
         $this->tclogger->info(print_r($authorizedResponse, true));
@@ -1006,15 +774,11 @@ class Api
         $authorizedResult = $authorizedResponse['AuthorizedWithCaptureResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($authorizedResult);
-
-        $this->eventManager->dispatch('taxcloud_authorized_with_capture_after', array(
-            'obj' => $obj,
-            'order' => $order,
-        ));
-
-        $authorizedResult = $obj->getResult();
+        $authorizedResult = $this->eventDispatcher->dispatchAfter(
+            'taxcloud_authorized_with_capture_after',
+            $authorizedResult,
+            array('order' => $order)
+        );
 
         if ($authorizedResult['ResponseType'] != 'OK') {
             $respMsg = $authorizedResult['Messages']['ResponseMessage']['Message'];
@@ -1117,27 +881,14 @@ class Api
             }
         }
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'orderID' => $order->getIncrementId(),
-            'cartItems' => $cartItems,
-            'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00';
-            'returnCoDeliveryFeeWhenNoCartItems' => false
-        );
+        $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
 
         // Call before event
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_returned_before', array(
-            'obj' => $obj,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, array(
             'order' => $order,
             'items' => $creditmemo->getAllItems(),
             'creditmemo' => $creditmemo,
         ));
-
-        $params = $obj->getParams();
 
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
@@ -1171,7 +922,7 @@ class Api
         }
 
         // Force into array
-        $returnResponse = json_decode(json_encode($returnResponse), true);
+        $returnResponse = $this->responseMapper->toArray($returnResponse);
 
         $this->tclogger->info('returnOrder RESPONSE:');
         $this->tclogger->info(print_r($returnResponse, true));
@@ -1179,17 +930,11 @@ class Api
         $returnResult = $returnResponse['ReturnedResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($returnResult);
-
-        $this->eventManager->dispatch('taxcloud_returned_after', array(
-            'obj' => $obj,
+        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, array(
             'order' => $order,
             'items' => $creditmemo->getAllItems(),
             'creditmemo' => $creditmemo,
         ));
-
-        $returnResult = $obj->getResult();
 
         if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
             $errorMessage = 'Unknown error';
@@ -1232,11 +977,7 @@ class Api
             return null;
         }
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'orderID' => $order->getIncrementId(),
-        );
+        $params = $this->requestBuilder->buildOrderDetailsParams($order);
 
         try {
             $response = $client->OrderDetails($params);
@@ -1245,7 +986,7 @@ class Api
             return null;
         }
 
-        $response = json_decode(json_encode($response), true);
+        $response = $this->responseMapper->toArray($response);
         if (empty($response['OrderDetailsResult'])) {
             return null;
         }
@@ -1282,27 +1023,14 @@ class Api
             return false;
         }
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'orderID' => $order->getIncrementId(),
-            'cartItems' => $cartItems,
-            'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00'
-            'returnCoDeliveryFeeWhenNoCartItems' => false
-        );
+        $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
 
         // Call before event
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_returned_before', array(
-            'obj' => $obj,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, array(
             'order' => $order,
             'items' => $order->getAllVisibleItems(),
             'creditmemo' => null,
         ));
-
-        $params = $obj->getParams();
 
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
@@ -1336,7 +1064,7 @@ class Api
         }
 
         // Force into array
-        $returnResponse = json_decode(json_encode($returnResponse), true);
+        $returnResponse = $this->responseMapper->toArray($returnResponse);
 
         $this->tclogger->info('returnOrderCancellation RESPONSE:');
         $this->tclogger->info(print_r($returnResponse, true));
@@ -1344,17 +1072,11 @@ class Api
         $returnResult = $returnResponse['ReturnedResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($returnResult);
-
-        $this->eventManager->dispatch('taxcloud_returned_after', array(
-            'obj' => $obj,
+        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, array(
             'order' => $order,
             'items' => $order->getAllVisibleItems(),
             'creditmemo' => null,
         ));
-
-        $returnResult = $obj->getResult();
 
         if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
             $errorMessage = 'Unknown error';
@@ -1376,39 +1098,7 @@ class Api
      */
     private function buildCartItemsFromOrder($order)
     {
-        $cartItems = array();
-        $index = 0;
-        $orderItems = $order->getAllVisibleItems();
-        if ($orderItems) {
-            foreach ($orderItems as $item) {
-                $qty = (float) $item->getQtyOrdered();
-                if ($qty <= 0) {
-                    continue;
-                }
-                $price = (float) $item->getPrice();
-                $discountAmount = (float) $item->getDiscountAmount();
-                $discountPerUnit = $qty > 0 ? $discountAmount / $qty : 0;
-                $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
-                    'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
-                    'Price' => $price - $discountPerUnit,
-                    'Qty' => $qty,
-                );
-                $index++;
-            }
-        }
-        $shippingAmount = (float) $order->getBaseShippingAmount();
-        if ($shippingAmount > 0) {
-            $cartItems[] = array(
-                'ItemID' => 'shipping',
-                'Index' => $index,
-                'TIC' => $this->productTicService->getShippingTic(),
-                'Price' => $shippingAmount,
-                'Qty' => 1,
-            );
-        }
-        return $cartItems;
+        return $this->requestBuilder->buildCartItemsFromOrder($order);
     }
 
     /**
@@ -1419,26 +1109,7 @@ class Api
      */
     private function getDestinationFromOrder($order)
     {
-        $address = $order->getShippingAddress();
-        if (!$address || !$address->getPostcode() || $address->getCountryId() !== 'US') {
-            return null;
-        }
-        $parsedZip = PostalCodeParser::parse($address->getPostcode());
-        if (!PostalCodeParser::isValid($parsedZip)) {
-            return null;
-        }
-        $street = $address->getStreet();
-        $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
-        $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
-        $regionCode = $address->getRegionCode() ?? '';
-        return array(
-            'Address1' => $street1,
-            'Address2' => $street2,
-            'City' => $address->getCity() ?? '',
-            'State' => $regionCode ?? '',
-            'Zip5' => $parsedZip['Zip5'],
-            'Zip4' => $parsedZip['Zip4'],
-        );
+        return $this->requestBuilder->buildDestinationFromOrder($order);
     }
 
     /**
@@ -1463,24 +1134,14 @@ class Api
         if ($origin === null) {
             return false;
         }
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
-            'cartID' => $order->getIncrementId() . '-exempt',
-            'cartItems' => $cartItems,
-            'origin' => $origin,
-            'destination' => $destination,
-            'deliveredBySeller' => false,
-            'isExempt' => true,
-        );
+        $params = $this->requestBuilder->buildExemptLookupParams($order, $cartItems, $destination, $origin);
         try {
             $lookupResponse = $client->lookup($params);
         } catch (Throwable $e) {
             $this->tclogger->info('returnOrder: exempt lookup failed: ' . $e->getMessage());
             return false;
         }
-        $lookupResponse = json_decode(json_encode($lookupResponse), true);
+        $lookupResponse = $this->responseMapper->toArray($lookupResponse);
         $result = isset($lookupResponse['LookupResult']) ? $lookupResponse['LookupResult'] : array();
         $responseType = isset($result['ResponseType']) ? $result['ResponseType'] : '';
         return $responseType === 'OK' || $responseType === 'Informational';
@@ -1496,22 +1157,14 @@ class Api
      */
     private function authorizeCaptureWithCartId($order, $cartId, $client)
     {
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
-            'cartID' => $cartId,
-            'orderID' => $order->getIncrementId(),
-            'dateAuthorized' => date('c'),
-            'dateCaptured' => date('c'),
-        );
+        $params = $this->requestBuilder->buildAuthorizeCaptureParams($order, $cartId);
         try {
             $response = $client->authorizedWithCapture($params);
         } catch (Throwable $e) {
             $this->tclogger->info('returnOrder: authorizeCapture failed: ' . $e->getMessage());
             return false;
         }
-        $response = json_decode(json_encode($response), true);
+        $response = $this->responseMapper->toArray($response);
         $result = isset($response['AuthorizedWithCaptureResult']) ? $response['AuthorizedWithCaptureResult'] : array();
         return (isset($result['ResponseType']) ? $result['ResponseType'] : '') === 'OK';
     }
@@ -1525,25 +1178,12 @@ class Api
     {
         $this->tclogger->info('Calling verifyAddress');
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'address1' => $address['Address1'],
-            'address2' => $address['Address2'],
-            'city' => $address['City'],
-            'state' => $address['State'],
-            'zip5' => $address['Zip5'],
-            'zip4' => $address['Zip4'],
-        );
+        $params = $this->requestBuilder->buildVerifyAddressParams($address);
 
         // hash, check cache
-        $cacheKeyApi = 'taxcloud_address_' . hash('sha256', json_encode($params));
-        $cacheResult = null;
-        if ($this->cacheType->load($cacheKeyApi)) {
-            $cacheResult = $this->serializer->unserialize($this->cacheType->load($cacheKeyApi));
-        }
-
-        if ($this->getCacheLifetime() && $cacheResult) {
+        $cacheKeyApi = $this->cacheKeyBuilder->forAddress($params);
+        $cacheResult = $this->resultCache->get($cacheKeyApi);
+        if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
         }
@@ -1557,14 +1197,7 @@ class Api
 
         // Call before event
 
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_verify_address_before', array(
-            'obj' => $obj,
-        ));
-
-        $params = $obj->getParams();
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_verify_address_before', $params);
 
         // Call the TaxCloud web service
 
@@ -1582,7 +1215,7 @@ class Api
         }
 
         // Force into array
-        $verifyResponse = json_decode(json_encode($verifyResponse), true);
+        $verifyResponse = $this->responseMapper->toArray($verifyResponse);
 
         $this->tclogger->info('verifyAddress RESPONSE:');
         $this->tclogger->info(print_r($verifyResponse, true));
@@ -1590,14 +1223,7 @@ class Api
         $verifyResult = $verifyResponse['VerifyAddressResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($verifyResult);
-
-        $this->eventManager->dispatch('taxcloud_verify_address_after', array(
-            'obj' => $obj,
-        ));
-
-        $verifyResult = $obj->getResult();
+        $verifyResult = $this->eventDispatcher->dispatchAfter('taxcloud_verify_address_after', $verifyResult);
 
         if ($verifyResult['ErrNumber'] == 0) {
             $result = array(
@@ -1610,12 +1236,7 @@ class Api
             );
 
             $this->tclogger->info('Caching verifyAddress result for ' . $this->getCacheLifetime());
-            $this->cacheType->save(
-                $this->serializer->serialize($result),
-                $cacheKeyApi,
-                array('taxcloud_address'),
-                $this->getCacheLifetime()
-            );
+            $this->resultCache->save($cacheKeyApi, $result, array('taxcloud_address'));
 
             return $result;
         } else {

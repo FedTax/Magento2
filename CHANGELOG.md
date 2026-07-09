@@ -2,6 +2,19 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## 1.3.0
+
+### Changed
+
+- Extracted the TaxCloud gateway into service-contract interfaces under
+  `Taxcloud\Magento2\Api` (`LookupGatewayInterface`, `OrderGatewayInterface`,
+  `AddressGatewayInterface`, `ExemptionGatewayInterface`, and the aggregate
+  `GatewayInterface`). The tax collector and the sales observers now depend on
+  the narrow interface each needs rather than the concrete `Model\Api`, and
+  `di.xml` binds every contract to the existing SOAP implementation. This is a
+  pure refactor with no behavior change; it creates the seam needed to swap the
+  transport (e.g. a REST gateway) without touching any call site.
+
 ## 1.2.0
 
 ### Added

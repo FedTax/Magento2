@@ -31,9 +31,9 @@ class Address implements ObserverInterface
     protected $scopeConfig = null;
 
     /**
-     * TaxCloud Api Object
+     * TaxCloud address-verification gateway
      *
-     * @var \Taxcloud\Magento2\Model\Api
+     * @var \Taxcloud\Magento2\Api\AddressGatewayInterface
      */
     protected $tcapi;
 
@@ -46,12 +46,12 @@ class Address implements ObserverInterface
 
     /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
-     * @param \Taxcloud\Magento2\Model\Api $tcapi
+     * @param \Taxcloud\Magento2\Api\AddressGatewayInterface $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
      */
     public function __construct(
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Taxcloud\Magento2\Model\Api $tcapi,
+        \Taxcloud\Magento2\Api\AddressGatewayInterface $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger
     ) {
         $this->scopeConfig = $scopeConfig;

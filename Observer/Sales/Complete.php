@@ -40,9 +40,9 @@ class Complete implements ObserverInterface
     protected $scopeConfig = null;
 
     /**
-     * TaxCloud Api Object
+     * TaxCloud order-lifecycle gateway
      *
-     * @var \Taxcloud\Magento2\Model\Api
+     * @var \Taxcloud\Magento2\Api\OrderGatewayInterface
      */
     protected $tcapi;
 
@@ -55,12 +55,12 @@ class Complete implements ObserverInterface
 
     /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
-     * @param \Taxcloud\Magento2\Model\Api $tcapi
+     * @param \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
      */
     public function __construct(
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Taxcloud\Magento2\Model\Api $tcapi,
+        \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger
     ) {
         $this->scopeConfig = $scopeConfig;

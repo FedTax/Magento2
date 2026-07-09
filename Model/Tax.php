@@ -32,9 +32,9 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
     protected $scopeConfig = null;
 
     /**
-     * TaxCloud Api Object
+     * TaxCloud tax-lookup gateway
      *
-     * @var \Taxcloud\Magento2\Model\Api
+     * @var \Taxcloud\Magento2\Api\LookupGatewayInterface
      */
     protected $tcapi;
 
@@ -57,7 +57,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
      * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
      * @param \Magento\Tax\Helper\Data $taxData
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
-     * @param \Taxcloud\Magento2\Api $tcapi
+     * @param \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
      * @param \Magento\Framework\Serialize\Serializer\Json $serializer
      */
@@ -71,7 +71,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
         \Magento\Tax\Helper\Data $taxData,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Taxcloud\Magento2\Model\Api $tcapi,
+        \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi,
         \Taxcloud\Magento2\Logger\Logger $tclogger,
         ?\Magento\Framework\Serialize\Serializer\Json $serializer = null
     ) {
