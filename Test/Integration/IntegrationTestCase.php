@@ -68,12 +68,17 @@ abstract class IntegrationTestCase extends TestCase
     /**
      * Module classes whose shared (singleton) instances must be rebuilt after
      * the SOAP factory is swapped, so they pick up the mock instead of a
-     * client cached from an earlier test. Everything here either holds the
-     * \SoapClient (Api) or constructor-injects Api.
+     * client cached from an earlier test. This walks the graph from the
+     * \SoapClient outward: SoapGateway holds (and caches) the client;
+     * ExemptionValidator and Api hold the SoapGateway; Tax and the observers
+     * hold Api. Evicting all of them forces the next resolution to rebuild the
+     * whole chain around the mock ClientFactory.
      *
      * @var string[]
      */
     private const SOAP_DEPENDENT_TYPES = [
+        \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway::class,
+        \Taxcloud\Magento2\Model\Gateway\ExemptionValidator::class,
         \Taxcloud\Magento2\Model\Api::class,
         \Taxcloud\Magento2\Model\Tax::class,
         \Taxcloud\Magento2\Observer\Sales\Complete::class,

@@ -21,14 +21,15 @@ namespace Taxcloud\Magento2\Test\Integration\Model;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
-use Taxcloud\Magento2\Model\Api;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
 
 /**
  * Proves that credentials written to core_config_data (the path the admin UI —
- * and scripts/seed-test-data.php — write to) are the ones Api::getApiId() and
- * Api::getApiKey() read back. Almost tautological, but it is the smoke test for
- * "did the install's config writes actually land where the API reads them".
+ * and scripts/seed-test-data.php — write to) are the ones TaxcloudConfig::getApiId()
+ * and TaxcloudConfig::getApiKey() read back. Almost tautological, but it is the
+ * smoke test for "did the install's config writes actually land where the API
+ * reads them".
  */
 class ConfigInjectionTest extends IntegrationTestCase
 {
@@ -62,31 +63,19 @@ class ConfigInjectionTest extends IntegrationTestCase
         $this->writeConfig('tax/taxcloud_settings/api_id', self::TEST_API_ID);
         $this->writeConfig('tax/taxcloud_settings/api_key', self::TEST_API_KEY);
 
-        $api = $this->get(Api::class);
+        // Credential reading now lives in TaxcloudConfig (the reader every gateway
+        // collaborator depends on), so assert against it directly.
+        $config = $this->get(TaxcloudConfig::class);
 
         $this->assertSame(
             self::TEST_API_ID,
-            $this->invokeProtected($api, 'getApiId'),
-            'Api::getApiId() should read tax/taxcloud_settings/api_id from core_config_data.'
+            $config->getApiId(),
+            'TaxcloudConfig::getApiId() should read tax/taxcloud_settings/api_id from core_config_data.'
         );
         $this->assertSame(
             self::TEST_API_KEY,
-            $this->invokeProtected($api, 'getApiKey'),
-            'Api::getApiKey() should read tax/taxcloud_settings/api_key from core_config_data.'
+            $config->getApiKey(),
+            'TaxcloudConfig::getApiKey() should read tax/taxcloud_settings/api_key from core_config_data.'
         );
-    }
-
-    /**
-     * getApiId()/getApiKey() are protected (internal SOAP-param plumbing). Config
-     * injection is exactly what they encapsulate, so reflecting into them is the
-     * most direct assertion — no need to widen their visibility for a test.
-     *
-     * @return mixed
-     */
-    private function invokeProtected(object $object, string $method)
-    {
-        $ref = new \ReflectionMethod($object, $method);
-        $ref->setAccessible(true);
-        return $ref->invoke($object);
     }
 }
