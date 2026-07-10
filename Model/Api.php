@@ -17,31 +17,29 @@
 
 namespace Taxcloud\Magento2\Model;
 
-use Magento\Framework\Serialize\SerializerInterface;
-use Magento\Directory\Model\RegionFactory;
 use Taxcloud\Magento2\Api\GatewayInterface;
 use Taxcloud\Magento2\Model\Cache\ResultCache;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Event\GatewayEventDispatcher;
 use Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback;
-use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
 use Taxcloud\Magento2\Model\Gateway\ExemptionValidator;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
 use Taxcloud\Magento2\Model\Gateway\RetryPolicy;
 use Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway;
+use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Throwable;
 
 /**
- * Tax Calculation Model
+ * Tax calculation gateway — thin orchestrator over focused collaborators.
  *
  * SOAP implementation of the TaxCloud gateway contract. Consumers depend on the
  * finer-grained interfaces under {@see \Taxcloud\Magento2\Api}; this concrete
- * class is what di.xml binds them to.
- *
- * @SuppressWarnings(PHPMD.TooManyFields)
- * @SuppressWarnings(PHPMD.CouplingBetweenObjects)
+ * class is what di.xml binds them to. Each responsibility (transport, request
+ * building, response mapping, caching, exemption validation, native-tax
+ * fallback, event dispatch, retry) lives in its own collaborator; this class
+ * wires them together and owns the per-operation flow.
  */
 class Api implements GatewayInterface
 {
@@ -69,118 +67,11 @@ class Api implements GatewayInterface
     const SOAP_RETRY_BACKOFF_US = 250000;
 
     /**
-     * Magento Config Object
+     * TaxCloud logger (gated by the logging setting).
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
-     */
-    protected $scopeConfig = null;
-
-    /**
-     * Magento Cache Object
-     *
-     * @var \Vendor\Cachetype\Model\Cache\Type
-     */
-    protected $cacheType;
-
-    /**
-     * Magento Event Manager
-     *
-     * @var \Magento\Framework\Event\ManagerInterface
-     */
-    protected $eventManager;
-
-    /**
-     * Soap loader
-     *
-     * @var \Magento\Framework\Webapi\Soap\ClientFactory
-     */
-    protected $soapClientFactory;
-
-    /**
-     * Object Factory
-     *
-     * @var \Magento\Framework\DataObjectFactory
-     */
-    protected $objectFactory;
-
-    /**
-     * Product Factory
-     *
-     * @var \Magento\Catalog\Model\ProductFactory
-     */
-    protected $productFactory;
-
-    /**
-     * Region Factory
-     *
-     * @var \Magento\Directory\Model\RegionFactory
-     */
-    protected $regionFactory;
-
-    /**
-     * TaxCloud Logger
-     *
-     * @var \Taxcloud\Magento2\Logger\Logger
+     * @var \Psr\Log\LoggerInterface
      */
     protected $tclogger;
-
-    /**
-     * TaxCloud Logger
-     *
-     * @var \Magento\Framework\Serialize\SerializerInterface
-     */
-    private $serializer;
-
-    /**
-     * Cart Item Response Handler
-     *
-     * @var \Taxcloud\Magento2\Model\CartItemResponseHandler
-     */
-    private $cartItemResponseHandler;
-
-    /**
-     * Product TIC Service
-     *
-     * @var \Taxcloud\Magento2\Model\ProductTicService
-     */
-    private $productTicService;
-
-    /**
-     * @var \Magento\Tax\Api\TaxCalculationInterface
-     */
-    private $taxCalculationService;
-
-    /**
-     * @var \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory
-     */
-    private $quoteDetailsFactory;
-
-    /**
-     * @var \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory
-     */
-    private $quoteDetailsItemFactory;
-
-    /**
-     * @var \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory
-     */
-    private $taxClassKeyFactory;
-
-    /**
-     * @var \Magento\Customer\Api\Data\AddressInterfaceFactory
-     */
-    private $customerAddressFactory;
-
-    /**
-     * @var \Magento\Customer\Api\Data\RegionInterfaceFactory
-     */
-    private $customerAddressRegionFactory;
-
-    /**
-     * Refund Distributor
-     *
-     * @var \Taxcloud\Magento2\Model\RefundDistributor
-     */
-    private $refundDistributor;
 
     /**
      * Store-scoped configuration reader.
@@ -190,25 +81,11 @@ class Api implements GatewayInterface
     private $config;
 
     /**
-     * Retry discipline for SOAP calls.
+     * SOAP transport (client provisioning).
      *
-     * @var \Taxcloud\Magento2\Model\Gateway\RetryPolicy
+     * @var \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway
      */
-    private $retryPolicy;
-
-    /**
-     * Cache-key construction for gateway responses.
-     *
-     * @var \Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder
-     */
-    private $cacheKeyBuilder;
-
-    /**
-     * Wire-format normalization and extraction.
-     *
-     * @var \Taxcloud\Magento2\Model\Gateway\ResponseMapper
-     */
-    private $responseMapper;
+    private $soapGateway;
 
     /**
      * Request payload construction.
@@ -218,11 +95,11 @@ class Api implements GatewayInterface
     private $requestBuilder;
 
     /**
-     * SOAP transport (client provisioning).
+     * Wire-format normalization and extraction.
      *
-     * @var \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway
+     * @var \Taxcloud\Magento2\Model\Gateway\ResponseMapper
      */
-    private $soapGateway;
+    private $responseMapper;
 
     /**
      * Serialize-and-store response cache.
@@ -253,147 +130,46 @@ class Api implements GatewayInterface
     private $eventDispatcher;
 
     /**
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
-     * @param \Magento\Framework\App\CacheInterface $cacheType
-     * @param \Magento\Framework\Event\ManagerInterface $eventManager
-     * @param \Magento\Framework\Webapi\Soap\ClientFactory $soapClientFactory
-     * @param \Magento\Framework\DataObjectFactory $objectFactory
-     * @param \Magento\Catalog\Model\ProductFactory $productFactory
-     * @param \Magento\Directory\Model\RegionFactory $regionFactory
-     * @param \Taxcloud\Magento2\Logger\Logger $tclogger
-     * @param SerializerInterface $serializer
-     * @param \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler
-     * @param \Taxcloud\Magento2\Model\ProductTicService $productTicService
-     * @param \Magento\Tax\Api\TaxCalculationInterface $taxCalculationService
-     * @param \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory $quoteDetailsFactory
-     * @param \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory $quoteDetailsItemFactory
-     * @param \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory
-     * @param \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory
-     * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
-     * @param \Taxcloud\Magento2\Model\RefundDistributor $refundDistributor
-     * @SuppressWarnings(PHPMD.ExcessiveParameterList)
+     * Retry discipline for SOAP calls.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\RetryPolicy
+     */
+    private $retryPolicy;
+
+    /**
+     * @param \Taxcloud\Magento2\Model\Config\TaxcloudConfig $config
+     * @param \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway $soapGateway
+     * @param \Taxcloud\Magento2\Model\Gateway\RequestBuilder $requestBuilder
+     * @param \Taxcloud\Magento2\Model\Gateway\ResponseMapper $responseMapper
+     * @param \Taxcloud\Magento2\Model\Cache\ResultCache $resultCache
+     * @param \Taxcloud\Magento2\Model\Gateway\ExemptionValidator $exemptionValidator
+     * @param \Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback $magentoTaxFallback
+     * @param \Taxcloud\Magento2\Model\Event\GatewayEventDispatcher $eventDispatcher
+     * @param \Taxcloud\Magento2\Model\Gateway\RetryPolicy $retryPolicy
+     * @param \Taxcloud\Magento2\Model\Logging\GatewayLogger $logger
      */
     public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Magento\Framework\App\CacheInterface $cacheType,
-        \Magento\Framework\Event\ManagerInterface $eventManager,
-        \Magento\Framework\Webapi\Soap\ClientFactory $soapClientFactory,
-        \Magento\Framework\DataObjectFactory $objectFactory,
-        \Magento\Catalog\Model\ProductFactory $productFactory,
-        \Magento\Directory\Model\RegionFactory $regionFactory,
-        \Taxcloud\Magento2\Logger\Logger $tclogger,
-        SerializerInterface $serializer,
-        \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler,
-        \Taxcloud\Magento2\Model\ProductTicService $productTicService,
-        \Magento\Tax\Api\TaxCalculationInterface $taxCalculationService,
-        \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory $quoteDetailsFactory,
-        \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory $quoteDetailsItemFactory,
-        \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory,
-        \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
-        \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
-        \Taxcloud\Magento2\Model\RefundDistributor $refundDistributor
+        TaxcloudConfig $config,
+        SoapGateway $soapGateway,
+        RequestBuilder $requestBuilder,
+        ResponseMapper $responseMapper,
+        ResultCache $resultCache,
+        ExemptionValidator $exemptionValidator,
+        MagentoTaxFallback $magentoTaxFallback,
+        GatewayEventDispatcher $eventDispatcher,
+        RetryPolicy $retryPolicy,
+        GatewayLogger $logger
     ) {
-        $this->scopeConfig = $scopeConfig;
-        $this->cacheType = $cacheType;
-        $this->eventManager = $eventManager;
-        $this->soapClientFactory = $soapClientFactory;
-        $this->objectFactory = $objectFactory;
-        $this->productFactory = $productFactory;
-        $this->regionFactory = $regionFactory;
-        $this->serializer = $serializer;
-        $this->cartItemResponseHandler = $cartItemResponseHandler;
-        $this->productTicService = $productTicService;
-        $this->taxCalculationService = $taxCalculationService;
-        $this->quoteDetailsFactory = $quoteDetailsFactory;
-        $this->quoteDetailsItemFactory = $quoteDetailsItemFactory;
-        $this->taxClassKeyFactory = $taxClassKeyFactory;
-        $this->customerAddressFactory = $customerAddressFactory;
-        $this->customerAddressRegionFactory = $customerAddressRegionFactory;
-        $this->refundDistributor = $refundDistributor;
-        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->tclogger = $tclogger;
-        } else {
-            $this->tclogger = new \Psr\Log\NullLogger();
-        }
-
-        // Focused collaborators. RetryPolicy is handed the resolved logger so it
-        // stays silent when logging is disabled, matching prior behavior.
-        $this->config = new TaxcloudConfig($scopeConfig);
-        $this->soapGateway = new SoapGateway($soapClientFactory, $this->config, $this->tclogger);
-        $this->retryPolicy = new RetryPolicy($this->tclogger);
-        $this->cacheKeyBuilder = new CacheKeyBuilder();
-        $this->responseMapper = new ResponseMapper($this->tclogger);
-        $this->requestBuilder = new RequestBuilder(
-            $this->config,
-            $scopeConfig,
-            $this->regionFactory,
-            $this->productTicService,
-            $this->tclogger
-        );
-        $this->resultCache = new ResultCache($cacheType, $serializer, $this->config);
-        $this->exemptionValidator = new ExemptionValidator(
-            $this->soapGateway,
-            $this->config,
-            $cacheType,
-            $this->cacheKeyBuilder,
-            $this->responseMapper,
-            $this->tclogger
-        );
-        $this->magentoTaxFallback = new MagentoTaxFallback(
-            $this->customerAddressFactory,
-            $this->quoteDetailsFactory,
-            $this->quoteDetailsItemFactory,
-            $this->taxClassKeyFactory,
-            $this->taxCalculationService,
-            $this->tclogger
-        );
-        $this->eventDispatcher = new GatewayEventDispatcher($eventManager, $objectFactory);
-    }
-
-    /**
-     * Get TaxCloud API ID
-     * @return string
-     */
-    protected function getApiId()
-    {
-        return $this->config->getApiId();
-    }
-
-    /**
-     * Get TaxCloud API Key
-     * @return string
-     */
-    protected function getApiKey()
-    {
-        return $this->config->getApiKey();
-    }
-
-    /**
-     * Get TaxCloud Guest Customer Id
-     * @return string
-     */
-    protected function getGuestCustomerId()
-    {
-        return $this->config->getGuestCustomerId();
-    }
-
-
-    /**
-     * Get TaxCloud Cache Lifetime
-     * @return string
-     */
-    protected function getCacheLifetime()
-    {
-        return $this->config->getCacheLifetime();
-    }
-
-    /**
-     * Check if fallback to Magento tax rates is enabled
-     * @return bool
-     */
-    private function isFallbackToMagentoEnabled()
-    {
-        return $this->config->isFallbackToMagentoEnabled();
+        $this->config = $config;
+        $this->soapGateway = $soapGateway;
+        $this->requestBuilder = $requestBuilder;
+        $this->responseMapper = $responseMapper;
+        $this->resultCache = $resultCache;
+        $this->exemptionValidator = $exemptionValidator;
+        $this->magentoTaxFallback = $magentoTaxFallback;
+        $this->eventDispatcher = $eventDispatcher;
+        $this->retryPolicy = $retryPolicy;
+        $this->tclogger = $logger;
     }
 
     /**
@@ -412,24 +188,6 @@ class Api implements GatewayInterface
     public function getValidatedCertificateID($certificateID, $customerID, $destinationState)
     {
         return $this->exemptionValidator->validate($certificateID, $customerID, $destinationState);
-    }
-
-    /**
-     * Get TaxCloud Shipping Origin
-     * @return array
-     */
-    protected function getOrigin()
-    {
-        return $this->requestBuilder->buildOrigin();
-    }
-
-    /**
-     * Get the configured SOAP timeout (seconds), falling back to the default.
-     * @return int
-     */
-    public function getSoapTimeout()
-    {
-        return $this->config->getSoapTimeout();
     }
 
     /**
@@ -515,15 +273,7 @@ class Api implements GatewayInterface
             return $result;
         }
         
-        $destination = array(
-            'Address1' => $address->getStreet()[0] ?? '',
-            'Address2' => $address->getStreet()[1] ?? '',
-            'City' => $address->getCity(),
-            'State' => $this->regionFactory->create()->load($address->getRegionId())->getCode(),
-            'Zip5' => $parsedZip['Zip5'],
-            'Zip4' => $parsedZip['Zip4'],
-        );
-
+        $destination = $this->requestBuilder->buildLookupDestination($address, $parsedZip);
 
         if ($address->getCountryId() !== 'US') {
             $this->tclogger->info('Not US, returning 0');
@@ -556,42 +306,9 @@ class Api implements GatewayInterface
             $keyedAddressItems[$taxCalculationItemId] = $item;
         }
 
-        $index = 0;
-        $indexedItems = array();
-        $cartItems = array();
-
-        if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
-            foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
-                $item = $keyedAddressItems[$code];
-                if ($item->getProduct() && $item->getProduct()->getTaxClassId() === '0') {
-                    // Skip products with tax_class_id of None, store owners should avoid doing this
-                    continue;
-                }
-                $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
-                    'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes'),
-                    'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
-                    'Qty' => $item->getQty(),
-                );
-                $indexedItems[$index++] = $code;
-            }
-        }
-
-        if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
-            $addressShippingAmount = (float) $address->getShippingAmount();
-            foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
-                // Shipping as a cart item - shipping needs to be taxed
-                $shippingRowTotal = $itemTaxDetail[self::KEY_ITEM]->getRowTotal();
-                $cartItems[] = array(
-                    'ItemID' => 'shipping',
-                    'Index' => $index++,
-                    'TIC' => $this->productTicService->getShippingTic(),
-                    'Price' => ($shippingRowTotal ?: $addressShippingAmount),
-                    'Qty' => 1,
-                );
-            }
-        }
+        $built = $this->requestBuilder->buildLookupCartItems($itemsByType, $keyedAddressItems, $address);
+        $cartItems = $built['cartItems'];
+        $indexedItems = $built['indexedItems'];
 
         if (count($cartItems) === 0) {
             $this->tclogger->info('No cart items, returning 0');
@@ -611,24 +328,19 @@ class Api implements GatewayInterface
             }
         }
 
-        $origin = $this->getOrigin();
+        $origin = $this->requestBuilder->buildOrigin();
         if ($origin === null) {
             $this->tclogger->info('Invalid origin address configuration - cannot proceed with tax calculation');
             return $result;
         }
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $customer->getId() ?? $this->getGuestCustomerId(),
-            'cartID' => $quote->getId(),
-            'cartItems' => $cartItems,
-            'origin' => $origin,
-            'destination' => $destination,
-            'deliveredBySeller' => false,
-            'exemptCert' => array(
-                'CertificateID' => $certificateID,
-            ),
+        $params = $this->requestBuilder->buildLookupParams(
+            $customer,
+            $quote,
+            $cartItems,
+            $origin,
+            $destination,
+            $certificateID
         );
 
         // Call before event (observers may modify $params, e.g. address verification)
@@ -640,9 +352,8 @@ class Api implements GatewayInterface
             'shippingAssignment' => $shippingAssignment,
         ));
 
-        // hash, check cache (use post-observer params so cache key matches what we send to TaxCloud)
-        $cacheKeyApi = $this->cacheKeyBuilder->forLookup($params);
-        $cacheResult = $this->resultCache->get($cacheKeyApi);
+        // check cache (use post-observer params so cache key matches what we send to TaxCloud)
+        $cacheResult = $this->resultCache->getLookup($params);
         if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
@@ -669,7 +380,7 @@ class Api implements GatewayInterface
             $this->tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
 
             // Check if fallback to Magento is enabled
-            if ($this->isFallbackToMagentoEnabled()) {
+            if ($this->config->isFallbackToMagentoEnabled()) {
                 $this->tclogger->info('TaxCloud lookup failed, falling back to Magento tax rates');
                 return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
@@ -701,15 +412,15 @@ class Api implements GatewayInterface
                 $this->tclogger->info('CartItemResponse is empty, skipping tax calculation');
                 return $result;
             }
-            $this->cartItemResponseHandler->processAndApplyCartItemResponses(
+            $this->responseMapper->applyCartItemResponses(
                 $cartItemResponse,
                 $cartItems,
                 $indexedItems,
                 $result
             );
 
-            $this->tclogger->info('Caching lookupTaxes result for ' . $this->getCacheLifetime());
-            $this->resultCache->save($cacheKeyApi, $result, array('taxcloud_rates'));
+            $this->tclogger->info('Caching lookupTaxes result for ' . $this->config->getCacheLifetime());
+            $this->resultCache->saveLookup($params, $result);
 
             return $result;
         } else {
@@ -717,7 +428,7 @@ class Api implements GatewayInterface
             $this->tclogger->info(print_r($lookupResult, true));
             
             // Check if fallback to Magento is enabled
-            if ($this->isFallbackToMagentoEnabled()) {
+            if ($this->config->isFallbackToMagentoEnabled()) {
                 $this->tclogger->info('TaxCloud lookup returned error response, falling back to Magento tax rates');
                 return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
@@ -812,74 +523,13 @@ class Api implements GatewayInterface
         }
 
         $order = $creditmemo->getOrder();
-        $items = $creditmemo->getAllItems();
 
-        $index = 0;
-        $cartItems = array();
-
-        if ($items) {
-            foreach ($items as $creditItem) {
-                $qty = $creditItem->getQty();
-                if ($qty <= 0) {
-                    continue;
-                }
-                $item = $creditItem->getOrderItem();
-                $price = $creditItem->getPrice();
-                $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
-                $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
-                    'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
-                    'Price' => $price - $discountPerUnit,
-                    'Qty' => $qty,
-                );
-                $index++;
-            }
+        $returnCart = $this->requestBuilder->buildReturnCartItems($creditmemo);
+        if ($returnCart['skip']) {
+            return true;
         }
-
-        $shippingAmount = $creditmemo->getShippingAmount();
-
-        if ($shippingAmount > 0) {
-            $cartItems[] = array(
-                'ItemID' => 'shipping',
-                'Index' => $index,
-                'TIC' => $this->productTicService->getShippingTic(),
-                'Price' => $shippingAmount,
-                'Qty' => 1,
-            );
-        }
-
-        // Tax-only refund: no product/shipping returned, refund amount equals order tax.
-        // Flow: return full order in TaxCloud, then re-create order as exempt.
-        $wasTaxOnlyRefund = false;
-        if (empty($cartItems)) {
-            $orderTax = (float) $order->getBaseTaxAmount();
-            $refundTotal = (float) $creditmemo->getBaseGrandTotal();
-            $isTaxOnlyRefund = $orderTax > 0
-                && abs($refundTotal - $orderTax) < 0.02;
-
-            if ($isTaxOnlyRefund) {
-                $this->tclogger->info('returnOrder: tax-only refund detected; will re-create as exempt after Returned');
-                $wasTaxOnlyRefund = true;
-            } else {
-                // Adjustment-only credit memo (no items, no shipping, not tax-only).
-                // Without this guard, an empty cartItems array would tell TaxCloud
-                // to return the entire order. Instead, distribute the adjustment
-                // proportionally across remaining (unrefunded) items + shipping.
-                $distribution = $this->refundDistributor->distribute($creditmemo);
-                $this->tclogger->info(
-                    'returnOrder: adjustment-only refund; distributor action=' . $distribution['action']
-                    . ' (' . $distribution['reason'] . ')'
-                );
-                if ($distribution['action'] === \Taxcloud\Magento2\Model\RefundDistributor::ACTION_SKIP) {
-                    // Nothing meaningful to send to TaxCloud; treat as success.
-                    return true;
-                }
-                // ACTION_FULL_RETURN leaves cartItems empty (TaxCloud returns the remainder).
-                // ACTION_DISTRIBUTE replaces cartItems with the proportional distribution.
-                $cartItems = $distribution['cartItems'];
-            }
-        }
+        $cartItems = $returnCart['cartItems'];
+        $wasTaxOnlyRefund = $returnCart['wasTaxOnlyRefund'];
 
         $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
 
@@ -1016,7 +666,7 @@ class Api implements GatewayInterface
             return false;
         }
 
-        $cartItems = $this->buildCartItemsFromOrder($order);
+        $cartItems = $this->requestBuilder->buildCartItemsFromOrder($order);
 
         if (empty($cartItems)) {
             $this->tclogger->info('returnOrderCancellation: no cart items for order ' . $order->getIncrementId());
@@ -1091,28 +741,6 @@ class Api implements GatewayInterface
     }
 
     /**
-     * Build cart items from order for full-order return / exempt re-create.
-     *
-     * @param \Magento\Sales\Model\Order $order
-     * @return array
-     */
-    private function buildCartItemsFromOrder($order)
-    {
-        return $this->requestBuilder->buildCartItemsFromOrder($order);
-    }
-
-    /**
-     * Get destination array from order shipping address for Lookup.
-     *
-     * @param \Magento\Sales\Model\Order $order
-     * @return array|null
-     */
-    private function getDestinationFromOrder($order)
-    {
-        return $this->requestBuilder->buildDestinationFromOrder($order);
-    }
-
-    /**
      * Look up order as exempt using a new cart ID in preparation for exempt re-create.
      *
      * @param \Magento\Sales\Model\Order $order
@@ -1121,16 +749,16 @@ class Api implements GatewayInterface
      */
     private function lookupForOrderExempt($order, $client)
     {
-        $cartItems = $this->buildCartItemsFromOrder($order);
+        $cartItems = $this->requestBuilder->buildCartItemsFromOrder($order);
         if (empty($cartItems)) {
             return false;
         }
-        $destination = $this->getDestinationFromOrder($order);
+        $destination = $this->requestBuilder->buildDestinationFromOrder($order);
         if ($destination === null) {
             $this->tclogger->info('returnOrder: no valid shipping address for exempt lookup');
             return false;
         }
-        $origin = $this->getOrigin();
+        $origin = $this->requestBuilder->buildOrigin();
         if ($origin === null) {
             return false;
         }
@@ -1180,9 +808,8 @@ class Api implements GatewayInterface
 
         $params = $this->requestBuilder->buildVerifyAddressParams($address);
 
-        // hash, check cache
-        $cacheKeyApi = $this->cacheKeyBuilder->forAddress($params);
-        $cacheResult = $this->resultCache->get($cacheKeyApi);
+        // check cache
+        $cacheResult = $this->resultCache->getAddress($params);
         if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
@@ -1235,8 +862,8 @@ class Api implements GatewayInterface
                 'Zip4' => $verifyResult['Zip4'] ?? '',
             );
 
-            $this->tclogger->info('Caching verifyAddress result for ' . $this->getCacheLifetime());
-            $this->resultCache->save($cacheKeyApi, $result, array('taxcloud_address'));
+            $this->tclogger->info('Caching verifyAddress result for ' . $this->config->getCacheLifetime());
+            $this->resultCache->saveAddress($params, $result);
 
             return $result;
         } else {

@@ -12,6 +12,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model\Gateway;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\CartItemResponseHandler;
 use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
 
 /**
@@ -26,7 +27,7 @@ class ResponseMapperTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->mapper = new ResponseMapper(new NullLogger());
+        $this->mapper = new ResponseMapper(new CartItemResponseHandler(), new NullLogger());
     }
 
     public function testToArrayNormalizesNestedObjectGraph()
@@ -118,6 +119,26 @@ class ResponseMapperTest extends TestCase
         $states->ExemptState = $states->ExemptState[0];
 
         $this->assertSame(['TX'], $this->mapper->extractExemptStates($response, 'cert-1'));
+    }
+
+    public function testApplyCartItemResponsesMapsProductAndShippingTax()
+    {
+        $cartItems = [
+            0 => ['ItemID' => 'SKU-1'],
+            1 => ['ItemID' => 'shipping'],
+        ];
+        $indexedItems = [0 => 'prod-code'];
+        $result = ['product' => [], 'shipping' => 0];
+
+        $cartItemResponse = [
+            ['CartItemIndex' => 0, 'TaxAmount' => 0.83],
+            ['CartItemIndex' => 1, 'TaxAmount' => 0.41],
+        ];
+
+        $this->mapper->applyCartItemResponses($cartItemResponse, $cartItems, $indexedItems, $result);
+
+        $this->assertSame(0.83, $result['product']['prod-code']);
+        $this->assertSame(0.41, $result['shipping']);
     }
 
     public function testExtractExemptStatesFallsBackToStateAbbreviation()

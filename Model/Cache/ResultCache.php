@@ -20,6 +20,7 @@ namespace Taxcloud\Magento2\Model\Cache;
 use Magento\Framework\App\CacheInterface;
 use Magento\Framework\Serialize\SerializerInterface;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
 
 /**
  * Serialize-and-store cache for TaxCloud response payloads (Lookup rates and
@@ -43,6 +44,11 @@ class ResultCache
     private $serializer;
 
     /**
+     * @var CacheKeyBuilder
+     */
+    private $cacheKeyBuilder;
+
+    /**
      * @var TaxcloudConfig
      */
     private $config;
@@ -50,16 +56,65 @@ class ResultCache
     /**
      * @param CacheInterface      $cacheType
      * @param SerializerInterface $serializer
+     * @param CacheKeyBuilder     $cacheKeyBuilder
      * @param TaxcloudConfig      $config
      */
     public function __construct(
         CacheInterface $cacheType,
         SerializerInterface $serializer,
+        CacheKeyBuilder $cacheKeyBuilder,
         TaxcloudConfig $config
     ) {
         $this->cacheType = $cacheType;
         $this->serializer = $serializer;
+        $this->cacheKeyBuilder = $cacheKeyBuilder;
         $this->config = $config;
+    }
+
+    /**
+     * Cached Lookup (tax rate) response for a request payload, or null.
+     *
+     * @param array $params Lookup request params (post-observer)
+     * @return mixed|null
+     */
+    public function getLookup(array $params)
+    {
+        return $this->get($this->cacheKeyBuilder->forLookup($params));
+    }
+
+    /**
+     * Persist a Lookup response keyed on its request payload.
+     *
+     * @param array $params
+     * @param mixed $data
+     * @return void
+     */
+    public function saveLookup(array $params, $data)
+    {
+        $this->save($this->cacheKeyBuilder->forLookup($params), $data, ['taxcloud_rates']);
+    }
+
+    /**
+     * Cached VerifyAddress response for a request payload, or null.
+     *
+     * @param array $params
+     * @return mixed|null
+     */
+    public function getAddress(array $params)
+    {
+        return $this->get($this->cacheKeyBuilder->forAddress($params));
+    }
+
+    /**
+     * Persist a VerifyAddress response keyed on its request payload.
+     *
+     * @param array $params
+     * @param mixed $data
+     * @return void
+     */
+    public function saveAddress(array $params, $data)
+    {
+        $this->save($this->cacheKeyBuilder->forAddress($params), $data, ['taxcloud_address']);
     }
 
     /**

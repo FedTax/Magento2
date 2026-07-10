@@ -25,6 +25,7 @@ use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Taxcloud\Magento2\Model\ProductTicService;
+use Taxcloud\Magento2\Model\RefundDistributor;
 
 /**
  * Constructs the request payloads sent to TaxCloud.
@@ -36,6 +37,10 @@ use Taxcloud\Magento2\Model\ProductTicService;
  */
 class RequestBuilder
 {
+    const ITEM_TYPE_SHIPPING = 'shipping';
+    const ITEM_TYPE_PRODUCT = 'product';
+    const KEY_ITEM = 'item';
+
     /**
      * @var TaxcloudConfig
      */
@@ -57,6 +62,11 @@ class RequestBuilder
     private $productTicService;
 
     /**
+     * @var RefundDistributor
+     */
+    private $refundDistributor;
+
+    /**
      * @var LoggerInterface
      */
     private $logger;
@@ -66,6 +76,7 @@ class RequestBuilder
      * @param ScopeConfigInterface $scopeConfig
      * @param RegionFactory        $regionFactory
      * @param ProductTicService    $productTicService
+     * @param RefundDistributor    $refundDistributor
      * @param LoggerInterface|null $logger
      */
     public function __construct(
@@ -73,12 +84,14 @@ class RequestBuilder
         ScopeConfigInterface $scopeConfig,
         RegionFactory $regionFactory,
         ProductTicService $productTicService,
+        RefundDistributor $refundDistributor,
         ?LoggerInterface $logger = null
     ) {
         $this->config = $config;
         $this->scopeConfig = $scopeConfig;
         $this->regionFactory = $regionFactory;
         $this->productTicService = $productTicService;
+        $this->refundDistributor = $refundDistributor;
         $this->logger = $logger ?? new NullLogger();
     }
 
@@ -112,6 +125,190 @@ class RequestBuilder
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
         );
+    }
+
+    /**
+     * Build the destination address for a Lookup from a quote shipping address.
+     *
+     * @param \Magento\Quote\Model\Quote\Address $address
+     * @param array $parsedZip Parsed ZIP (Zip5/Zip4) from PostalCodeParser
+     * @return array
+     */
+    public function buildLookupDestination($address, array $parsedZip)
+    {
+        return array(
+            'Address1' => $address->getStreet()[0] ?? '',
+            'Address2' => $address->getStreet()[1] ?? '',
+            'City' => $address->getCity(),
+            'State' => $this->regionFactory->create()->load($address->getRegionId())->getCode(),
+            'Zip5' => $parsedZip['Zip5'],
+            'Zip4' => $parsedZip['Zip4'],
+        );
+    }
+
+    /**
+     * Build the Lookup cart items from the quote's tax details, returning both
+     * the cart items and the index=>code map used to apply the response.
+     *
+     * @param array $itemsByType
+     * @param array $keyedAddressItems Quote items keyed by tax-calculation id
+     * @param \Magento\Quote\Model\Quote\Address $address
+     * @return array{cartItems: array, indexedItems: array}
+     */
+    public function buildLookupCartItems($itemsByType, array $keyedAddressItems, $address)
+    {
+        $index = 0;
+        $indexedItems = array();
+        $cartItems = array();
+
+        if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
+            foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
+                $item = $keyedAddressItems[$code];
+                if ($item->getProduct() && $item->getProduct()->getTaxClassId() === '0') {
+                    // Skip products with tax_class_id of None, store owners should avoid doing this
+                    continue;
+                }
+                $cartItems[] = array(
+                    'ItemID' => $item->getSku(),
+                    'Index' => $index,
+                    'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes'),
+                    'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
+                    'Qty' => $item->getQty(),
+                );
+                $indexedItems[$index++] = $code;
+            }
+        }
+
+        if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
+            $addressShippingAmount = (float) $address->getShippingAmount();
+            foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
+                // Shipping as a cart item - shipping needs to be taxed
+                $shippingRowTotal = $itemTaxDetail[self::KEY_ITEM]->getRowTotal();
+                $cartItems[] = array(
+                    'ItemID' => 'shipping',
+                    'Index' => $index++,
+                    'TIC' => $this->productTicService->getShippingTic(),
+                    'Price' => ($shippingRowTotal ?: $addressShippingAmount),
+                    'Qty' => 1,
+                );
+            }
+        }
+
+        return array('cartItems' => $cartItems, 'indexedItems' => $indexedItems);
+    }
+
+    /**
+     * Build the Lookup request params.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer
+     * @param \Magento\Quote\Model\Quote $quote
+     * @param array $cartItems
+     * @param array $origin
+     * @param array $destination
+     * @param string|null $certificateID
+     * @return array
+     */
+    public function buildLookupParams($customer, $quote, array $cartItems, array $origin, array $destination, $certificateID)
+    {
+        return array(
+            'apiLoginID' => $this->config->getApiId(),
+            'apiKey' => $this->config->getApiKey(),
+            'customerID' => $customer->getId() ?? $this->config->getGuestCustomerId(),
+            'cartID' => $quote->getId(),
+            'cartItems' => $cartItems,
+            'origin' => $origin,
+            'destination' => $destination,
+            'deliveredBySeller' => false,
+            'exemptCert' => array(
+                'CertificateID' => $certificateID,
+            ),
+        );
+    }
+
+    /**
+     * Build the Returned cart items for a credit memo.
+     *
+     * Handles the three empty-cart cases: a tax-only refund (flagged for exempt
+     * re-create), an adjustment-only refund routed through the RefundDistributor
+     * (which may skip entirely or replace the cart items), and a normal
+     * item/shipping return.
+     *
+     * @param \Magento\Sales\Model\Order\Creditmemo $creditmemo
+     * @return array{cartItems: array, wasTaxOnlyRefund: bool, skip: bool}
+     */
+    public function buildReturnCartItems($creditmemo)
+    {
+        $order = $creditmemo->getOrder();
+        $items = $creditmemo->getAllItems();
+
+        $index = 0;
+        $cartItems = array();
+
+        if ($items) {
+            foreach ($items as $creditItem) {
+                $qty = $creditItem->getQty();
+                if ($qty <= 0) {
+                    continue;
+                }
+                $item = $creditItem->getOrderItem();
+                $price = $creditItem->getPrice();
+                $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
+                $cartItems[] = array(
+                    'ItemID' => $item->getSku(),
+                    'Index' => $index,
+                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
+                    'Price' => $price - $discountPerUnit,
+                    'Qty' => $qty,
+                );
+                $index++;
+            }
+        }
+
+        $shippingAmount = $creditmemo->getShippingAmount();
+
+        if ($shippingAmount > 0) {
+            $cartItems[] = array(
+                'ItemID' => 'shipping',
+                'Index' => $index,
+                'TIC' => $this->productTicService->getShippingTic(),
+                'Price' => $shippingAmount,
+                'Qty' => 1,
+            );
+        }
+
+        // Tax-only refund: no product/shipping returned, refund amount equals order tax.
+        // Flow: return full order in TaxCloud, then re-create order as exempt.
+        $wasTaxOnlyRefund = false;
+        if (empty($cartItems)) {
+            $orderTax = (float) $order->getBaseTaxAmount();
+            $refundTotal = (float) $creditmemo->getBaseGrandTotal();
+            $isTaxOnlyRefund = $orderTax > 0
+                && abs($refundTotal - $orderTax) < 0.02;
+
+            if ($isTaxOnlyRefund) {
+                $this->logger->info('returnOrder: tax-only refund detected; will re-create as exempt after Returned');
+                $wasTaxOnlyRefund = true;
+            } else {
+                // Adjustment-only credit memo (no items, no shipping, not tax-only).
+                // Without this guard, an empty cartItems array would tell TaxCloud
+                // to return the entire order. Instead, distribute the adjustment
+                // proportionally across remaining (unrefunded) items + shipping.
+                $distribution = $this->refundDistributor->distribute($creditmemo);
+                $this->logger->info(
+                    'returnOrder: adjustment-only refund; distributor action=' . $distribution['action']
+                    . ' (' . $distribution['reason'] . ')'
+                );
+                if ($distribution['action'] === RefundDistributor::ACTION_SKIP) {
+                    // Nothing meaningful to send to TaxCloud; treat as success.
+                    return array('cartItems' => array(), 'wasTaxOnlyRefund' => false, 'skip' => true);
+                }
+                // ACTION_FULL_RETURN leaves cartItems empty (TaxCloud returns the remainder).
+                // ACTION_DISTRIBUTE replaces cartItems with the proportional distribution.
+                $cartItems = $distribution['cartItems'];
+            }
+        }
+
+        return array('cartItems' => $cartItems, 'wasTaxOnlyRefund' => $wasTaxOnlyRefund, 'skip' => false);
     }
 
     /**

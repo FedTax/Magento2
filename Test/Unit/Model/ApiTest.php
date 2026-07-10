@@ -45,6 +45,8 @@ use Magento\Customer\Api\Data\RegionInterfaceFactory;
 #[AllowMockObjectsWithoutExpectations]
 class ApiTest extends TestCase
 {
+    use \Taxcloud\Magento2\Test\Unit\BuildsGatewayApi;
+
     private $api;
     private $scopeConfig;
     private $cacheType;
@@ -114,26 +116,24 @@ class ApiTest extends TestCase
      */
     private function constructApi(): void
     {
-        $this->api = new Api(
-            $this->scopeConfig,
-            $this->cacheType,
-            $this->eventManager,
-            $this->soapClientFactory,
-            $this->objectFactory,
-            $this->productFactory,
-            $this->regionFactory,
-            $this->logger,
-            $this->serializer,
-            $this->cartItemResponseHandler,
-            $this->productTicService,
-            $this->taxCalculationService,
-            $this->quoteDetailsFactory,
-            $this->quoteDetailsItemFactory,
-            $this->taxClassKeyFactory,
-            $this->customerAddressFactory,
-            $this->customerAddressRegionFactory,
-            $this->refundDistributor
-        );
+        $this->api = $this->buildGatewayApi([
+            'scopeConfig' => $this->scopeConfig,
+            'cacheType' => $this->cacheType,
+            'eventManager' => $this->eventManager,
+            'soapClientFactory' => $this->soapClientFactory,
+            'objectFactory' => $this->objectFactory,
+            'regionFactory' => $this->regionFactory,
+            'logger' => $this->logger,
+            'serializer' => $this->serializer,
+            'cartItemResponseHandler' => $this->cartItemResponseHandler,
+            'productTicService' => $this->productTicService,
+            'taxCalculationService' => $this->taxCalculationService,
+            'quoteDetailsFactory' => $this->quoteDetailsFactory,
+            'quoteDetailsItemFactory' => $this->quoteDetailsItemFactory,
+            'taxClassKeyFactory' => $this->taxClassKeyFactory,
+            'customerAddressFactory' => $this->customerAddressFactory,
+            'refundDistributor' => $this->refundDistributor,
+        ]);
     }
 
     /**

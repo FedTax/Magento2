@@ -45,4 +45,43 @@
   <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
   <preference for="Taxcloud\Magento2\Api\ExemptionGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
 
+  <!-- SOAP transport is the default client provider for the gateway. -->
+  <preference for="Taxcloud\Magento2\Model\Gateway\Soap\SoapClientProviderInterface"
+              type="Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway" />
+
+  <!--
+    Hand every gateway collaborator the config-gated logger so TaxCloud logging
+    respects the store's "logging" setting instead of each class re-deriving it.
+  -->
+  <type name="Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\RetryPolicy">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\ResponseMapper">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\RequestBuilder">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\ExemptionValidator">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
 </config>

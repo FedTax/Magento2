@@ -13,6 +13,7 @@ use Magento\Framework\App\CacheInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\CartItemResponseHandler;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
 use Taxcloud\Magento2\Model\Gateway\ExemptionValidator;
@@ -52,7 +53,7 @@ class ExemptionValidatorTest extends TestCase
             $this->config,
             $this->cacheType,
             new CacheKeyBuilder(),
-            new ResponseMapper(new NullLogger()),
+            new ResponseMapper(new CartItemResponseHandler(), new NullLogger()),
             new NullLogger()
         );
     }

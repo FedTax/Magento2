@@ -15,6 +15,22 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
   pure refactor with no behavior change; it creates the seam needed to swap the
   transport (e.g. a REST gateway) without touching any call site.
 
+- Decomposed the 1,600-line `Model\Api` god class into focused, individually
+  unit-tested collaborators: SOAP transport (`Gateway\Soap\SoapGateway`),
+  request building (`Gateway\RequestBuilder`), response mapping
+  (`Gateway\ResponseMapper`), caching (`Cache\ResultCache` +
+  `Gateway\CacheKeyBuilder`), retry policy (`Gateway\RetryPolicy`),
+  exemption-certificate validation (`Gateway\ExemptionValidator`),
+  Magento-native tax fallback (`Fallback\MagentoTaxFallback`), event dispatch
+  (`Event\GatewayEventDispatcher`), and configuration access
+  (`Config\TaxcloudConfig`). A config-gated `Logging\GatewayLogger` replaces the
+  ad-hoc per-class null-logger.
+
+  `Model\Api` is now a thin orchestrator wired from these collaborators via
+  constructor injection (down from 19 dependencies to 10), and the
+  `TooManyFields`/`CouplingBetweenObjects` suppressions are removed. Behavior is
+  unchanged and the full unit suite passes.
+
 ## 1.2.0
 
 ### Added

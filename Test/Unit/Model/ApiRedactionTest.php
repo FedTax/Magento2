@@ -49,6 +49,8 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 #[AllowMockObjectsWithoutExpectations]
 class ApiRedactionTest extends TestCase
 {
+    use \Taxcloud\Magento2\Test\Unit\BuildsGatewayApi;
+
     private const SENTINEL_API_ID  = 'SENTINEL_LOGIN_ID_DO_NOT_LEAK';
     private const SENTINEL_API_KEY = 'SENTINEL_KEY_DO_NOT_LEAK';
 
@@ -201,26 +203,24 @@ class ApiRedactionTest extends TestCase
         $objectFactory = null,
         $soapClientFactory = null
     ): Api {
-        return new Api(
-            $scopeConfig   ?: $this->createMock(ScopeConfigInterface::class),
-            $this->createMock(CacheInterface::class),
-            $eventManager  ?: $this->createMock(ManagerInterface::class),
-            $soapClientFactory ?: $this->createMock(ClientFactory::class),
-            $objectFactory ?: $this->createMock(DataObjectFactory::class),
-            $this->createMock(ProductFactory::class),
-            $this->createMock(RegionFactory::class),
-            $logger,
-            $this->createMock(SerializerInterface::class),
-            $this->createMock(CartItemResponseHandler::class),
-            $this->createMock(ProductTicService::class),
-            $this->createMock(TaxCalculationInterface::class),
-            $this->createMock(QuoteDetailsInterfaceFactory::class),
-            $this->createMock(QuoteDetailsItemInterfaceFactory::class),
-            $this->createMock(TaxClassKeyInterfaceFactory::class),
-            $this->createMock(AddressInterfaceFactory::class),
-            $this->createMock(RegionInterfaceFactory::class),
-            $this->createMock(RefundDistributor::class)
-        );
+        return $this->buildGatewayApi([
+            'scopeConfig' => $scopeConfig ?: $this->createMock(ScopeConfigInterface::class),
+            'cacheType' => $this->createMock(CacheInterface::class),
+            'eventManager' => $eventManager ?: $this->createMock(ManagerInterface::class),
+            'soapClientFactory' => $soapClientFactory ?: $this->createMock(ClientFactory::class),
+            'objectFactory' => $objectFactory ?: $this->createMock(DataObjectFactory::class),
+            'regionFactory' => $this->createMock(RegionFactory::class),
+            'logger' => $logger,
+            'serializer' => $this->createMock(SerializerInterface::class),
+            'cartItemResponseHandler' => $this->createMock(CartItemResponseHandler::class),
+            'productTicService' => $this->createMock(ProductTicService::class),
+            'taxCalculationService' => $this->createMock(TaxCalculationInterface::class),
+            'quoteDetailsFactory' => $this->createMock(QuoteDetailsInterfaceFactory::class),
+            'quoteDetailsItemFactory' => $this->createMock(QuoteDetailsItemInterfaceFactory::class),
+            'taxClassKeyFactory' => $this->createMock(TaxClassKeyInterfaceFactory::class),
+            'customerAddressFactory' => $this->createMock(AddressInterfaceFactory::class),
+            'refundDistributor' => $this->createMock(RefundDistributor::class),
+        ]);
     }
 }
 
@@ -258,6 +258,16 @@ class CapturingLogger extends Logger
     }
 
     public function debug($message, array $context = []): void
+    {
+        $this->messages[] = $message;
+    }
+
+    /**
+     * The gateway now logs through the config-gated GatewayLogger, which routes
+     * every level through log(); capture here so the credential-leak assertions
+     * still see exactly what would reach disk.
+     */
+    public function log($level, $message, array $context = []): void
     {
         $this->messages[] = $message;
     }

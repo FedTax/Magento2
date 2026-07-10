@@ -19,6 +19,7 @@ namespace Taxcloud\Magento2\Model\Gateway;
 
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\CartItemResponseHandler;
 
 /**
  * Converts TaxCloud wire responses into plain PHP arrays and pulls the
@@ -26,21 +27,51 @@ use Psr\Log\NullLogger;
  *
  * SOAP returns nested \stdClass graphs (and collapses single-element lists to a
  * bare object); normalizing to arrays up front lets the rest of the gateway
- * treat every response uniformly.
+ * treat every response uniformly. It also maps a Lookup's per-cart-item tax
+ * responses back onto the tax result.
  */
 class ResponseMapper
 {
+    /**
+     * @var CartItemResponseHandler
+     */
+    private $cartItemResponseHandler;
+
     /**
      * @var LoggerInterface
      */
     private $logger;
 
     /**
-     * @param LoggerInterface|null $logger
+     * @param CartItemResponseHandler $cartItemResponseHandler
+     * @param LoggerInterface|null    $logger
      */
-    public function __construct(?LoggerInterface $logger = null)
-    {
+    public function __construct(
+        CartItemResponseHandler $cartItemResponseHandler,
+        ?LoggerInterface $logger = null
+    ) {
+        $this->cartItemResponseHandler = $cartItemResponseHandler;
         $this->logger = $logger ?? new NullLogger();
+    }
+
+    /**
+     * Apply a Lookup's per-cart-item tax responses onto the tax result array
+     * (product tax keyed by item code, shipping tax accumulated).
+     *
+     * @param mixed $cartItemResponse
+     * @param array $cartItems
+     * @param array $indexedItems
+     * @param array $result Mutated in place
+     * @return void
+     */
+    public function applyCartItemResponses($cartItemResponse, $cartItems, $indexedItems, array &$result)
+    {
+        $this->cartItemResponseHandler->processAndApplyCartItemResponses(
+            $cartItemResponse,
+            $cartItems,
+            $indexedItems,
+            $result
+        );
     }
 
     /**

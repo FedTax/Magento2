@@ -50,6 +50,8 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 #[AllowMockObjectsWithoutExpectations]
 class VerifyAddressTest extends TestCase
 {
+    use \Taxcloud\Magento2\Test\Unit\BuildsGatewayApi;
+
     private $scopeConfig;
     private $cacheType;
     private $eventManager;
@@ -206,26 +208,7 @@ class VerifyAddressTest extends TestCase
         // Drop in a subclass whose getClient() returns null without ever
         // touching the network. Mirrors what production sees when the
         // TaxCloud WSDL fetch in getClient() fails.
-        $api = new class (
-            $this->scopeConfig,
-            $this->cacheType,
-            $this->eventManager,
-            $this->soapClientFactory,
-            $this->objectFactory,
-            $this->productFactory,
-            $this->regionFactory,
-            $this->logger,
-            $this->serializer,
-            $this->cartItemResponseHandler,
-            $this->productTicService,
-            $this->taxCalculationService,
-            $this->quoteDetailsFactory,
-            $this->quoteDetailsItemFactory,
-            $this->taxClassKeyFactory,
-            $this->customerAddressFactory,
-            $this->customerAddressRegionFactory,
-            $this->refundDistributor
-        ) extends Api {
+        $api = new class (...$this->gatewayApiCollaborators($this->leafMocks())) extends Api {
             public function getClient()
             {
                 return null;
@@ -249,27 +232,30 @@ class VerifyAddressTest extends TestCase
         $this->assertFalse($result, 'No-SoapClient path must return explicit false (was undefined $result → null)');
     }
 
+    private function leafMocks(): array
+    {
+        return [
+            'scopeConfig' => $this->scopeConfig,
+            'cacheType' => $this->cacheType,
+            'eventManager' => $this->eventManager,
+            'soapClientFactory' => $this->soapClientFactory,
+            'objectFactory' => $this->objectFactory,
+            'regionFactory' => $this->regionFactory,
+            'logger' => $this->logger,
+            'serializer' => $this->serializer,
+            'cartItemResponseHandler' => $this->cartItemResponseHandler,
+            'productTicService' => $this->productTicService,
+            'taxCalculationService' => $this->taxCalculationService,
+            'quoteDetailsFactory' => $this->quoteDetailsFactory,
+            'quoteDetailsItemFactory' => $this->quoteDetailsItemFactory,
+            'taxClassKeyFactory' => $this->taxClassKeyFactory,
+            'customerAddressFactory' => $this->customerAddressFactory,
+            'refundDistributor' => $this->refundDistributor,
+        ];
+    }
+
     private function newApi(): Api
     {
-        return new Api(
-            $this->scopeConfig,
-            $this->cacheType,
-            $this->eventManager,
-            $this->soapClientFactory,
-            $this->objectFactory,
-            $this->productFactory,
-            $this->regionFactory,
-            $this->logger,
-            $this->serializer,
-            $this->cartItemResponseHandler,
-            $this->productTicService,
-            $this->taxCalculationService,
-            $this->quoteDetailsFactory,
-            $this->quoteDetailsItemFactory,
-            $this->taxClassKeyFactory,
-            $this->customerAddressFactory,
-            $this->customerAddressRegionFactory,
-            $this->refundDistributor
-        );
+        return $this->buildGatewayApi($this->leafMocks());
     }
 }

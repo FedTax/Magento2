@@ -21,6 +21,7 @@ use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\ProductTicService;
+use Taxcloud\Magento2\Model\RefundDistributor;
 
 /**
  * Covers the request payload assembly extracted from Model\Api: origin/
@@ -35,6 +36,7 @@ class RequestBuilderTest extends TestCase
     private $scopeConfig;
     private $regionFactory;
     private $productTicService;
+    private $refundDistributor;
     private RequestBuilder $builder;
 
     protected function setUp(): void
@@ -47,12 +49,14 @@ class RequestBuilderTest extends TestCase
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $this->regionFactory = $this->createMock(RegionFactory::class);
         $this->productTicService = $this->createMock(ProductTicService::class);
+        $this->refundDistributor = $this->createMock(RefundDistributor::class);
 
         $this->builder = new RequestBuilder(
             $this->config,
             $this->scopeConfig,
             $this->regionFactory,
             $this->productTicService,
+            $this->refundDistributor,
             new NullLogger()
         );
     }
@@ -168,6 +172,92 @@ class RequestBuilderTest extends TestCase
         $this->assertSame('30097', $destination['Zip5']);
     }
 
+    public function testBuildLookupCartItemsIndexesProductsAndShipping()
+    {
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getTaxClassId'])->getMock();
+        $product->method('getTaxClassId')->willReturn('2');
+
+        $quoteItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getProduct', 'getSku', 'getPrice', 'getDiscountAmount', 'getQty'])
+            ->getMock();
+        $quoteItem->method('getProduct')->willReturn($product);
+        $quoteItem->method('getSku')->willReturn('SKU-1');
+        $quoteItem->method('getPrice')->willReturn(10.0);
+        $quoteItem->method('getDiscountAmount')->willReturn(2.0);
+        $quoteItem->method('getQty')->willReturn(2.0);
+
+        $shipRow = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getRowTotal'])->getMock();
+        $shipRow->method('getRowTotal')->willReturn(5.0);
+
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getShippingAmount'])->getMock();
+        $address->method('getShippingAmount')->willReturn(0.0);
+
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        $itemsByType = [
+            'product' => ['p1' => ['item' => 'x']],
+            'shipping' => ['shipping' => ['item' => $shipRow]],
+        ];
+
+        $built = $this->builder->buildLookupCartItems($itemsByType, ['p1' => $quoteItem], $address);
+
+        $this->assertSame('SKU-1', $built['cartItems'][0]['ItemID']);
+        $this->assertSame(9.0, $built['cartItems'][0]['Price']); // 10 - 2/2
+        $this->assertSame(['p1'], array_values($built['indexedItems']));
+        $this->assertSame('shipping', $built['cartItems'][1]['ItemID']);
+        $this->assertSame(5.0, $built['cartItems'][1]['Price']);
+    }
+
+    public function testBuildLookupCartItemsSkipsNoneTaxClassProducts()
+    {
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getTaxClassId'])->getMock();
+        $product->method('getTaxClassId')->willReturn('0');
+
+        $quoteItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getProduct'])->getMock();
+        $quoteItem->method('getProduct')->willReturn($product);
+
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getShippingAmount'])->getMock();
+
+        $built = $this->builder->buildLookupCartItems(
+            ['product' => ['p1' => ['item' => 'x']]],
+            ['p1' => $quoteItem],
+            $address
+        );
+
+        $this->assertSame([], $built['cartItems']);
+    }
+
+    public function testBuildLookupParams()
+    {
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(7);
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getId')->willReturn(999);
+
+        $params = $this->builder->buildLookupParams(
+            $customer,
+            $quote,
+            [['ItemID' => 'SKU-1']],
+            ['State' => 'IL'],
+            ['State' => 'GA'],
+            'cert-1'
+        );
+
+        $this->assertSame(7, $params['customerID']);
+        $this->assertSame(999, $params['cartID']);
+        $this->assertSame(['State' => 'GA'], $params['destination']);
+        $this->assertFalse($params['deliveredBySeller']);
+        $this->assertSame('cert-1', $params['exemptCert']['CertificateID']);
+    }
+
     public function testBuildOrderDetailsParams()
     {
         $order = $this->createMock(Order::class);
@@ -241,6 +331,99 @@ class RequestBuilderTest extends TestCase
         $this->assertSame($cartItems, $params['cartItems']);
         $this->assertFalse($params['returnCoDeliveryFeeWhenNoCartItems']);
         $this->assertArrayHasKey('returnedDate', $params);
+    }
+
+    public function testBuildReturnCartItemsFromCreditmemoItemsAndShipping()
+    {
+        $orderItem = $this->createMock(OrderItem::class);
+        $orderItem->method('getSku')->willReturn('SKU-1');
+
+        $creditItem = $this->createMock(\Magento\Sales\Model\Order\Creditmemo\Item::class);
+        $creditItem->method('getQty')->willReturn(2.0);
+        $creditItem->method('getOrderItem')->willReturn($orderItem);
+        $creditItem->method('getPrice')->willReturn(10.0);
+        $creditItem->method('getDiscountAmount')->willReturn(4.0);
+
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        $order = $this->createMock(Order::class);
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([$creditItem]);
+        $creditmemo->method('getShippingAmount')->willReturn(5.99);
+
+        $return = $this->builder->buildReturnCartItems($creditmemo);
+
+        $this->assertFalse($return['skip']);
+        $this->assertFalse($return['wasTaxOnlyRefund']);
+        $this->assertSame('SKU-1', $return['cartItems'][0]['ItemID']);
+        $this->assertSame(8.0, $return['cartItems'][0]['Price']); // 10 - 4/2
+        $this->assertSame('shipping', $return['cartItems'][1]['ItemID']);
+    }
+
+    public function testBuildReturnCartItemsDetectsTaxOnlyRefund()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getBaseTaxAmount')->willReturn(5.0);
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0.0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(5.0);
+
+        $return = $this->builder->buildReturnCartItems($creditmemo);
+
+        $this->assertTrue($return['wasTaxOnlyRefund']);
+        $this->assertFalse($return['skip']);
+        $this->assertSame([], $return['cartItems']);
+    }
+
+    public function testBuildReturnCartItemsSkipsOnDistributorSkip()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getBaseTaxAmount')->willReturn(0.0);
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0.0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(3.0);
+
+        $this->refundDistributor->method('distribute')->willReturn([
+            'action' => RefundDistributor::ACTION_SKIP,
+            'cartItems' => [],
+            'reason' => 'nothing to distribute',
+        ]);
+
+        $return = $this->builder->buildReturnCartItems($creditmemo);
+
+        $this->assertTrue($return['skip']);
+    }
+
+    public function testBuildReturnCartItemsUsesDistributedCartItems()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getBaseTaxAmount')->willReturn(0.0);
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0.0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(3.0);
+
+        $distributed = [['ItemID' => 'SKU-9', 'Index' => 0, 'TIC' => '20000', 'Price' => 3.0, 'Qty' => 1]];
+        $this->refundDistributor->method('distribute')->willReturn([
+            'action' => RefundDistributor::ACTION_DISTRIBUTE,
+            'cartItems' => $distributed,
+            'reason' => 'proportional',
+        ]);
+
+        $return = $this->builder->buildReturnCartItems($creditmemo);
+
+        $this->assertFalse($return['skip']);
+        $this->assertSame($distributed, $return['cartItems']);
     }
 
     public function testBuildExemptLookupParams()
