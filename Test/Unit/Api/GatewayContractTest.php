@@ -50,6 +50,7 @@ class GatewayContractTest extends TestCase
     /**
      * @param class-string $interface
      * @param string[]     $methods
+     * @dataProvider contractMethodsProvider
      */
     #[DataProvider('contractMethodsProvider')]
     public function testInterfaceDeclaresExpectedOperations($interface, array $methods)
@@ -81,6 +82,8 @@ class GatewayContractTest extends TestCase
     /**
      * The transport-specific SOAP helpers must NOT leak into the gateway
      * contract — they are exactly what the REST migration replaces.
+     *
+     * @dataProvider transportHelperProvider
      */
     #[DataProvider('transportHelperProvider')]
     public function testGatewayContractExcludesTransportHelpers(string $method)

@@ -194,7 +194,7 @@ docker compose exec -T app sh -c '
     # app/code/. Copying breaks that chain.
     cp /srv/module/registration.php registration.php
 
-    for d in Logger Model Observer Setup etc; do
+    for d in Api Logger Model Observer Setup etc; do
         ln -s /srv/module/$d $d
     done
     for f in composer.json LICENSE.txt CHANGELOG.md README.md; do

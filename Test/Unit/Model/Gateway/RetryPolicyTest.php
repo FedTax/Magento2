@@ -121,6 +121,7 @@ class RetryPolicyTest extends TestCase
     /**
      * @param string $message
      * @param bool   $expected
+     * @dataProvider timeoutMessageProvider
      */
     #[DataProvider('timeoutMessageProvider')]
     public function testIsTimeoutErrorByMessage(string $message, bool $expected)

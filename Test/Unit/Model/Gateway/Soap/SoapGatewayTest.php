@@ -61,7 +61,7 @@ class SoapGatewayTest extends TestCase
 
         $this->soapClientFactory->expects($this->once())
             ->method('create')
-            ->with(SoapGateway::WSDL, $this->isArray())
+            ->with(SoapGateway::WSDL, $this->callback(static fn ($options) => is_array($options)))
             ->willReturn($soapClient);
 
         $gateway = $this->gateway();
