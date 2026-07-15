@@ -85,6 +85,12 @@ class Refund implements ObserverInterface
 
         $creditmemo = $observer->getEvent()->getCreditmemo();
 
-        $this->tcapi->returnOrder($creditmemo);
+        try {
+            $this->tcapi->returnOrder($creditmemo);
+        } catch (\Throwable $e) {
+            // Magento has already committed the refund — don't let a TaxCloud
+            // failure surface to the admin user.
+            $this->tclogger->info('returnOrder threw exception: ' . $e->getMessage());
+        }
     }
 }

@@ -36,6 +36,13 @@ class ProductTicService
      * Default shipping TIC fallback value when configuration is empty or null
      */
     const DEFAULT_SHIPPING_TIC = '11010';
+
+    /**
+     * Product type whose TIC must come from the purchased child simple, not the
+     * parent. Kept as a literal so this module doesn't take a hard dependency on
+     * Magento_ConfigurableProduct.
+     */
+    const TYPE_CONFIGURABLE = 'configurable';
     /**
      * @var ScopeConfigInterface
      */
@@ -76,8 +83,8 @@ class ProductTicService
      */
     public function getProductTic($item, $context = '')
     {
-        $product = $item->getProduct();
-        
+        $product = $this->resolveTaxableProduct($item);
+
         // Handle case where product has been deleted
         if (!$product || !$product->getId()) {
             $this->logger->info(
@@ -97,6 +104,57 @@ class ProductTicService
         $tic = $productModel->getCustomAttribute('taxcloud_tic');
         
         return $tic ? $tic->getValue() : $this->getDefaultTic();
+    }
+
+    /**
+     * Resolve the product whose TIC should be used for a line item.
+     *
+     * For configurable products the line item carries the configurable parent
+     * (Magento's tax collector maps the parent, not the chosen simple), but the
+     * thing actually shipped — and therefore the TIC TaxCloud needs — is the
+     * selected simple variant. Redirect to that child. All other product types
+     * (simple, bundle, grouped) keep the item's own product.
+     *
+     * @param \Magento\Sales\Model\Order\Item|\Magento\Quote\Model\Quote\Item $item
+     * @return \Magento\Catalog\Api\Data\ProductInterface|null
+     */
+    private function resolveTaxableProduct($item)
+    {
+        $product = $item->getProduct();
+        if (!$product || $product->getTypeId() !== self::TYPE_CONFIGURABLE) {
+            return $product;
+        }
+
+        $childProduct = $this->getChildProduct($item);
+
+        return $childProduct ?: $product;
+    }
+
+    /**
+     * Pull the purchased child simple's product off a configurable line item.
+     * Quote items expose children via getChildren(); order items via
+     * getChildrenItems(). Returns null if no usable child product is found.
+     *
+     * @param \Magento\Sales\Model\Order\Item|\Magento\Quote\Model\Quote\Item $item
+     * @return \Magento\Catalog\Api\Data\ProductInterface|null
+     */
+    private function getChildProduct($item)
+    {
+        $children = [];
+        if (method_exists($item, 'getChildren') && $item->getChildren()) {
+            $children = $item->getChildren();
+        } elseif (method_exists($item, 'getChildrenItems') && $item->getChildrenItems()) {
+            $children = $item->getChildrenItems();
+        }
+
+        foreach ($children as $child) {
+            $childProduct = $child->getProduct();
+            if ($childProduct && $childProduct->getId()) {
+                return $childProduct;
+            }
+        }
+
+        return null;
     }
 
     /**

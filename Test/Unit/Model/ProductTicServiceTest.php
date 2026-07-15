@@ -17,13 +17,12 @@
 
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
-// Load Magento mocks before any other includes
-require_once __DIR__ . '/../Mocks/MagentoMocks.php';
-
 // Load the ProductTicService class directly
 require_once __DIR__ . '/../../../Model/ProductTicService.php';
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
@@ -32,6 +31,7 @@ use Magento\Sales\Model\Order\Item;
 use Magento\Framework\Api\AttributeValue;
 use Taxcloud\Magento2\Logger\Logger;
 
+#[AllowMockObjectsWithoutExpectations]
 class ProductTicServiceTest extends TestCase
 {
     private $productTicService;
@@ -178,6 +178,7 @@ class ProductTicServiceTest extends TestCase
      * Test getDefaultTic with various configurations
      * @dataProvider defaultTicProvider
      */
+    #[DataProvider('defaultTicProvider')]
     public function testGetDefaultTic($configValue, $expectedResult, $description)
     {
         $this->scopeConfig->method('getValue')
@@ -189,7 +190,7 @@ class ProductTicServiceTest extends TestCase
         $this->assertEquals($expectedResult, $result, $description);
     }
 
-    public function defaultTicProvider()
+    public static function defaultTicProvider()
     {
         return [
             'configured value' => ['12345', '12345', 'Should return configured default TIC value'],
@@ -203,6 +204,7 @@ class ProductTicServiceTest extends TestCase
      * Test isProductValid with various product states
      * @dataProvider productValidationProvider
      */
+    #[DataProvider('productValidationProvider')]
     public function testIsProductValid($productId, $expectedResult, $description)
     {
         $item = $this->createMock(Item::class);
@@ -220,7 +222,7 @@ class ProductTicServiceTest extends TestCase
         $this->assertEquals($expectedResult, $result, $description);
     }
 
-    public function productValidationProvider()
+    public static function productValidationProvider()
     {
         return [
             'valid product with ID' => [789, true, 'Should return true for valid product with ID'],
@@ -234,6 +236,7 @@ class ProductTicServiceTest extends TestCase
      * Test getShippingTic with various configurations
      * @dataProvider shippingTicProvider
      */
+    #[DataProvider('shippingTicProvider')]
     public function testGetShippingTic($configValue, $expectedResult, $description)
     {
         $this->scopeConfig->method('getValue')
@@ -245,7 +248,7 @@ class ProductTicServiceTest extends TestCase
         $this->assertEquals($expectedResult, $result, $description);
     }
 
-    public function shippingTicProvider()
+    public static function shippingTicProvider()
     {
         return [
             'default configured value' => ['11010', '11010', 'Should return configured shipping TIC value'],

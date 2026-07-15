@@ -1,0 +1,78 @@
+# Integration test stack for Taxcloud_Magento2.
+#
+# Project name is set explicitly so containers are easy to tell apart from
+# anyone's local Warden / dev Magento stack (avoids `magento2-app-1` collisions).
+name: taxcloud-integration
+
+# ---------------------------------------------------------------------------
+# Local dev:  read ./.env (cp .env.example .env first) and run `make integration-test`.
+# CI:         workflow exports the same vars; install script orchestrates the lifecycle.
+#
+# MAGENTO_INSTALL_DIR is the host path where Magento gets installed (the "sibling project"
+# from the design doc). It must exist before `docker compose up`. The install script
+# mkdir -p's it. Defaults to ../magento-<edition>-<version> so a fresh clone Just Works.
+
+services:
+  app:
+    image: "markoshust/magento-php:${PHP_VERSION:-8.3}-fpm"
+    command: ["sleep", "infinity"]
+    working_dir: /var/www/html
+    volumes:
+      - "${MAGENTO_INSTALL_DIR:-../magento-${MAGENTO_EDITION:-community}-${MAGENTO_VERSION:-2.4.8-p5}}:/var/www/html:delegated"
+      - "./:/srv/module:delegated"
+      - "${COMPOSER_CACHE_DIR:-./.composer-cache}:/var/www/.composer/cache"
+    environment:
+      COMPOSER_HOME: /var/www/.composer
+      MAGENTO_ROOT: /var/www/html
+      MAGENTO_EDITION: "${MAGENTO_EDITION:-community}"
+      MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.8-p5}"
+      MAGENTO_PUBLIC_KEY: "${MAGENTO_PUBLIC_KEY:-}"
+      MAGENTO_PRIVATE_KEY: "${MAGENTO_PRIVATE_KEY:-}"
+      TAXCLOUD_API_ID: "${TAXCLOUD_API_ID:-}"
+      TAXCLOUD_API_KEY: "${TAXCLOUD_API_KEY:-}"
+    depends_on:
+      db:
+        condition: service_healthy
+      opensearch:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks: [magento]
+
+  # Service versions track Magento's system requirements and are derived from
+  # MAGENTO_VERSION by scripts/install-magento.sh (override via env / .env):
+  #   <= 2.4.8-px : MariaDB 10.6, OpenSearch 2.12
+  #   >= 2.4.9    : MariaDB 11.4, OpenSearch 3.0
+  db:
+    image: "mariadb:${MARIADB_VERSION:-10.6}"
+    environment:
+      MARIADB_ROOT_PASSWORD: magento
+      MARIADB_DATABASE: magento
+      MARIADB_USER: magento
+      MARIADB_PASSWORD: magento
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [magento]
+
+  opensearch:
+    image: "opensearchproject/opensearch:${OPENSEARCH_VERSION:-2.12.0}"
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    networks: [magento]
+
+  redis:
+    image: redis:7-alpine
+    networks: [magento]
+
+networks:
+  magento:

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit config for the Taxcloud_Magento2 integration test suite.
+
+  We deliberately do NOT use Magento's dev/tests/integration/ framework — that
+  framework exists to test Magento core and brings a second Magento install +
+  isolated test DB along with a long list of TESTS_* constants. For exercising
+  one module against an already-installed Magento, the framework adds nothing.
+
+  Test/Integration/bootstrap.php boots the actual installed Magento and stashes
+  the ObjectManager in Taxcloud\Magento2\Test\Integration\TestEnvironment for
+  tests to pull from.
+
+  All paths below are absolute because PHPUnit 10 (which Magento 2.4.8+ ships)
+  resolves relative paths against the config file's directory — and this file
+  lives in /srv/module/ while Magento is at /var/www/html/.
+-->
+<phpunit
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+    bootstrap="/var/www/html/app/code/Taxcloud/Magento2/Test/Integration/bootstrap.php"
+    colors="true"
+    columns="max"
+    stopOnFailure="false"
+    cacheDirectory="/var/www/html/var/.phpunit.integration.cache"
+    beStrictAboutTestsThatDoNotTestAnything="false"
+>
+    <testsuites>
+        <testsuite name="Taxcloud_Magento2 Integration">
+            <directory suffix="Test.php">/var/www/html/app/code/Taxcloud/Magento2/Test/Integration</directory>
+        </testsuite>
+    </testsuites>
+
+    <php>
+        <ini name="memory_limit" value="2G"/>
+        <ini name="date.timezone" value="America/Chicago"/>
+    </php>
+</phpunit>

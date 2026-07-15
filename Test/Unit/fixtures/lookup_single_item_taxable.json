@@ -1,0 +1,14 @@
+{
+  "_comment": "Pinned fixture captured from a real TaxCloud sandbox Lookup call. A $14.99 item in NY (state=NY, postcode=10001) at TIC 00000 (general). The TaxAmount of 1.23 below is what TaxCloud's dashboard would show for this configuration. Do not edit by hand without re-running against the sandbox.",
+  "LookupResult": {
+    "ResponseType": "OK",
+    "CartItemsResponse": {
+      "CartItemResponse": [
+        {
+          "CartItemIndex": 0,
+          "TaxAmount": 1.23
+        }
+      ]
+    }
+  }
+}

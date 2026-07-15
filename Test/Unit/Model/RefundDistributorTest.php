@@ -17,10 +17,10 @@
 
 namespace Taxcloud\Magento2\Test\Unit\Model;
 
-require_once __DIR__ . '/../Mocks/MagentoMocks.php';
 require_once __DIR__ . '/../../../Model/RefundDistributor.php';
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\RefundDistributor;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Taxcloud\Magento2\Logger\Logger;
@@ -28,6 +28,7 @@ use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Item;
 use Magento\Sales\Model\Order\Creditmemo;
 
+#[AllowMockObjectsWithoutExpectations]
 class RefundDistributorTest extends TestCase
 {
     private $distributor;

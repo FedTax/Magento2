@@ -27,6 +27,7 @@
         <default_tic>00000</default_tic>
         <shipping_tic>11010</shipping_tic>
         <cache_lifetime>86400</cache_lifetime>
+        <api_timeout>10</api_timeout>
         <fallback_to_magento>0</fallback_to_magento>
         <capture_trigger>order_creation</capture_trigger>
       </taxcloud_settings>

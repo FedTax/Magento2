@@ -1,0 +1,7 @@
+# Node / Playwright build + run artifacts. package.json and package-lock.json
+# ARE committed; everything generated is not.
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/

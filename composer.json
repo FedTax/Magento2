@@ -2,7 +2,7 @@
   "name": "taxcloud/magento2",
   "description": "TaxCloud Module for Magento 2",
   "type": "magento2-module",
-  "version": "1.1.1.0.1",
+  "version": "1.2.0",
   "license": "OSL-3.0",
   "autoload": {
     "files": [
@@ -12,20 +12,21 @@
       "Taxcloud\\Magento2\\": ""
     }
   },
-  "require-dev": {
-    "phpunit/phpunit": "^9.5"
-  },
   "archive": {
     "exclude": [
       ".gitignore",
       ".github/",
       ".cursorrules",
+      ".env",
+      ".env.example",
       "Test/",
       "Makefile",
-      "run-test.sh",
       "scripts/",
       "docs/images/",
-      "phpunit.xml.dist"
+      "docker-compose.yml",
+      "docker-compose.e2e.yml",
+      "phpunit.xml.dist",
+      "phpunit.integration.xml.dist"
     ]
   }
 }

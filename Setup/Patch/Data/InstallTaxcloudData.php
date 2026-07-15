@@ -125,11 +125,27 @@ class InstallTaxcloudData implements DataPatchInterface, PatchRevertableInterfac
     }
 
     /**
+     * Undo apply(): drop both EAV attributes this patch created so uninstalling
+     * the module (`bin/magento module:uninstall`, which calls this via
+     * PatchApplier::revertDataPatches()) leaves no orphaned attribute metadata
+     * behind.
+     *
+     * removeAttribute() is a no-op when the attribute is already gone, so
+     * revert() is safe to run even if apply() never completed.
+     *
      * {@inheritdoc}
      */
     public function revert()
     {
-        // Revert logic if needed
+        $this->moduleDataSetup->getConnection()->startSetup();
+
+        $eavSetup = $this->eavSetupFactory->create();
+        $eavSetup->removeAttribute(\Magento\Catalog\Model\Product::ENTITY, 'taxcloud_tic');
+
+        $customerSetup = $this->customerSetupFactory->create(['setup' => $this->moduleDataSetup]);
+        $customerSetup->removeAttribute(Customer::ENTITY, 'taxcloud_cert');
+
+        $this->moduleDataSetup->getConnection()->endSetup();
     }
 
     /**

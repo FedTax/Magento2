@@ -6,7 +6,7 @@
 ## Compatibility
 
 **Adobe Commerce 2.4.8-p1 Compatible** ✅  
-This extension (Version 1.1.0) has been tested and verified to work with Adobe Commerce 2.4.8-p1 (released June 10th, 2025).
+This extension (Version 1.2.0) has been tested and verified to work with Adobe Commerce 2.4.8-p1 (released June 10th, 2025).
 
 **Supported Versions:**
 - Adobe Commerce 2.4.x
@@ -67,6 +67,32 @@ bin/magento setup:di:compile
 }
 ```
 
+### Uninstalling the Module
+
+Installing the module adds two EAV attributes via the `InstallTaxcloudData`
+data patch:
+
+- `taxcloud_tic` on products (the TaxCloud TIC), and
+- `taxcloud_cert` on customers (the exemption certificate ID).
+
+The patch is revertable (`InstallTaxcloudData` implements
+`PatchRevertableInterface`), so these attributes are cleaned up automatically
+when the module is uninstalled. Magento invokes the patch's `revert()` from the
+uninstall-data flow:
+
+```
+bin/magento module:uninstall Taxcloud_Magento2
+```
+
+(`module:uninstall` applies to Composer-installed modules; it runs the data
+patch's `revert()` before removing the module's files.)
+
+Reverting drops both attributes (and, because EAV value storage cascades on the
+attribute, any TIC/certificate values stored against products and customers).
+Re-installing and running `bin/magento setup:upgrade` re-applies the patch and
+recreates the attribute definitions — but not the previously stored values — so
+revert is a destructive, one-way cleanup. It only runs on uninstall.
+
 ## Development
 
 ### Contributing
@@ -79,17 +105,23 @@ bin/magento setup:di:compile
 
 ### Running Tests
 
+Unit tests run with the PHPUnit and Magento classes of the Magento
+installation this module lives inside — the module has no `vendor/` of its
+own. With the module checked out at `app/code/Taxcloud/Magento2/`:
+
 ```bash
-# Run all tests using Docker (recommended)
-make test
-
-# Run all tests locally (requires PHP)
-make test-local
-
-# Or run individual tests
-./run-test.sh
-php Test/Integration/PostalCodeParserTest.php
+make test-unit                          # or: make test
+make test-unit MAGENTO_ROOT=/path/to/magento   # explicit install root
 ```
+
+In CI, unit tests run on every push/PR against a matrix of Magento
+versions (see `.github/workflows/test.yml`).
+
+Integration tests live in their own pipeline — they boot the full Magento
+application against a real database and run via PHPUnit. They are expensive
+and run on demand (or on release tags), not on every push. See
+[docs/INTEGRATION_TESTS.md](docs/INTEGRATION_TESTS.md) for the 5-minute
+local setup and the matrix of supported editions/versions.
 
 ## Configuring the TaxCloud Module
 
@@ -110,7 +142,7 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 ![TaxCloud Settings](docs/images/configuration-admin-settings.png)
 
 * **Enabled** - Select `Enabled` in order to enable the TaxCloud module.
-* **Logging Enabled** - Useful for debugging and testing, select `Enabled` in order to log all TaxCloud API calls into `var/log/taxcloud.log`. Make sure to set up log rotation if you keep this option enabled during production!
+* **Logging Enabled** - Useful for debugging and testing, select `Enabled` in order to log all TaxCloud API calls into `var/log/taxcloud.log`. Make sure to set up log rotation if you keep this option enabled during production! Your TaxCloud `apiLoginID` and `apiKey` are redacted in the log file: the field names still appear, but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.).
 * **Verify Address** - Select `Enabled` to turn on TaxCloud's address verification API calls. You may want to disable this if you have another module that validates shipping addresses.
 * **API ID** - Enter your API ID from your TaxCloud account.
 * **API Key** - Enter your API Key from your TaxCloud account.
@@ -156,6 +188,12 @@ Navigate to *Customers → All Customers*, click on the *Edit* link for a specif
 ![Customer Edit](docs/images/configuration-admin-customer-edit.png)
 
 Here you can add the 36 character plus dashes UUID for the already existing exemption certificate.
+
+##### Exemption certificate validation and caching
+
+At checkout, the extension calls TaxCloud's `GetExemptCertificates` API to confirm that the linked certificate actually covers the destination state — a certificate registered for NY does not exempt a shipment to GA. The list of states covered by a certificate is cached **per (customer, certificate) for 1 hour** so that repeated checkouts do not call `GetExemptCertificates` on every page load.
+
+The trade-off is a propagation window: if a certificate is revoked or its covered-states list is edited in the TaxCloud dashboard, this extension may continue to apply the previous covered-states list to that customer's checkouts for up to one hour. Cache entries expire on their own; there is no admin action required, and the next request after expiry validates against TaxCloud and refreshes the cache. The "Cache Lifetime" admin setting controls the tax-lookup and address-verification caches separately and does **not** shorten this 1-hour exempt-states window. If you have just revoked or modified a certificate and need the change reflected at checkout immediately, flush Magento's cache (`bin/magento cache:flush` or *System → Cache Management → Flush Magento Cache*).
 
 ## Testing the TaxCloud Module
 
@@ -290,17 +328,18 @@ Each GitHub release automatically produces a Marketplace-ready zip named `taxclo
 
 **To cut a new release:**
 
-1. **Make sure `composer.json` `version` matches** the version you're about to tag (e.g. `1.1.2`). If it doesn't, bump it on `master` first — the Marketplace's EQP validation will reject a submission whose `composer.json` version doesn't match the tag.
-2. **Create a tag** on `master`:
+1. **Make sure `composer.json` `version` matches** the version you're about to tag (e.g. `1.2.0`). If it doesn't, bump it on `master` first — the Marketplace's EQP validation will reject a submission whose `composer.json` version doesn't match the tag.
+2. **Bump `etc/module.xml` `setup_version` to the same value.** Magento 2.3+ no longer uses `setup_version` for schema migration (data patches drive that now), so behavior does not change either way — but keeping it in sync with `composer.json` is the canary that catches a forgotten version bump. The two should never drift.
+3. **Create a tag** on `master`:
    ```bash
-   git tag -a v1.1.2 -m "v1.1.2"
-   git push origin v1.1.2
+   git tag -a v1.2.0 -m "v1.2.0"
+   git push origin v1.2.0
    ```
-3. **Create a GitHub release** from the tag at [Releases → Draft a new release](https://github.com/FedTax/Magento2/releases/new). Auto-generate release notes or write them manually.
-4. The `Build Marketplace Release Package` workflow runs automatically on publish and attaches `taxcloud_magento2-<version>.zip` to the release. (If it ever fails, you can re-run it manually from *Actions → Build Marketplace Release Package → Run workflow* and pass the tag.)
-5. Go to the [Marketplace extension page](https://commercedeveloper.adobe.com/extensions/versions/taxcloud-magento2) and start a new version submission.
-6. **Attach the zip** from the GitHub release under *Attach package*, and **paste the release notes** from the GitHub release body into the submission form.
-7. **Submit for review.** Once Adobe approves the submission, the new version is published to the Marketplace automatically.
+4. **Create a GitHub release** from the tag at [Releases → Draft a new release](https://github.com/FedTax/Magento2/releases/new). Auto-generate release notes or write them manually.
+5. The `Build Marketplace Release Package` workflow runs automatically on publish and attaches `taxcloud_magento2-<version>.zip` to the release. (If it ever fails, you can re-run it manually from *Actions → Build Marketplace Release Package → Run workflow* and pass the tag.)
+6. Go to the [Marketplace extension page](https://commercedeveloper.adobe.com/extensions/versions/taxcloud-magento2) and start a new version submission.
+7. **Attach the zip** from the GitHub release under *Attach package*, and **paste the release notes** from the GitHub release body into the submission form.
+8. **Submit for review.** Once Adobe approves the submission, the new version is published to the Marketplace automatically.
 
 ## License
 

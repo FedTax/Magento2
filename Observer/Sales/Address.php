@@ -93,7 +93,13 @@ class Address implements ObserverInterface
         $obj = $observer->getEvent()->getObj();
         $params = $obj->getParams();
 
-        $result = $this->tcapi->verifyAddress($params['destination']);
+        try {
+            $result = $this->tcapi->verifyAddress($params['destination']);
+        } catch (\Throwable $e) {
+            // Never block checkout on an address-verification failure.
+            $this->tclogger->info('verifyAddress threw exception, leaving address unchanged: ' . $e->getMessage());
+            return;
+        }
 
         if ($result) {
             $result['Address1'] = $result['Address1'] ?: ($params['destination']['Address1'] ?? '');
