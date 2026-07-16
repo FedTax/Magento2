@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-unit-version lint lint-fix help \
+.PHONY: test test-unit test-unit-version lint lint-fix phpstan analyse help \
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
         e2e-trace e2e-clean
@@ -29,6 +29,10 @@ help:
 	@echo "                           version's bundled PHPUnit). Override with"
 	@echo "                           MAGENTO_EDITION / MAGENTO_VERSION / PHP_VERSION, e.g.:"
 	@echo "                             make test-unit-version MAGENTO_VERSION=2.4.7-p3 PHP_VERSION=8.2"
+	@echo ""
+	@echo "Static analysis:"
+	@echo "  make phpstan           - Run PHPStan level 5 via the Magento install's binary"
+	@echo "                           (alias: make analyse). Override MAGENTO_ROOT=..."
 	@echo ""
 	@echo "Integration tests (see docs/INTEGRATION_TESTS.md for setup):"
 	@echo "  make integration-test  - Install Magento + run integration tests"
@@ -83,6 +87,22 @@ test-unit-version:
 	@echo "==> Running unit suite against Magento $(MAGENTO_VERSION) (PHP $(PHP_VERSION))..."
 	@docker compose exec -T -w /srv/module -e MAGENTO_ROOT=/var/www/html app \
 		/var/www/html/vendor/bin/phpunit -c /srv/module/phpunit.xml.dist Test/Unit/ --testdox
+
+# Run PHPStan static analysis (level 5) using the Magento install's phpstan binary.
+# The module has no vendor/ of its own; phpstan-bootstrap.php resolves the real
+# Magento classes via MAGENTO_ROOT (same model as test-unit). See phpstan.neon.
+phpstan:
+	@if [ ! -x "$(MAGENTO_ROOT)/vendor/bin/phpstan" ]; then \
+		echo "ERROR: $(MAGENTO_ROOT)/vendor/bin/phpstan not found."; \
+		echo "PHPStan runs with the Magento install's binary. Either:"; \
+		echo "  - check this module out at <magento-root>/app/code/Taxcloud/Magento2/, or"; \
+		echo "  - pass MAGENTO_ROOT=/path/to/magento"; \
+		exit 1; \
+	fi
+	@MAGENTO_ROOT=$(MAGENTO_ROOT) $(MAGENTO_ROOT)/vendor/bin/phpstan analyse \
+		-c phpstan.neon --no-progress --memory-limit=1G
+
+analyse: phpstan
 
 # Run PHP CodeSniffer linting
 lint:

@@ -290,11 +290,6 @@ class Api implements GatewayInterface
             return $result;
         }
 
-        if (!$address->getPostcode()) {
-            $this->tclogger->info('No postcode, returning 0');
-            return $result;
-        }
-
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
             // Skip composite child lines with no tax calculation id (null array

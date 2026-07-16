@@ -12,6 +12,9 @@
       "Taxcloud\\Magento2\\": ""
     }
   },
+  "require-dev": {
+    "phpstan/phpstan": "^1.12"
+  },
   "archive": {
     "exclude": [
       ".gitignore",
@@ -26,7 +29,10 @@
       "docker-compose.yml",
       "docker-compose.e2e.yml",
       "phpunit.xml.dist",
-      "phpunit.integration.xml.dist"
+      "phpunit.integration.xml.dist",
+      "phpstan.neon",
+      "phpstan-baseline.neon",
+      "phpstan-bootstrap.php"
     ]
   }
 }

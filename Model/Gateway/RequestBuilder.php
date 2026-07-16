@@ -379,7 +379,7 @@ class RequestBuilder
             'Address1' => $street1,
             'Address2' => $street2,
             'City' => $address->getCity() ?? '',
-            'State' => $regionCode ?? '',
+            'State' => $regionCode,
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
         );

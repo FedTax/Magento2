@@ -116,6 +116,65 @@ jobs:
           app/code/Taxcloud/Magento2/Test/Unit/ --testdox
 
   # ---------------------------------------------------------------------------
+  # Static analysis — PHPStan at level 5, on every event (PR, push, tag).
+  # Runs against ONE pinned Magento version (2.4.9 / PHP 8.5) so the tactical
+  # baseline (phpstan-baseline.neon) is deterministic — findings derived from
+  # Magento's interface docblocks and its bundled PHPStan version differ across
+  # 2.4.7/2.4.8/2.4.9, so a single pinned version is the sane gate. Uses the
+  # phpstan binary the Magento install already bundles (no module vendor/); the
+  # module is analyzed against that install via MAGENTO_ROOT (see
+  # phpstan-bootstrap.php). Would have caught the TC-002 undefined-$result bug.
+  # ---------------------------------------------------------------------------
+  phpstan:
+    name: PHPStan (level 5) — Magento 2.4.9 / PHP 8.5
+    runs-on: ubuntu-latest
+
+    env:
+      MAGENTO_ROOT: ${{ github.workspace }}/../magento-phpstan
+      MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
+      MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Verify Marketplace secrets
+      run: |
+        if [[ -z "$MAGENTO_PUBLIC_KEY" || -z "$MAGENTO_PRIVATE_KEY" ]]; then
+          echo "::error::MAGENTO_PUBLIC_KEY / MAGENTO_PRIVATE_KEY secrets are required to pull Magento from repo.magento.com."
+          exit 1
+        fi
+
+    - name: Set up PHP 8.5
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.5'
+        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, bcmath, intl, gd, exif, iconv, sockets, xsl
+        coverage: none
+
+    - name: Cache Magento codebase
+      id: magento-cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ env.MAGENTO_ROOT }}
+        key: magento-phpstan-2.4.9-php8.5
+
+    - name: Install Magento codebase (no DB)
+      if: steps.magento-cache.outputs.cache-hit != 'true'
+      run: |
+        composer config --global http-basic.repo.magento.com "$MAGENTO_PUBLIC_KEY" "$MAGENTO_PRIVATE_KEY"
+        composer create-project --repository-url=https://repo.magento.com/ \
+          --no-interaction --no-progress \
+          "magento/project-community-edition=2.4.9" \
+          "$MAGENTO_ROOT"
+
+    - name: Run PHPStan (level 5)
+      working-directory: ${{ github.workspace }}
+      run: |
+        "$MAGENTO_ROOT/vendor/bin/phpstan" analyse \
+          -c phpstan.neon --no-progress --memory-limit=1G
+
+  # ---------------------------------------------------------------------------
   # Integration tests — community + enterprise across the full version matrix.
   # EXPENSIVE (10-15 min/row, real Magento install in Docker). Runs on release
   # tags, manual dispatch, and PRs into main (so a main-bound PR is gated by the
