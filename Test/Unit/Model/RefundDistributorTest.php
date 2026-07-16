@@ -344,4 +344,63 @@ class RefundDistributorTest extends TestCase
         // adjustmentPercent = (1 * 7) / 100 = 0.07
         $this->assertEqualsWithDelta(0.07, $result['cartItems'][0]['Qty'], 0.0001);
     }
+
+    /**
+     * T5a: a tiny adjustment against a very large remaining total makes every
+     * per-item distributed quantity round to zero. The distributor must SKIP
+     * rather than emit empty cart items. Covers the per-item zero-qty `continue`
+     * and the "rounded all quantities to zero" ACTION_SKIP branch.
+     */
+    public function testSkipsWhenAllDistributedQuantitiesRoundToZero()
+    {
+        // remainingTotal = 5000; adjustment 0.01 → percent 0.01/5000 = 2e-6;
+        // round(1 * 2e-6, 4) = 0.0 for the single item → nothing to distribute.
+        $item = $this->makeItem('SKU-BIG', 1, 0, 5000.0);
+        $order = $this->makeOrder([$item], 0.0, 0.0, 0.0, 5000.0);
+        $cm = $this->makeCreditmemo($order, 0.01);
+
+        $result = $this->distributor->distribute($cm);
+
+        $this->assertSame(RefundDistributor::ACTION_SKIP, $result['action']);
+        $this->assertSame([], $result['cartItems']);
+        $this->assertStringContainsString('rounded all quantities to zero', $result['reason']);
+    }
+
+    /**
+     * T5b: an item whose per-unit discount cancels its price (effectivePrice ≤ 0)
+     * is excluded from the remaining set; a normally-priced item still distributes.
+     * Covers the effectivePrice ≤ 0 `continue` in buildRemainingItems().
+     */
+    public function testExcludesItemsWhoseDiscountCancelsPrice()
+    {
+        $free   = $this->makeItem('SKU-FREE', 1, 0, 10.0, 10.0);   // 10 - 10/1 = 0 → excluded
+        $normal = $this->makeItem('SKU-NORMAL', 1, 0, 50.0);
+        $order  = $this->makeOrder([$free, $normal], 0.0, 0.0, 0.0, 50.0);
+        $cm     = $this->makeCreditmemo($order, 2.0);
+
+        $result = $this->distributor->distribute($cm);
+
+        $this->assertSame(RefundDistributor::ACTION_DISTRIBUTE, $result['action']);
+        $this->assertCount(1, $result['cartItems']);
+        $this->assertSame('SKU-NORMAL', $result['cartItems'][0]['ItemID']);
+    }
+
+    /**
+     * T5c: when order tax and post-discount subtotal are both zero, computeTaxRatio
+     * hits its guard and returns 1.0 (no tax carve-out), so the full net adjustment
+     * distributes. Covers the denom ≤ 0 branch of computeTaxRatio().
+     */
+    public function testTaxRatioDefaultsToOneWhenTaxAndSubtotalAreZero()
+    {
+        $item  = $this->makeItem('SKU-A', 2, 0, 50.0);
+        // tax=0 and subtotal=0 → denom=0 → taxRatio=1.0
+        $order = $this->makeOrder([$item], 0.0, 0.0, 0.0, 0.0);
+        $cm    = $this->makeCreditmemo($order, 2.0);
+
+        $result = $this->distributor->distribute($cm);
+
+        $this->assertSame(RefundDistributor::ACTION_DISTRIBUTE, $result['action']);
+        // remainingTotal = 100; adjustmentPercent = (1.0 * 2) / 100 = 0.02; qty 2 → 0.04
+        $this->assertEqualsWithDelta(0.04, $result['cartItems'][0]['Qty'], 0.0001);
+    }
 }

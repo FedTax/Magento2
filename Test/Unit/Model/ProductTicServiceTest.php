@@ -258,4 +258,69 @@ class ProductTicServiceTest extends TestCase
         ];
     }
 
+    /**
+     * T6a: the item's product still has an id, but the repository can no longer
+     * load it (NoSuchEntityException) — getProductTic must log and fall back to
+     * the default TIC rather than surface the exception.
+     */
+    public function testGetProductTicUsesDefaultWhenRepositoryThrowsNoSuchEntity()
+    {
+        $item = $this->createMock(Item::class);
+        $product = $this->createMock(Product::class);
+
+        $item->method('getSku')->willReturn('GONE_SKU');
+        $item->method('getProduct')->willReturn($product);
+        $product->method('getId')->willReturn(999);
+        // getTypeId() defaults to null → treated as a non-configurable (simple) line.
+
+        $this->productRepository->method('getById')->with(999)
+            ->willThrowException(new \Magento\Framework\Exception\NoSuchEntityException(__('gone')));
+
+        $this->scopeConfig->method('getValue')
+            ->with('tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
+            ->willReturn('00000');
+
+        $this->logger->expects($this->once())
+            ->method('info')
+            ->with('Product ID 999 not found in repository for returnOrder, using default TIC');
+
+        $result = $this->productTicService->getProductTic($item, 'returnOrder');
+
+        $this->assertEquals('00000', $result, 'Repository miss must fall back to the default TIC');
+    }
+
+    /**
+     * T6b: a configurable line item carries the configurable parent, but the TIC
+     * must come from the purchased child simple. getProductTic must redirect to
+     * the child (via getChildren()) and return that variant's TIC.
+     */
+    public function testGetProductTicRedirectsConfigurableLineToChildVariant()
+    {
+        $childProduct = $this->createMock(Product::class);
+        $childProduct->method('getId')->willReturn(555);
+
+        // A quote line exposes its purchased variant via getChildren().
+        $child = $this->createMock(\Magento\Quote\Model\Quote\Item::class);
+        $child->method('getProduct')->willReturn($childProduct);
+
+        $configurable = $this->createMock(Product::class);
+        $configurable->method('getTypeId')->willReturn(ProductTicService::TYPE_CONFIGURABLE);
+
+        $item = $this->createMock(\Magento\Quote\Model\Quote\Item::class);
+        $item->method('getSku')->willReturn('CONFIG_SKU');
+        $item->method('getProduct')->willReturn($configurable);
+        $item->method('getChildren')->willReturn([$child]);
+
+        $productModel = $this->createMock(Product::class);
+        $customAttribute = $this->createMock(AttributeValue::class);
+        $customAttribute->method('getValue')->willReturn('30000');
+        $productModel->method('getCustomAttribute')->with('taxcloud_tic')->willReturn($customAttribute);
+        // The child variant's id (555), not the configurable parent, drives the lookup.
+        $this->productRepository->method('getById')->with(555)->willReturn($productModel);
+
+        $result = $this->productTicService->getProductTic($item, 'lookupTaxes');
+
+        $this->assertEquals('30000', $result, 'Configurable line must resolve the child variant TIC');
+    }
+
 }

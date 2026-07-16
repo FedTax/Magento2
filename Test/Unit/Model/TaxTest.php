@@ -445,6 +445,132 @@ class TaxTest extends TestCase
     }
 
     /**
+     * TC-011 end-to-end: the defensive safeguard exercised against a representative
+     * multi-item quote using a REAL accumulating Total instead of a mock with a
+     * canned getTaxAmount(). This proves the safeguard's arithmetic
+     * ($currentTaxTotal + $productTaxTotal, summed across items) against actual
+     * accumulated total state, not just that the right setters were invoked.
+     *
+     * Scenario mirrors production order #2000543282: Magento kept only shipping
+     * tax in the totals; product tax from two line items was dropped and must be
+     * added back.
+     */
+    public function testDefensiveSafeguardRestoresDroppedProductTaxAcrossRepresentativeQuote()
+    {
+        $this->configureTaxCloudEnabled(logging: true);
+
+        // Two realistic line items: a $12.50 mug (qty 1) and a $24.00 shirt (qty 2).
+        $mug   = $this->createMockQuoteItem('sku-mug', 1, 12.50, 12.50);
+        $shirt = $this->createMockQuoteItem('sku-shirt', 2, 24.00, 48.00);
+
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$mug, $shirt]);
+
+        // Per-item TaxCloud verdicts + a shipping tax. Product tax total = 4.99.
+        $mugProductTax   = 1.03;
+        $shirtProductTax = 3.96;
+        $shippingTax     = 0.62;
+        $productTaxTotal = $mugProductTax + $shirtProductTax; // 4.99
+
+        [$mugDetail, $mugBaseDetail]     = $this->createMockTaxDetails(12.50, 12.50);
+        [$shirtDetail, $shirtBaseDetail] = $this->createMockTaxDetails(24.00, 48.00);
+        $itemsByType = [
+            Tax::ITEM_TYPE_PRODUCT => [
+                'sku-mug'   => [Tax::KEY_ITEM => $mugDetail,   Tax::KEY_BASE_ITEM => $mugBaseDetail],
+                'sku-shirt' => [Tax::KEY_ITEM => $shirtDetail, Tax::KEY_BASE_ITEM => $shirtBaseDetail],
+            ],
+        ];
+
+        $this->setupParentMethodMocks($itemsByType);
+        $this->setupTaxCloudApiMock(
+            ['sku-mug' => $mugProductTax, 'sku-shirt' => $shirtProductTax],
+            $shippingTax
+        );
+
+        // A real accumulating Total: getTaxAmount()/setTaxAmount() and addTotalAmount()
+        // reflect actual state rather than canned returns. Seed it with shipping tax
+        // only — the hostile precondition where product tax was dropped from totals.
+        $total = new class ($shippingTax) extends Total {
+            private float $tax;
+            private float $baseTax;
+            public array $added = [];
+            public array $addedBase = [];
+            public function __construct(float $seedTax)
+            {
+                $this->tax = $seedTax;
+                $this->baseTax = $seedTax;
+            }
+            public function getTaxAmount()
+            {
+                return $this->tax;
+            }
+            public function getBaseTaxAmount()
+            {
+                return $this->baseTax;
+            }
+            public function setTaxAmount($amount)
+            {
+                $this->tax = (float) $amount;
+                return $this;
+            }
+            public function setBaseTaxAmount($amount)
+            {
+                $this->baseTax = (float) $amount;
+                return $this;
+            }
+            public function addTotalAmount($code, $amount)
+            {
+                $this->added[$code] = ($this->added[$code] ?? 0) + $amount;
+                return $this;
+            }
+            public function addBaseTotalAmount($code, $amount)
+            {
+                $this->addedBase[$code] = ($this->addedBase[$code] ?? 0) + $amount;
+                return $this;
+            }
+            public function getExtraTaxAmount()
+            {
+                return 0;
+            }
+            public function getBaseExtraTaxAmount()
+            {
+                return 0;
+            }
+        };
+
+        $quote = $this->createMockQuote();
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+
+        // Safeguard must have restored the two items' dropped product tax on top of
+        // the shipping tax that was already present.
+        $this->assertEqualsWithDelta(
+            $shippingTax + $productTaxTotal,
+            $total->getTaxAmount(),
+            0.0001,
+            'Total tax must equal shipping tax + summed product tax across both items'
+        );
+        $this->assertEqualsWithDelta(
+            $shippingTax + $productTaxTotal,
+            $total->getBaseTaxAmount(),
+            0.0001,
+            'Base total tax must be restored identically'
+        );
+        $this->assertEqualsWithDelta(
+            $productTaxTotal,
+            $total->added['tax'] ?? 0,
+            0.0001,
+            'addTotalAmount(tax, ...) must accumulate exactly the dropped product tax'
+        );
+        $this->assertEqualsWithDelta(
+            $productTaxTotal,
+            $total->addedBase['tax'] ?? 0,
+            0.0001,
+            'addBaseTotalAmount(tax, ...) must accumulate exactly the dropped product tax'
+        );
+    }
+
+    /**
      * Data provider for edge case tests
      */
     public static function edgeCaseDataProvider()
