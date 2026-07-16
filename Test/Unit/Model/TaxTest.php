@@ -1018,8 +1018,9 @@ class TaxTest extends TestCase
 
         $result = $this->tax->collect($quote, $shippingAssignment, $total);
 
-        // The mocked parent's collect() returns $this (see MagentoMocks Tax base class),
-        // so a successful defer should yield the Tax instance itself.
+        // The real Magento parent collector (\Magento\Tax\Model\Sales\Total\Quote\Tax,
+        // which Tax extends) returns $this from collect(); since $this->tax is a partial
+        // mock of Tax, a successful defer yields the Tax instance itself.
         $this->assertSame($this->tax, $result);
     }
 
