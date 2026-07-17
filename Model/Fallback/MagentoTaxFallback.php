@@ -37,9 +37,9 @@ use Psr\Log\NullLogger;
  */
 class MagentoTaxFallback
 {
-    const ITEM_TYPE_SHIPPING = 'shipping';
-    const ITEM_TYPE_PRODUCT = 'product';
-    const KEY_ITEM = 'item';
+    public const ITEM_TYPE_SHIPPING = 'shipping';
+    public const ITEM_TYPE_PRODUCT = 'product';
+    public const KEY_ITEM = 'item';
 
     /**
      * @var AddressInterfaceFactory
@@ -107,7 +107,7 @@ class MagentoTaxFallback
     {
         $this->logger->info('Falling back to Magento tax rates');
 
-        $result = array(self::ITEM_TYPE_PRODUCT => array(), self::ITEM_TYPE_SHIPPING => 0);
+        $result = [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
 
         $address = $shippingAssignment->getShipping()->getAddress();
         if (!$address) {

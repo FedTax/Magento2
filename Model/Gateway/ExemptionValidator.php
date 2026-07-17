@@ -38,7 +38,7 @@ class ExemptionValidator
     /**
      * Exempt-state list cache lifetime, in seconds (1 hour).
      */
-    const STATE_CACHE_TTL = 3600;
+    public const STATE_CACHE_TTL = 3600;
 
     /**
      * @var SoapClientProviderInterface
@@ -134,11 +134,11 @@ class ExemptionValidator
         }
 
         try {
-            $response = $client->GetExemptCertificates(array(
+            $response = $client->GetExemptCertificates([
                 'apiLoginID' => $this->config->getApiId(),
                 'apiKey'     => $this->config->getApiKey(),
                 'customerID' => $customerID,
-            ));
+            ]);
         } catch (Throwable $e) {
             // Fail closed — don't apply an unverified exemption
             $this->logger->info('GetExemptCertificates SOAP error: ' . $e->getMessage());

@@ -451,39 +451,51 @@ jobs:
           path: ./debug-logs/
           retention-days: 7
 
+  # ---------------------------------------------------------------------------
+  # Coding standard — magento/magento-coding-standard's Magento2 ruleset, on every
+  # event. Replaces a PSR2 gate (PSR-2 was deprecated in 2019). The ruleset and its
+  # deferrals live in phpcs.xml.dist, so CI and `make lint` cannot drift; the
+  # rationale is in README "Coding standard".
+  #
+  # Deliberately standalone: unlike unit/phpstan this needs no Magento install and
+  # no Marketplace secrets, so it stays fast (~30s) and still runs on forks.
+  # Pinned to MCS ^40 — the standard ships new sniffs in new major versions, and an
+  # unpinned constraint would let an MCS release turn main red with no change here.
+  # PHP 8.2 is the module's floor (Magento 2.4.7), so the sniffer parses at the
+  # oldest language level we support.
+  #
+  # NOTE: the Magento2 standard reports findings as warnings, not errors, so this
+  # gates on phpcs's exit code (non-zero when warnings are found) instead of
+  # grepping stdout for "ERROR" as the old PSR2 job did — that grep could never
+  # have failed against this ruleset.
+  # ---------------------------------------------------------------------------
   lint-code:
-    name: Lint Code
+    name: Coding Standard (Magento2)
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
 
-    - name: Set up PHP
+    - name: Set up PHP 8.2
       uses: shivammathur/setup-php@v2
       with:
-        php-version: '8.1'
-        extensions: soap, dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv
+        php-version: '8.2'
+        extensions: dom, libxml, mbstring, tokenizer, xml, simplexml, iconv
+        coverage: none
 
-    - name: Install PHP CodeSniffer
+    - name: Install magento/magento-coding-standard
       run: |
-        composer global require squizlabs/php_codesniffer
-        echo "$HOME/.composer/vendor/bin" >> $GITHUB_PATH
+        # The standard registers itself with phpcs via this Composer plugin, which
+        # Composer 2.2+ will not run unless it is explicitly allowed.
+        composer global config --no-plugins allow-plugins.dealerdirect/phpcodesniffer-composer-installer true
+        composer global require --no-interaction --no-progress "magento/magento-coding-standard:^40"
+        echo "$(composer -n config --global home)/vendor/bin" >> "$GITHUB_PATH"
 
     - name: Run PHP CodeSniffer
-      run: |
-        # Run linting and capture output
-        lint_output=$(phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/ 2>&1 || true)
-
-        # Check if there are any errors (not just warnings)
-        if echo "$lint_output" | grep -q "FOUND [1-9][0-9]* ERROR"; then
-          echo "❌ Linting failed - errors found:"
-          echo "$lint_output"
-          exit 1
-        else
-          echo "✅ Linting passed - only warnings found (non-fatal):"
-          echo "$lint_output"
-        fi
+      # No arguments: phpcs discovers phpcs.xml.dist, which carries the standard,
+      # the scanned paths and the deferrals. Fails the job on any finding.
+      run: phpcs
 
   security-scan:
     name: Security Scan

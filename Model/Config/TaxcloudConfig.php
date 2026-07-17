@@ -32,19 +32,19 @@ class TaxcloudConfig
     /**
      * Default SOAP connection/read timeout in seconds.
      */
-    const DEFAULT_SOAP_TIMEOUT = 10;
+    public const DEFAULT_SOAP_TIMEOUT = 10;
 
     /**#@+
      * Store-config paths.
      */
-    const XML_PATH_ENABLED = 'tax/taxcloud_settings/enabled';
-    const XML_PATH_LOGGING = 'tax/taxcloud_settings/logging';
-    const XML_PATH_API_ID = 'tax/taxcloud_settings/api_id';
-    const XML_PATH_API_KEY = 'tax/taxcloud_settings/api_key';
-    const XML_PATH_GUEST_CUSTOMER_ID = 'tax/taxcloud_settings/guest_customer_id';
-    const XML_PATH_CACHE_LIFETIME = 'tax/taxcloud_settings/cache_lifetime';
-    const XML_PATH_FALLBACK_TO_MAGENTO = 'tax/taxcloud_settings/fallback_to_magento';
-    const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
+    public const XML_PATH_ENABLED = 'tax/taxcloud_settings/enabled';
+    public const XML_PATH_LOGGING = 'tax/taxcloud_settings/logging';
+    public const XML_PATH_API_ID = 'tax/taxcloud_settings/api_id';
+    public const XML_PATH_API_KEY = 'tax/taxcloud_settings/api_key';
+    public const XML_PATH_GUEST_CUSTOMER_ID = 'tax/taxcloud_settings/guest_customer_id';
+    public const XML_PATH_CACHE_LIFETIME = 'tax/taxcloud_settings/cache_lifetime';
+    public const XML_PATH_FALLBACK_TO_MAGENTO = 'tax/taxcloud_settings/fallback_to_magento';
+    public const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
     /**#@-*/
 
     /**

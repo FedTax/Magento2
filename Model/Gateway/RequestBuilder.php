@@ -37,9 +37,9 @@ use Taxcloud\Magento2\Model\RefundDistributor;
  */
 class RequestBuilder
 {
-    const ITEM_TYPE_SHIPPING = 'shipping';
-    const ITEM_TYPE_PRODUCT = 'product';
-    const KEY_ITEM = 'item';
+    public const ITEM_TYPE_SHIPPING = 'shipping';
+    public const ITEM_TYPE_PRODUCT = 'product';
+    public const KEY_ITEM = 'item';
 
     /**
      * @var TaxcloudConfig
@@ -115,7 +115,7 @@ class RequestBuilder
             return null;
         }
 
-        return array(
+        return [
             'Address1' => $this->scopeConfig->getValue('shipping/origin/street_line1', $scope),
             'Address2' => $this->scopeConfig->getValue('shipping/origin/street_line2', $scope),
             'City' => $this->scopeConfig->getValue('shipping/origin/city', $scope),
@@ -124,7 +124,7 @@ class RequestBuilder
             )->getCode(),
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
-        );
+        ];
     }
 
     /**
@@ -136,14 +136,14 @@ class RequestBuilder
      */
     public function buildLookupDestination($address, array $parsedZip)
     {
-        return array(
+        return [
             'Address1' => $address->getStreet()[0] ?? '',
             'Address2' => $address->getStreet()[1] ?? '',
             'City' => $address->getCity(),
             'State' => $this->regionFactory->create()->load($address->getRegionId())->getCode(),
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
-        );
+        ];
     }
 
     /**
@@ -158,8 +158,8 @@ class RequestBuilder
     public function buildLookupCartItems($itemsByType, array $keyedAddressItems, $address)
     {
         $index = 0;
-        $indexedItems = array();
-        $cartItems = array();
+        $indexedItems = [];
+        $cartItems = [];
 
         if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
             foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
@@ -168,13 +168,13 @@ class RequestBuilder
                     // Skip products with tax_class_id of None, store owners should avoid doing this
                     continue;
                 }
-                $cartItems[] = array(
+                $cartItems[] = [
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes'),
                     'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
                     'Qty' => $item->getQty(),
-                );
+                ];
                 $indexedItems[$index++] = $code;
             }
         }
@@ -184,17 +184,17 @@ class RequestBuilder
             foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
                 // Shipping as a cart item - shipping needs to be taxed
                 $shippingRowTotal = $itemTaxDetail[self::KEY_ITEM]->getRowTotal();
-                $cartItems[] = array(
+                $cartItems[] = [
                     'ItemID' => 'shipping',
                     'Index' => $index++,
                     'TIC' => $this->productTicService->getShippingTic(),
                     'Price' => ($shippingRowTotal ?: $addressShippingAmount),
                     'Qty' => 1,
-                );
+                ];
             }
         }
 
-        return array('cartItems' => $cartItems, 'indexedItems' => $indexedItems);
+        return ['cartItems' => $cartItems, 'indexedItems' => $indexedItems];
     }
 
     /**
@@ -208,9 +208,15 @@ class RequestBuilder
      * @param string|null $certificateID
      * @return array
      */
-    public function buildLookupParams($customer, $quote, array $cartItems, array $origin, array $destination, $certificateID)
-    {
-        return array(
+    public function buildLookupParams(
+        $customer,
+        $quote,
+        array $cartItems,
+        array $origin,
+        array $destination,
+        $certificateID
+    ) {
+        return [
             'apiLoginID' => $this->config->getApiId(),
             'apiKey' => $this->config->getApiKey(),
             'customerID' => $customer->getId() ?? $this->config->getGuestCustomerId(),
@@ -219,10 +225,10 @@ class RequestBuilder
             'origin' => $origin,
             'destination' => $destination,
             'deliveredBySeller' => false,
-            'exemptCert' => array(
+            'exemptCert' => [
                 'CertificateID' => $certificateID,
-            ),
-        );
+            ],
+        ];
     }
 
     /**
@@ -242,7 +248,7 @@ class RequestBuilder
         $items = $creditmemo->getAllItems();
 
         $index = 0;
-        $cartItems = array();
+        $cartItems = [];
 
         if ($items) {
             foreach ($items as $creditItem) {
@@ -253,13 +259,13 @@ class RequestBuilder
                 $item = $creditItem->getOrderItem();
                 $price = $creditItem->getPrice();
                 $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
-                $cartItems[] = array(
+                $cartItems[] = [
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
                     'Price' => $price - $discountPerUnit,
                     'Qty' => $qty,
-                );
+                ];
                 $index++;
             }
         }
@@ -267,13 +273,13 @@ class RequestBuilder
         $shippingAmount = $creditmemo->getShippingAmount();
 
         if ($shippingAmount > 0) {
-            $cartItems[] = array(
+            $cartItems[] = [
                 'ItemID' => 'shipping',
                 'Index' => $index,
                 'TIC' => $this->productTicService->getShippingTic(),
                 'Price' => $shippingAmount,
                 'Qty' => 1,
-            );
+            ];
         }
 
         // Tax-only refund: no product/shipping returned, refund amount equals order tax.
@@ -300,7 +306,7 @@ class RequestBuilder
                 );
                 if ($distribution['action'] === RefundDistributor::ACTION_SKIP) {
                     // Nothing meaningful to send to TaxCloud; treat as success.
-                    return array('cartItems' => array(), 'wasTaxOnlyRefund' => false, 'skip' => true);
+                    return ['cartItems' => [], 'wasTaxOnlyRefund' => false, 'skip' => true];
                 }
                 // ACTION_FULL_RETURN leaves cartItems empty (TaxCloud returns the remainder).
                 // ACTION_DISTRIBUTE replaces cartItems with the proportional distribution.
@@ -308,7 +314,7 @@ class RequestBuilder
             }
         }
 
-        return array('cartItems' => $cartItems, 'wasTaxOnlyRefund' => $wasTaxOnlyRefund, 'skip' => false);
+        return ['cartItems' => $cartItems, 'wasTaxOnlyRefund' => $wasTaxOnlyRefund, 'skip' => false];
     }
 
     /**
@@ -319,7 +325,7 @@ class RequestBuilder
      */
     public function buildCartItemsFromOrder($order)
     {
-        $cartItems = array();
+        $cartItems = [];
         $index = 0;
         $orderItems = $order->getAllVisibleItems();
         if ($orderItems) {
@@ -331,25 +337,25 @@ class RequestBuilder
                 $price = (float) $item->getPrice();
                 $discountAmount = (float) $item->getDiscountAmount();
                 $discountPerUnit = $qty > 0 ? $discountAmount / $qty : 0;
-                $cartItems[] = array(
+                $cartItems[] = [
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
                     'Price' => $price - $discountPerUnit,
                     'Qty' => $qty,
-                );
+                ];
                 $index++;
             }
         }
         $shippingAmount = (float) $order->getBaseShippingAmount();
         if ($shippingAmount > 0) {
-            $cartItems[] = array(
+            $cartItems[] = [
                 'ItemID' => 'shipping',
                 'Index' => $index,
                 'TIC' => $this->productTicService->getShippingTic(),
                 'Price' => $shippingAmount,
                 'Qty' => 1,
-            );
+            ];
         }
         return $cartItems;
     }
@@ -375,14 +381,14 @@ class RequestBuilder
         $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
         $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
         $regionCode = $address->getRegionCode() ?? '';
-        return array(
+        return [
             'Address1' => $street1,
             'Address2' => $street2,
             'City' => $address->getCity() ?? '',
             'State' => $regionCode,
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
-        );
+        ];
     }
 
     /**
@@ -393,11 +399,11 @@ class RequestBuilder
      */
     public function buildOrderDetailsParams($order)
     {
-        return array(
+        return [
             'apiLoginID' => $this->config->getApiId(),
             'apiKey' => $this->config->getApiKey(),
             'orderID' => $order->getIncrementId(),
-        );
+        ];
     }
 
     /**
@@ -408,7 +414,7 @@ class RequestBuilder
      */
     public function buildVerifyAddressParams(array $address)
     {
-        return array(
+        return [
             'apiLoginID' => $this->config->getApiId(),
             'apiKey' => $this->config->getApiKey(),
             'address1' => $address['Address1'],
@@ -417,7 +423,7 @@ class RequestBuilder
             'state' => $address['State'],
             'zip5' => $address['Zip5'],
             'zip4' => $address['Zip4'],
-        );
+        ];
     }
 
     /**
@@ -429,7 +435,7 @@ class RequestBuilder
      */
     public function buildAuthorizeCaptureParams($order, $cartId = null)
     {
-        return array(
+        return [
             'apiLoginID' => $this->config->getApiId(),
             'apiKey' => $this->config->getApiKey(),
             'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId(),
@@ -437,7 +443,7 @@ class RequestBuilder
             'orderID' => $order->getIncrementId(),
             'dateAuthorized' => date('c'), // date('Y-m-d') . 'T00:00:00'
             'dateCaptured' => date('c'), // date('Y-m-d') . 'T00:00:00'
-        );
+        ];
     }
 
     /**
@@ -449,14 +455,14 @@ class RequestBuilder
      */
     public function buildReturnParams($order, array $cartItems)
     {
-        return array(
+        return [
             'apiLoginID' => $this->config->getApiId(),
             'apiKey' => $this->config->getApiKey(),
             'orderID' => $order->getIncrementId(),
             'cartItems' => $cartItems,
             'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00'
             'returnCoDeliveryFeeWhenNoCartItems' => false
-        );
+        ];
     }
 
     /**
@@ -471,7 +477,7 @@ class RequestBuilder
      */
     public function buildExemptLookupParams($order, array $cartItems, array $destination, array $origin)
     {
-        return array(
+        return [
             'apiLoginID' => $this->config->getApiId(),
             'apiKey' => $this->config->getApiKey(),
             'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId(),
@@ -481,6 +487,6 @@ class RequestBuilder
             'destination' => $destination,
             'deliveredBySeller' => false,
             'isExempt' => true,
-        );
+        ];
     }
 }

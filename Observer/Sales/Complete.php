@@ -24,13 +24,13 @@ use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 class Complete implements ObserverInterface
 {
     /** @var string Magento event: order placed */
-    const EVENT_ORDER_PLACE_AFTER = 'sales_order_place_after';
+    public const EVENT_ORDER_PLACE_AFTER = 'sales_order_place_after';
 
     /** @var string Magento event: invoice paid */
-    const EVENT_INVOICE_PAY = 'sales_order_invoice_pay';
+    public const EVENT_INVOICE_PAY = 'sales_order_invoice_pay';
 
     /** @var string Magento event: shipment saved */
-    const EVENT_SHIPMENT_SAVE_AFTER = 'sales_order_shipment_save_after';
+    public const EVENT_SHIPMENT_SAVE_AFTER = 'sales_order_shipment_save_after';
 
     /**
      * Core store config
@@ -70,6 +70,7 @@ class Complete implements ObserverInterface
             $this->tclogger = $tclogger;
         } else {
             $this->tclogger = new class {
+                // phpcs:ignore Magento2.CodeAnalysis.EmptyBlock -- Null logger: logging is off, discard the message.
                 public function info()
                 {
                 }
@@ -79,6 +80,8 @@ class Complete implements ObserverInterface
 
     /**
      * Event names that correspond to each capture trigger option.
+     *
+     * @var array
      */
     private static $triggerToEvent = [
         CaptureTrigger::ORDER_CREATION => self::EVENT_ORDER_PLACE_AFTER,

@@ -40,7 +40,7 @@ class CartItemResponseHandler
         
         // Ensure we have an array of cart items
         if (!(is_array($cartItemResponse) && isset($cartItemResponse[0]) && is_array($cartItemResponse[0]))) {
-            $cartItemResponse = array($cartItemResponse);
+            $cartItemResponse = [$cartItemResponse];
         }
 
         foreach ($cartItemResponse as $c) {

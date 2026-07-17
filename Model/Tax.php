@@ -82,6 +82,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $this->tclogger = $tclogger;
         } else {
             $this->tclogger = new class {
+                // phpcs:ignore Magento2.CodeAnalysis.EmptyBlock -- Null logger: logging is off, discard the message.
                 public function info()
                 {
                 }
@@ -100,7 +101,6 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $serializer
         );
     }
-
 
     /**
      * Collect tax totals for quote address
@@ -194,7 +194,8 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 // This ensures tax is available when quote is converted to order
                 $quoteItem->setTaxAmount($taxAmount);
                 $quoteItem->setBaseTaxAmount($taxAmount);
-                $quoteItem->setTaxPercent($taxDetail->getRowTotal() > 0 ? round(100 * $taxAmount / $taxDetail->getRowTotal(), 3) : 0);
+                $detailRowTotal = $taxDetail->getRowTotal();
+                $quoteItem->setTaxPercent($detailRowTotal > 0 ? round(100 * $taxAmount / $detailRowTotal, 3) : 0);
                 $quoteItem->setPriceInclTax($snapPrice + $taxAmountPer);
                 $quoteItem->setBasePriceInclTax($snapBasePrice + $taxAmountPer);
                 $quoteItem->setRowTotalInclTax($snapRowTotal + $taxAmount);

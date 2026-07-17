@@ -36,7 +36,7 @@ class SoapGateway implements SoapClientProviderInterface
     /**
      * TaxCloud SOAP WSDL endpoint.
      */
-    const WSDL = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
+    public const WSDL = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
 
     /**
      * @var ClientFactory
@@ -90,15 +90,15 @@ class SoapGateway implements SoapClientProviderInterface
     {
         $timeout = $this->config->getSoapTimeout();
 
-        return array(
+        return [
             'connection_timeout' => $timeout,
             'cache_wsdl'         => WSDL_CACHE_BOTH,
             'keep_alive'         => true,
-            'stream_context'     => stream_context_create(array(
-                'http' => array('timeout' => $timeout),
-                'ssl'  => array('timeout' => $timeout),
-            )),
-        );
+            'stream_context'     => stream_context_create([
+                'http' => ['timeout' => $timeout],
+                'ssl'  => ['timeout' => $timeout],
+            ]),
+        ];
     }
 
     /**

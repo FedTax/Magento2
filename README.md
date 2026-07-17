@@ -123,6 +123,51 @@ and run on demand (or on release tags), not on every push. See
 [docs/INTEGRATION_TESTS.md](docs/INTEGRATION_TESTS.md) for the 5-minute
 local setup and the matrix of supported editions/versions.
 
+### Coding standard
+
+This module is linted against the **`Magento2`** ruleset from
+[magento/magento-coding-standard](https://github.com/magento/magento-coding-standard),
+pinned to `^40`. It replaces the PSR-2 gate this repo used to run — PSR-2 was
+deprecated in 2019 — and adds the Magento-specific checks that a generic PHP
+standard has no opinion on: short array syntax, constant visibility, discouraged
+functions, proxies/interceptors requested in constructors, legacy `Mage`
+entities, and Magento's PHPDoc conventions.
+
+The ruleset, the scanned paths and the deferrals all live in
+[`phpcs.xml.dist`](phpcs.xml.dist), which both CI and `make lint` run with no
+arguments, so the two cannot drift:
+
+```bash
+make lint       # run the standard (uses the Magento install's phpcs)
+make lint-fix   # auto-fix what phpcbf can (short arrays, whitespace, imports)
+```
+
+Two things are worth knowing before changing this setup:
+
+- **The `Magento2` standard reports findings as warnings, not errors.** Nothing it
+  reports on this module is an error, so the gate deliberately fails on *any*
+  finding, via `phpcs`'s exit code. The previous job grepped stdout for `"ERROR"`,
+  which against this ruleset could never have failed — a green build would have
+  meant nothing.
+- **`Magento2` is not a superset of PSR-12.** It cherry-picks PSR-1/PSR-2 sniffs and
+  exactly one PSR-12 sniff (`PSR12.Properties.ConstantVisibility`). It was adopted
+  on its own here for the Magento-specific coverage; that choice trades away
+  PSR-12's stricter whitespace, import and control-structure sniffs. Adding
+  `<rule ref="PSR12"/>` alongside it is viable but not free — the two standards
+  configure some shared Squiz sniffs with conflicting properties
+  (`ignoreBlankLines`, `equalsSpacing`), so whichever is included last silently
+  wins.
+
+Some sniffs are deferred rather than satisfied, in the same tactical spirit as
+[`phpstan-baseline.neon`](phpstan-baseline.neon), to burn down during the REST
+migration. Each carries its rationale inline in `phpcs.xml.dist`; the largest is
+`Magento2.Annotation` (PHPDoc formatting, redundant with the native PHP 8.2 types
+already on the signatures). Deferrals are scoped to a specific file wherever the
+findings are confined to one, so new code is still held to the rule.
+
+Static analysis runs separately, via PHPStan at level 5 — see
+[`phpstan.neon`](phpstan.neon) and `make phpstan`.
+
 ## Configuring the TaxCloud Module
 
 After installing the module, there are a few important configuration options you must set in the Magento 2 admin dashboard.

@@ -30,17 +30,17 @@ class CacheKeyBuilder
     /**
      * Prefix for cached Lookup (tax rate) responses.
      */
-    const PREFIX_RATES = 'taxcloud_rates_';
+    public const PREFIX_RATES = 'taxcloud_rates_';
 
     /**
      * Prefix for cached VerifyAddress responses.
      */
-    const PREFIX_ADDRESS = 'taxcloud_address_';
+    public const PREFIX_ADDRESS = 'taxcloud_address_';
 
     /**
      * Prefix for cached exemption-certificate state lists.
      */
-    const PREFIX_EXEMPT_CERT_STATES = 'taxcloud_cert_states_';
+    public const PREFIX_EXEMPT_CERT_STATES = 'taxcloud_cert_states_';
 
     /**
      * Cache key for a Lookup response, derived from the exact request payload.

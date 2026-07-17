@@ -61,6 +61,7 @@ class Refund implements ObserverInterface
             $this->tclogger = $tclogger;
         } else {
             $this->tclogger = new class {
+                // phpcs:ignore Magento2.CodeAnalysis.EmptyBlock -- Null logger: logging is off, discard the message.
                 public function info()
                 {
                 }

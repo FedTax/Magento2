@@ -34,7 +34,7 @@ class RetryPolicy
     /**
      * Default backoff between retry attempts, in microseconds.
      */
-    const DEFAULT_BACKOFF_US = 250000;
+    public const DEFAULT_BACKOFF_US = 250000;
 
     /**
      * @var LoggerInterface

@@ -47,24 +47,24 @@ class Api implements GatewayInterface
     /**#@+
      * Constants defined for type of items
      */
-    const ITEM_TYPE_SHIPPING = 'shipping';
-    const ITEM_TYPE_PRODUCT = 'product';
-    const ITEM_CODE_SHIPPING = 'shipping';
+    public const ITEM_TYPE_SHIPPING = 'shipping';
+    public const ITEM_TYPE_PRODUCT = 'product';
+    public const ITEM_CODE_SHIPPING = 'shipping';
     /**#@+
      * Constants for array keys
      */
-    const KEY_ITEM = 'item';
-    const KEY_BASE_ITEM = 'base_item';
+    public const KEY_ITEM = 'item';
+    public const KEY_BASE_ITEM = 'base_item';
 
     /**
      * Default SOAP connection/read timeout in seconds.
      */
-    const DEFAULT_SOAP_TIMEOUT = 10;
+    public const DEFAULT_SOAP_TIMEOUT = 10;
 
     /**
      * Backoff between SOAP retry attempts, in microseconds.
      */
-    const SOAP_RETRY_BACKOFF_US = 250000;
+    public const SOAP_RETRY_BACKOFF_US = 250000;
 
     /**
      * TaxCloud logger (gated by the logging setting).
@@ -255,7 +255,7 @@ class Api implements GatewayInterface
     {
         $this->tclogger->info('Calling lookupTaxes');
 
-        $result = array(self::ITEM_TYPE_PRODUCT => array(), self::ITEM_TYPE_SHIPPING => 0);
+        $result = [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
 
         $customer = $quote->getCustomer();
 
@@ -339,13 +339,13 @@ class Api implements GatewayInterface
         );
 
         // Call before event (observers may modify $params, e.g. address verification)
-        $params = $this->eventDispatcher->dispatchBefore('taxcloud_lookup_before', $params, array(
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_lookup_before', $params, [
             'customer' => $customer,
             'address' => $address,
             'quote' => $quote,
             'itemsByType' => $itemsByType,
             'shippingAssignment' => $shippingAssignment,
-        ));
+        ]);
 
         // check cache (use post-observer params so cache key matches what we send to TaxCloud)
         $cacheResult = $this->resultCache->getLookup($params);
@@ -392,13 +392,13 @@ class Api implements GatewayInterface
         $lookupResult = $lookupResponse['LookupResult'];
 
         // Call after event
-        $lookupResult = $this->eventDispatcher->dispatchAfter('taxcloud_lookup_after', $lookupResult, array(
+        $lookupResult = $this->eventDispatcher->dispatchAfter('taxcloud_lookup_after', $lookupResult, [
             'customer' => $customer,
             'address' => $address,
             'quote' => $quote,
             'itemsByType' => $itemsByType,
             'shippingAssignment' => $shippingAssignment,
-        ));
+        ]);
 
         if ($lookupResult['ResponseType'] == 'OK' || $lookupResult['ResponseType'] == 'Informational') {
             $cartItemResponse = $lookupResult['CartItemsResponse']['CartItemResponse'];
@@ -455,9 +455,9 @@ class Api implements GatewayInterface
         $params = $this->requestBuilder->buildAuthorizeCaptureParams($order);
 
         // Call before event
-        $params = $this->eventDispatcher->dispatchBefore('taxcloud_authorized_with_capture_before', $params, array(
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_authorized_with_capture_before', $params, [
             'order' => $order,
-        ));
+        ]);
 
         $this->tclogger->info('authorizedWithCapture PARAMS:');
         $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
@@ -483,7 +483,7 @@ class Api implements GatewayInterface
         $authorizedResult = $this->eventDispatcher->dispatchAfter(
             'taxcloud_authorized_with_capture_after',
             $authorizedResult,
-            array('order' => $order)
+            ['order' => $order]
         );
 
         if ($authorizedResult['ResponseType'] != 'OK') {
@@ -529,11 +529,11 @@ class Api implements GatewayInterface
         $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
 
         // Call before event
-        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, array(
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, [
             'order' => $order,
             'items' => $creditmemo->getAllItems(),
             'creditmemo' => $creditmemo,
-        ));
+        ]);
 
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
@@ -544,14 +544,14 @@ class Api implements GatewayInterface
         $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
-        $soapParams = array(
+        $soapParams = [
             'apiLoginID' => $params['apiLoginID'],
             'apiKey' => $params['apiKey'],
             'orderID' => $params['orderID'],
             'cartItems' => $params['cartItems'],
             'returnedDate' => $params['returnedDate'],
             'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
-        );
+        ];
 
         $this->tclogger->info('returnOrder SOAP PARAMS:');
         $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
@@ -562,7 +562,9 @@ class Api implements GatewayInterface
             });
         } catch (Throwable $e) {
             $this->tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
-            $this->tclogger->info('SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true));
+            $this->tclogger->info(
+                'SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true)
+            );
             return false;
         }
 
@@ -575,11 +577,11 @@ class Api implements GatewayInterface
         $returnResult = $returnResponse['ReturnedResult'];
 
         // Call after event
-        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, array(
+        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, [
             'order' => $order,
             'items' => $creditmemo->getAllItems(),
             'creditmemo' => $creditmemo,
-        ));
+        ]);
 
         if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
             $errorMessage = 'Unknown error';
@@ -671,11 +673,11 @@ class Api implements GatewayInterface
         $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
 
         // Call before event
-        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, array(
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, [
             'order' => $order,
             'items' => $order->getAllVisibleItems(),
             'creditmemo' => null,
-        ));
+        ]);
 
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
@@ -686,14 +688,14 @@ class Api implements GatewayInterface
         $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
-        $soapParams = array(
+        $soapParams = [
             'apiLoginID' => $params['apiLoginID'],
             'apiKey' => $params['apiKey'],
             'orderID' => $params['orderID'],
             'cartItems' => $params['cartItems'],
             'returnedDate' => $params['returnedDate'],
             'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
-        );
+        ];
 
         $this->tclogger->info('returnOrderCancellation SOAP PARAMS:');
         $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
@@ -704,7 +706,9 @@ class Api implements GatewayInterface
             });
         } catch (Throwable $e) {
             $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $e->getMessage());
-            $this->tclogger->info('SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true));
+            $this->tclogger->info(
+                'SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true)
+            );
             return false;
         }
 
@@ -717,11 +721,11 @@ class Api implements GatewayInterface
         $returnResult = $returnResponse['ReturnedResult'];
 
         // Call after event
-        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, array(
+        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, [
             'order' => $order,
             'items' => $order->getAllVisibleItems(),
             'creditmemo' => null,
-        ));
+        ]);
 
         if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
             $errorMessage = 'Unknown error';
@@ -765,7 +769,7 @@ class Api implements GatewayInterface
             return false;
         }
         $lookupResponse = $this->responseMapper->toArray($lookupResponse);
-        $result = isset($lookupResponse['LookupResult']) ? $lookupResponse['LookupResult'] : array();
+        $result = isset($lookupResponse['LookupResult']) ? $lookupResponse['LookupResult'] : [];
         $responseType = isset($result['ResponseType']) ? $result['ResponseType'] : '';
         return $responseType === 'OK' || $responseType === 'Informational';
     }
@@ -788,7 +792,7 @@ class Api implements GatewayInterface
             return false;
         }
         $response = $this->responseMapper->toArray($response);
-        $result = isset($response['AuthorizedWithCaptureResult']) ? $response['AuthorizedWithCaptureResult'] : array();
+        $result = isset($response['AuthorizedWithCaptureResult']) ? $response['AuthorizedWithCaptureResult'] : [];
         return (isset($result['ResponseType']) ? $result['ResponseType'] : '') === 'OK';
     }
 
@@ -848,14 +852,14 @@ class Api implements GatewayInterface
         $verifyResult = $this->eventDispatcher->dispatchAfter('taxcloud_verify_address_after', $verifyResult);
 
         if ($verifyResult['ErrNumber'] == 0) {
-            $result = array(
+            $result = [
                 'Address1' => $verifyResult['Address1'] ?? '',
                 'Address2' => $verifyResult['Address2'] ?? '',
                 'City' => $verifyResult['City'],
                 'State' => $verifyResult['State'],
                 'Zip5' => $verifyResult['Zip5'] ?? '',
                 'Zip4' => $verifyResult['Zip4'] ?? '',
-            );
+            ];
 
             $this->tclogger->info('Caching verifyAddress result for ' . $this->config->getCacheLifetime());
             $this->resultCache->saveAddress($params, $result);
@@ -870,7 +874,7 @@ class Api implements GatewayInterface
     /**
      * Placeholder substituted for credential values in log output.
      */
-    const REDACTED_PLACEHOLDER = '***REDACTED***';
+    public const REDACTED_PLACEHOLDER = '***REDACTED***';
 
     /**
      * Return a copy of a SOAP params array with TaxCloud credentials masked

@@ -30,19 +30,19 @@ class ProductTicService
     /**
      * Default TIC fallback value when configuration is empty or null
      */
-    const DEFAULT_TIC = '00000';
+    public const DEFAULT_TIC = '00000';
 
     /**
      * Default shipping TIC fallback value when configuration is empty or null
      */
-    const DEFAULT_SHIPPING_TIC = '11010';
+    public const DEFAULT_SHIPPING_TIC = '11010';
 
     /**
      * Product type whose TIC must come from the purchased child simple, not the
      * parent. Kept as a literal so this module doesn't take a hard dependency on
      * Magento_ConfigurableProduct.
      */
-    const TYPE_CONFIGURABLE = 'configurable';
+    public const TYPE_CONFIGURABLE = 'configurable';
     /**
      * @var ScopeConfigInterface
      */
