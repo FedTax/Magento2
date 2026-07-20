@@ -12,6 +12,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model\Config;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 
@@ -104,6 +105,89 @@ class TaxcloudConfigTest extends TestCase
         $this->assertSame(
             TaxcloudConfig::DEFAULT_SOAP_TIMEOUT,
             $this->config([])->getSoapTimeout()
+        );
+    }
+
+    public function testWsdlUrlHonorsConfiguredEndpoint()
+    {
+        $config = $this->config([
+            self::value(TaxcloudConfig::XML_PATH_WSDL_URL, 'https://sandbox.example.test/TaxCloud.asmx?wsdl'),
+        ]);
+
+        $this->assertSame('https://sandbox.example.test/TaxCloud.asmx?wsdl', $config->getWsdlUrl());
+    }
+
+    public function testWsdlUrlTrimsSurroundingWhitespace()
+    {
+        $config = $this->config([
+            self::value(TaxcloudConfig::XML_PATH_WSDL_URL, "  https://sandbox.example.test/TaxCloud.asmx?wsdl\n"),
+        ]);
+
+        $this->assertSame('https://sandbox.example.test/TaxCloud.asmx?wsdl', $config->getWsdlUrl());
+    }
+
+    /**
+     * A blank stored value must reach the production endpoint rather than the
+     * SoapClient, where it would surface as an opaque WSDL fetch failure.
+     *
+     * @dataProvider blankWsdlUrlProvider
+     */
+    #[DataProvider('blankWsdlUrlProvider')]
+    public function testWsdlUrlFallsBackToProductionWhenBlank(array $map, string $message)
+    {
+        $this->assertSame(TaxcloudConfig::DEFAULT_WSDL_URL, $this->config($map)->getWsdlUrl(), $message);
+    }
+
+    public static function blankWsdlUrlProvider(): array
+    {
+        return [
+            'unset' => [[], 'no stored value falls back to production'],
+            'empty string' => [
+                [self::value(TaxcloudConfig::XML_PATH_WSDL_URL, '')],
+                'cleared field falls back to production',
+            ],
+            'whitespace only' => [
+                [self::value(TaxcloudConfig::XML_PATH_WSDL_URL, '   ')],
+                'whitespace-only field falls back to production',
+            ],
+        ];
+    }
+
+    /**
+     * The etc/config.xml default is what a fresh install actually gets; it must
+     * agree with the constant the code falls back to.
+     */
+    public function testConfigXmlDefaultMatchesTheCodeDefault()
+    {
+        $configXml = simplexml_load_file(__DIR__ . '/../../../../etc/config.xml');
+        $this->assertNotFalse($configXml, 'etc/config.xml must be parseable');
+
+        $node = $configXml->xpath('/config/default/tax/taxcloud_settings/wsdl_url');
+
+        $this->assertCount(1, $node, 'etc/config.xml must declare a wsdl_url default');
+        $this->assertSame(
+            TaxcloudConfig::DEFAULT_WSDL_URL,
+            (string) $node[0],
+            'config.xml wsdl_url must match TaxcloudConfig::DEFAULT_WSDL_URL'
+        );
+    }
+
+    /**
+     * Acceptance criterion: the field must actually be reachable in the admin,
+     * under the TaxCloud group and bound to the path the reader queries.
+     */
+    public function testAdminFieldIsWiredToTheSameConfigPath()
+    {
+        $systemXml = simplexml_load_file(__DIR__ . '/../../../../etc/adminhtml/system.xml');
+        $this->assertNotFalse($systemXml, 'etc/adminhtml/system.xml must be parseable');
+
+        $field = $systemXml->xpath('//section[@id="tax"]/group[@id="taxcloud"]/field[@id="wsdl_url"]');
+
+        $this->assertCount(1, $field, 'wsdl_url must appear once under the TaxCloud settings group');
+        $this->assertSame(
+            TaxcloudConfig::XML_PATH_WSDL_URL,
+            (string) $field[0]->config_path,
+            'admin field config_path must match the path TaxcloudConfig reads'
         );
     }
 }

@@ -34,6 +34,15 @@ class TaxcloudConfig
      */
     public const DEFAULT_SOAP_TIMEOUT = 10;
 
+    /**
+     * Production TaxCloud SOAP WSDL endpoint.
+     *
+     * Also declared as the field default in etc/config.xml. This constant is the
+     * fallback for installs whose stored value is blank, so the module keeps
+     * reaching production even if the config row is cleared.
+     */
+    public const DEFAULT_WSDL_URL = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
+
     /**#@+
      * Store-config paths.
      */
@@ -45,6 +54,7 @@ class TaxcloudConfig
     public const XML_PATH_CACHE_LIFETIME = 'tax/taxcloud_settings/cache_lifetime';
     public const XML_PATH_FALLBACK_TO_MAGENTO = 'tax/taxcloud_settings/fallback_to_magento';
     public const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
+    public const XML_PATH_WSDL_URL = 'tax/taxcloud_settings/wsdl_url';
     /**#@-*/
 
     /**
@@ -139,5 +149,22 @@ class TaxcloudConfig
     {
         $configured = (int) $this->scopeConfig->getValue(self::XML_PATH_API_TIMEOUT, ScopeInterface::SCOPE_STORE);
         return $configured > 0 ? $configured : self::DEFAULT_SOAP_TIMEOUT;
+    }
+
+    /**
+     * SOAP WSDL endpoint, or the production default when unset/blank.
+     *
+     * Lets an install point at a sandbox or staging endpoint without a code
+     * change. Whitespace-only values fall back rather than being passed to the
+     * SoapClient, where they would surface as an opaque WSDL fetch failure.
+     *
+     * @return string
+     */
+    public function getWsdlUrl(): string
+    {
+        $configured = $this->scopeConfig->getValue(self::XML_PATH_WSDL_URL, ScopeInterface::SCOPE_STORE);
+        $configured = is_string($configured) ? trim($configured) : '';
+
+        return $configured !== '' ? $configured : self::DEFAULT_WSDL_URL;
     }
 }

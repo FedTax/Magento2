@@ -139,6 +139,16 @@
           </depends>
         </field>
 
+        <field id="wsdl_url" translate="label" type="text" sortOrder="97" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+          <label>WSDL Endpoint</label>
+          <validate>validate-url</validate>
+          <config_path>tax/taxcloud_settings/wsdl_url</config_path>
+          <tooltip>Advanced: the TaxCloud SOAP endpoint. Leave at the default unless TaxCloud support directed you to a sandbox or staging endpoint. Clearing this field restores the production default.</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
         <field id="fallback_to_magento" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
           <label>Fallback to Magento Tax Rates</label>
           <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>

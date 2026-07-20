@@ -34,11 +34,6 @@ use Throwable;
 class SoapGateway implements SoapClientProviderInterface
 {
     /**
-     * TaxCloud SOAP WSDL endpoint.
-     */
-    public const WSDL = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
-
-    /**
      * @var ClientFactory
      */
     private $soapClientFactory;
@@ -108,7 +103,10 @@ class SoapGateway implements SoapClientProviderInterface
     {
         if ($this->client === null) {
             try {
-                $this->client = $this->soapClientFactory->create(self::WSDL, $this->buildSoapOptions());
+                $this->client = $this->soapClientFactory->create(
+                    $this->config->getWsdlUrl(),
+                    $this->buildSoapOptions()
+                );
             } catch (Throwable $e) {
                 $this->logger->info('Cannot get SoapClient:');
                 $this->logger->info($e->getMessage());

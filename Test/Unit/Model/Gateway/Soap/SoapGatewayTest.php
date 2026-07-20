@@ -33,6 +33,7 @@ class SoapGatewayTest extends TestCase
         $this->soapClientFactory = $this->createMock(ClientFactory::class);
         $this->config = $this->createMock(TaxcloudConfig::class);
         $this->config->method('getSoapTimeout')->willReturn(10);
+        $this->config->method('getWsdlUrl')->willReturn(TaxcloudConfig::DEFAULT_WSDL_URL);
     }
 
     private function gateway(): SoapGateway
@@ -61,11 +62,31 @@ class SoapGatewayTest extends TestCase
 
         $this->soapClientFactory->expects($this->once())
             ->method('create')
-            ->with(SoapGateway::WSDL, $this->callback(static fn ($options) => is_array($options)))
+            ->with(TaxcloudConfig::DEFAULT_WSDL_URL, $this->callback(static fn ($options) => is_array($options)))
             ->willReturn($soapClient);
 
         $gateway = $this->gateway();
         $this->assertSame($soapClient, $gateway->getClient());
+    }
+
+    /**
+     * The endpoint comes from config, not the constant, so an install can be
+     * pointed at a sandbox without a code change.
+     */
+    public function testGetClientUsesConfiguredEndpoint()
+    {
+        $sandbox = 'https://sandbox.example.test/1.0/TaxCloud.asmx?wsdl';
+
+        $this->config = $this->createMock(TaxcloudConfig::class);
+        $this->config->method('getSoapTimeout')->willReturn(10);
+        $this->config->method('getWsdlUrl')->willReturn($sandbox);
+
+        $this->soapClientFactory->expects($this->once())
+            ->method('create')
+            ->with($sandbox, $this->callback(static fn ($options) => is_array($options)))
+            ->willReturn($this->getMockBuilder(SoapClientDouble::class)->disableOriginalConstructor()->getMock());
+
+        $this->gateway()->getClient();
     }
 
     public function testGetClientIsCachedAcrossCalls()
