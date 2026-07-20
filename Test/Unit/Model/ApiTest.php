@@ -677,6 +677,47 @@ class ApiTest extends TestCase
     }
 
     /**
+     * getOrderDetails: TaxCloud's own explanation reaches the log. A caller that
+     * cannot confirm the capture skips the Returned call, so this message is the
+     * only signal distinguishing a silently unreversed order from one that was
+     * never captured.
+     */
+    public function testGetOrderDetailsLogsTaxcloudErrorMessage()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+            ]);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('SO000000013');
+
+        $mockResponse = new \stdClass();
+        $mockResponse->OrderDetailsResult = new \stdClass();
+        $mockResponse->OrderDetailsResult->ResponseType = 'Error';
+        $mockResponse->OrderDetailsResult->Messages = (object) [
+            'ResponseMessage' => (object) ['Message' => 'Order not found'],
+        ];
+
+        $this->mockSoapClient->method('OrderDetails')->willReturn($mockResponse);
+
+        // GatewayLogger routes everything through log($level, $message), not info().
+        $logged = [];
+        $this->logger->method('log')->willReturnCallback(function ($level, $message) use (&$logged) {
+            $logged[] = $message;
+        });
+
+        $this->assertNull($this->api->getOrderDetails($order));
+
+        $errorLine = implode("\n", $logged);
+        $this->assertStringContainsString('Order not found', $errorLine, "TaxCloud's message must be logged");
+        $this->assertStringContainsString('SO000000013', $errorLine, 'the order must be identifiable in the log');
+    }
+
+    /**
      * lookupTaxes: when shipping row total is 0, uses address getShippingAmount() for shipping price sent to TaxCloud.
      */
     public function testLookupTaxesUsesAddressShippingAmountWhenShippingRowTotalIsZero()

@@ -41,6 +41,22 @@
   <preference for="Magento\Tax\Model\Sales\Total\Quote\Tax" type="Taxcloud\Magento2\Model\Tax" />
 
   <!--
+    Reverse the TaxCloud sale when an order is cancelled. registerCancellation()
+    is the one method every cancellation path reaches, so this is the whole of
+    the module's cancellation wiring.
+  -->
+  <type name="Magento\Sales\Model\Order">
+    <plugin name="taxcloud_order_cancellation"
+            type="Taxcloud\Magento2\Plugin\Sales\OrderCancellation"
+            sortOrder="10"/>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Order\CancellationProcessor">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <!--
     Bind the TaxCloud gateway contracts to the SOAP implementation. Consumers
     type-hint the finer-grained interface they need; the REST migration can
     swap the concrete type here without touching any call site.

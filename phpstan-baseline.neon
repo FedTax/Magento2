@@ -171,11 +171,6 @@ parameters:
 			path: Observer/Sales/Address.php
 
 		-
-			message: "#^Property Taxcloud\\\\Magento2\\\\Observer\\\\Sales\\\\Cancel\\:\\:\\$tclogger \\(Taxcloud\\\\Magento2\\\\Logger\\\\Logger\\) does not accept Psr\\\\Log\\\\NullLogger\\.$#"
-			count: 1
-			path: Observer/Sales/Cancel.php
-
-		-
 			message: "#^Property Taxcloud\\\\Magento2\\\\Observer\\\\Sales\\\\Complete\\:\\:\\$tclogger \\(Taxcloud\\\\Magento2\\\\Logger\\\\Logger\\) does not accept class@anonymous/Observer/Sales/Complete\\.php\\:72\\.$#"
 			count: 1
 			path: Observer/Sales/Complete.php

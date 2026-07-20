@@ -640,7 +640,18 @@ class Api implements GatewayInterface
 
         $result = $response['OrderDetailsResult'];
         if (isset($result['ResponseType']) && $result['ResponseType'] !== 'OK') {
-            $this->tclogger->info('getOrderDetails returned non-OK: ' . ($result['ResponseType'] ?? 'unknown'));
+            // Report what TaxCloud actually said. A caller that cannot confirm the
+            // capture skips the Returned call entirely, so without the message a
+            // silently unreversed order looks identical to one that was never
+            // captured in the first place.
+            $errorMessage = 'Unknown error';
+            if (isset($result['Messages']['ResponseMessage']['Message'])) {
+                $errorMessage = $result['Messages']['ResponseMessage']['Message'];
+            }
+            $this->tclogger->info(
+                'getOrderDetails returned non-OK for order ' . $order->getIncrementId() . ': '
+                . ($result['ResponseType'] ?? 'unknown') . ' - ' . $errorMessage
+            );
             return null;
         }
 
