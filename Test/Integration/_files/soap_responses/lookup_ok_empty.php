@@ -6,9 +6,9 @@
  * observer-wiring tests want: a checkout that completes cleanly without the
  * lookup tax amount mattering to the assertions.
  *
- * Returned as an associative array; Api normalizes SOAP responses with
- * json_decode(json_encode($response), true), so arrays and stdClass behave
- * identically.
+ * Returned as an associative array; ResponseMapper::toArray() normalizes SOAP
+ * responses by walking the graph, leaving arrays untouched and converting
+ * stdClass to arrays, so both behave identically here.
  */
 
 declare(strict_types=1);

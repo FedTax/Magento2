@@ -10,6 +10,7 @@
 namespace Taxcloud\Magento2\Test\Unit\Model\Gateway;
 
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\CartItemResponseHandler;
@@ -48,6 +49,127 @@ class ResponseMapperTest extends TestCase
             ['CartItemIndex' => 0, 'TaxAmount' => 1.23],
             $arr['LookupResult']['CartItemsResponse']['CartItemResponse'][0]
         );
+    }
+
+    /**
+     * SOAP nests objects several levels deep and mixes arrays of objects in
+     * between; every level must come back as a plain array.
+     */
+    public function testToArrayNormalizesDeeplyNestedAndMixedStructures()
+    {
+        $response = (object) [
+            'Level1' => (object) [
+                'Level2' => (object) [
+                    'Level3' => (object) ['Leaf' => 'deep'],
+                    'ListOfObjects' => [
+                        (object) ['Id' => 1, 'Nested' => (object) ['Flag' => true]],
+                        (object) ['Id' => 2, 'Nested' => (object) ['Flag' => false]],
+                    ],
+                ],
+                'ArrayOfScalars' => ['a', 'b'],
+            ],
+        ];
+
+        $arr = $this->mapper->toArray($response);
+
+        $this->assertSame(
+            [
+                'Level1' => [
+                    'Level2' => [
+                        'Level3' => ['Leaf' => 'deep'],
+                        'ListOfObjects' => [
+                            ['Id' => 1, 'Nested' => ['Flag' => true]],
+                            ['Id' => 2, 'Nested' => ['Flag' => false]],
+                        ],
+                    ],
+                    'ArrayOfScalars' => ['a', 'b'],
+                ],
+            ],
+            $arr,
+            'every nested object level must normalize to a plain array'
+        );
+    }
+
+    /**
+     * An object nested inside a plain array (not just inside another object)
+     * must still be converted — SOAP produces this for multi-item carts.
+     */
+    public function testToArrayNormalizesObjectsInsideArrays()
+    {
+        $arr = $this->mapper->toArray([
+            'Items' => [(object) ['TaxAmount' => 1.23], (object) ['TaxAmount' => 4.56]],
+        ]);
+
+        $this->assertSame([
+            'Items' => [['TaxAmount' => 1.23], ['TaxAmount' => 4.56]],
+        ], $arr);
+    }
+
+    /**
+     * @dataProvider scalarPassthroughProvider
+     */
+    #[DataProvider('scalarPassthroughProvider')]
+    public function testToArrayPassesScalarsThroughUnchanged($value, string $message)
+    {
+        $this->assertSame($value, $this->mapper->toArray($value), $message);
+    }
+
+    public static function scalarPassthroughProvider(): array
+    {
+        return [
+            'string' => ['OK', 'strings pass through'],
+            'int' => [42, 'ints pass through'],
+            'float' => [1.23, 'floats pass through'],
+            'bool' => [true, 'bools pass through'],
+            'null' => [null, 'null passes through'],
+        ];
+    }
+
+    public function testToArrayNormalizesEmptyObjectToEmptyArray()
+    {
+        $this->assertSame(['Empty' => []], $this->mapper->toArray((object) ['Empty' => new \stdClass()]));
+    }
+
+    /**
+     * Regression guard: the previous json_encode()/json_decode() round-trip
+     * returned false for a payload containing invalid UTF-8, which json_decode()
+     * then turned into null — silently discarding the whole response, which the
+     * gateway read as a failed call. A latin-1 byte in a name or address is
+     * enough to trigger it.
+     */
+    public function testToArraySurvivesInvalidUtf8InsteadOfDiscardingResponse()
+    {
+        $latin1Name = "caf\xE9";
+
+        $arr = $this->mapper->toArray((object) [
+            'VerifyAddressResult' => (object) ['City' => $latin1Name, 'Zip5' => '10001'],
+        ]);
+
+        $this->assertNull(
+            json_decode(json_encode($arr), true),
+            'precondition: this payload is exactly what the old round-trip collapsed to null'
+        );
+        $this->assertSame($latin1Name, $arr['VerifyAddressResult']['City']);
+        $this->assertSame('10001', $arr['VerifyAddressResult']['Zip5']);
+    }
+
+    /**
+     * The round-trip dropped zero fractions, so a whole-dollar or zero tax came
+     * back as int. Amounts now keep the float the wire carried. Downstream does
+     * arithmetic and (float) casts only, so totals are unaffected — but pin the
+     * type so the change stays deliberate.
+     */
+    public function testToArrayPreservesWholeNumberFloatsAsFloats()
+    {
+        $arr = $this->mapper->toArray((object) [
+            'Taxable' => (object) ['TaxAmount' => 2.0],
+            'Exempt' => (object) ['TaxAmount' => 0.0],
+        ]);
+
+        $this->assertIsFloat($arr['Taxable']['TaxAmount'], 'whole-dollar tax stays float');
+        $this->assertIsFloat($arr['Exempt']['TaxAmount'], 'zero tax stays float');
+        $this->assertSame(2.0, $arr['Taxable']['TaxAmount']);
+        $this->assertSame(0.0, $arr['Exempt']['TaxAmount']);
     }
 
     /**
