@@ -65,6 +65,15 @@ class CompleteTest extends TestCase
     }
 
     /**
+     * Build a sales order resource mock. Tests that do not stub authorizeCapture()
+     * to return true never reach saveAttribute, so no expectations are needed here.
+     */
+    private function makeOrderResource(): \Magento\Sales\Model\ResourceModel\Order
+    {
+        return $this->createMock(\Magento\Sales\Model\ResourceModel\Order::class);
+    }
+
+    /**
      * Build an Order mock with the given invoice / shipment collection sizes.
      */
     private function buildOrder(int $invoiceCollectionSize = 0, int $shipmentCollectionSize = 0): Order
@@ -94,7 +103,61 @@ class CompleteTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION), $tcapi, $logger);
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION), $tcapi, $logger, $this->makeOrderResource());
+        $complete->execute($observer);
+    }
+
+    /**
+     * On a successful capture, the taxcloud_captured flag is set on the order and
+     * persisted via saveAttribute so the cancel flow can read it without OrderDetails.
+     */
+    public function testExecutePersistsCapturedFlagWhenCaptureSucceeds()
+    {
+        $order = $this->buildOrder();
+        $order->expects($this->once())->method('setData')->with('taxcloud_captured', 1);
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('authorizeCapture')->with($order)->willReturn(true);
+
+        $orderResource = $this->createMock(\Magento\Sales\Model\ResourceModel\Order::class);
+        $orderResource->expects($this->once())
+            ->method('saveAttribute')
+            ->with($order, 'taxcloud_captured');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION),
+            $tcapi,
+            $logger,
+            $orderResource
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * When the capture call fails (returns false), the flag must not be persisted.
+     */
+    public function testExecuteDoesNotPersistFlagWhenCaptureFails()
+    {
+        $order = $this->buildOrder();
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('authorizeCapture')->with($order)->willReturn(false);
+
+        $orderResource = $this->createMock(\Magento\Sales\Model\ResourceModel\Order::class);
+        $orderResource->expects($this->never())->method('saveAttribute');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION),
+            $tcapi,
+            $logger,
+            $orderResource
+        );
         $complete->execute($observer);
     }
 
@@ -114,7 +177,7 @@ class CompleteTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::PAYMENT), $tcapi, $logger);
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::PAYMENT), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
     }
 
@@ -133,7 +196,7 @@ class CompleteTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::PAYMENT), $tcapi, $logger);
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::PAYMENT), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
     }
 
@@ -153,7 +216,7 @@ class CompleteTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::SHIPMENT), $tcapi, $logger);
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::SHIPMENT), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
     }
 
@@ -173,7 +236,7 @@ class CompleteTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::PAYMENT), $tcapi, $logger);
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::PAYMENT), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
     }
 
@@ -193,7 +256,7 @@ class CompleteTest extends TestCase
 
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
-        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::SHIPMENT), $tcapi, $logger);
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::SHIPMENT), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
     }
 
@@ -227,7 +290,8 @@ class CompleteTest extends TestCase
             $complete = new Complete(
                 $this->buildScopeConfig('0', CaptureTrigger::ORDER_CREATION),
                 $tcapi,
-                $logger
+                $logger,
+                $this->makeOrderResource()
             );
             $complete->execute($observer);
         }
@@ -260,7 +324,7 @@ class CompleteTest extends TestCase
         $logger->expects($this->never())->method('error');
         $logger->expects($this->never())->method('debug');
 
-        $complete = new Complete($scopeConfig, $tcapi, $logger);
+        $complete = new Complete($scopeConfig, $tcapi, $logger, $this->makeOrderResource());
 
         // Drive execute() through a code path that would normally log
         // (line 121: "Running Observer ..."). The no-op stub must absorb it.
@@ -282,7 +346,7 @@ class CompleteTest extends TestCase
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
         // capture_trigger is null — must default to order_creation
-        $complete = new Complete($this->buildScopeConfig('1', null), $tcapi, $logger);
+        $complete = new Complete($this->buildScopeConfig('1', null), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
     }
 }

@@ -54,17 +54,28 @@ class Complete implements ObserverInterface
     protected $tclogger;
 
     /**
+     * Sales order resource, used to persist the taxcloud_captured flag without
+     * re-dispatching the full order save.
+     *
+     * @var \Magento\Sales\Model\ResourceModel\Order
+     */
+    protected $orderResource;
+
+    /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Taxcloud\Magento2\Model\Api $tcapi
      * @param \Taxcloud\Magento2\Logger\Logger $tclogger
+     * @param \Magento\Sales\Model\ResourceModel\Order $orderResource
      */
     public function __construct(
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Model\Api $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger
+        \Taxcloud\Magento2\Logger\Logger $tclogger,
+        \Magento\Sales\Model\ResourceModel\Order $orderResource
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->tcapi = $tcapi;
+        $this->orderResource = $orderResource;
 
         if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
             $this->tclogger = $tclogger;
@@ -125,7 +136,31 @@ class Complete implements ObserverInterface
             return;
         }
 
-        $this->tcapi->authorizeCapture($order);
+        if ($this->tcapi->authorizeCapture($order)) {
+            $this->markCapturedInTaxcloud($order);
+        }
+    }
+
+    /**
+     * Record on the order that it was captured in TaxCloud. The cancel flow reads this
+     * flag instead of the license-gated OrderDetails API. saveAttribute persists the
+     * single column without re-dispatching the full order save.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     */
+    private function markCapturedInTaxcloud($order)
+    {
+        try {
+            $order->setData('taxcloud_captured', 1);
+            $this->orderResource->saveAttribute($order, 'taxcloud_captured');
+        } catch (\Throwable $e) {
+            // Non-fatal: capture already succeeded in TaxCloud. Cancel can still fall
+            // back to OrderDetails if the flag was not persisted.
+            $this->tclogger->info(
+                'TaxCloud: could not persist taxcloud_captured for order '
+                . $order->getIncrementId() . ': ' . $e->getMessage()
+            );
+        }
     }
 
     /**

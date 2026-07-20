@@ -148,6 +148,39 @@ class CancelTest extends TestCase
     }
 
     /**
+     * When the local taxcloud_captured flag is set, Returned is called and the
+     * license-gated OrderDetails API is never queried.
+     */
+    public function testProcessOrderCancelUsesLocalCapturedFlagWithoutOrderDetails()
+    {
+        $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0']
+        ]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('getOrderDetails');
+        $tcapi->expects($this->once())->method('returnOrderCancellation')->willReturn(true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $observer = new Cancel($scopeConfig, $tcapi, $logger);
+
+        $order = $this->createMock(Order::class);
+        $order->method('getId')->willReturn(1);
+        $order->method('getIncrementId')->willReturn('10006');
+        $order->method('getState')->willReturn(Order::STATE_CANCELED);
+        $order->method('getData')->with('taxcloud_captured')->willReturn(1);
+        $invoiceCollection = $this->createMock(\Magento\Sales\Model\ResourceModel\Order\Invoice\Collection::class);
+        $invoiceCollection->method('getSize')->willReturn(0);
+        $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
+
+        $observerObj = $this->eventObserver('order_cancel_after', $order);
+
+        $observer->execute($observerObj);
+    }
+
+    /**
      * When all conditions are met (including TaxCloud OrderDetails shows CapturedDate), returnOrderCancellation is called.
      */
     public function testProcessOrderCancelCallsReturnWhenConditionsMet()
