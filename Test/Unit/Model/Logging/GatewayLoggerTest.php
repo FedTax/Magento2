@@ -47,4 +47,34 @@ class GatewayLoggerTest extends TestCase
 
         $this->logger(false, $inner)->info('hello');
     }
+
+    /**
+     * The flag is read per call, not captured at construction. A singleton built
+     * under one store's configuration must not keep applying it after the value
+     * changes — the multi-website case, where the flag differs per scope.
+     */
+    public function testConfigIsReadPerCallSoAFlipTakesEffectImmediately()
+    {
+        $inner = $this->createMock(Logger::class);
+        $config = $this->createMock(TaxcloudConfig::class);
+
+        // off -> on -> off across three calls on one long-lived instance.
+        $config->method('isLoggingEnabled')->willReturnOnConsecutiveCalls(false, true, false);
+
+        $forwarded = [];
+        $inner->method('log')->willReturnCallback(function ($level, $message) use (&$forwarded) {
+            $forwarded[] = $message;
+        });
+
+        $logger = new GatewayLogger($inner, $config);
+        $logger->info('while off');
+        $logger->info('while on');
+        $logger->info('after flipping back off');
+
+        $this->assertSame(
+            ['while on'],
+            $forwarded,
+            'only the message logged while the flag was enabled may reach the channel'
+        );
+    }
 }

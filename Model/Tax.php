@@ -41,7 +41,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
     /**
      * TaxCloud Logger
      *
-     * @var \Taxcloud\Magento2\Logger\Logger
+     * @var \Psr\Log\LoggerInterface
      */
     protected $tclogger;
 
@@ -58,7 +58,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
      * @param \Magento\Tax\Helper\Data $taxData
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi
-     * @param \Taxcloud\Magento2\Logger\Logger $tclogger
+     * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      * @param \Magento\Framework\Serialize\Serializer\Json $serializer
      */
     public function __construct(
@@ -72,22 +72,13 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Tax\Helper\Data $taxData,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger,
+        \Psr\Log\LoggerInterface $tclogger,
         ?\Magento\Framework\Serialize\Serializer\Json $serializer = null
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->tcapi = $tcapi;
 
-        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->tclogger = $tclogger;
-        } else {
-            $this->tclogger = new class {
-                // phpcs:ignore Magento2.CodeAnalysis.EmptyBlock -- Null logger: logging is off, discard the message.
-                public function info()
-                {
-                }
-            };
-        }
+        $this->tclogger = $tclogger;
 
         parent::__construct(
             $taxConfig,

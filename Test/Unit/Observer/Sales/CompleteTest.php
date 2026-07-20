@@ -234,13 +234,12 @@ class CompleteTest extends TestCase
     }
 
     /**
-     * Section 11.3: when logging=0, the constructor swaps the real Logger for an
-     * anonymous no-op stub. Calls that would normally log on the real Logger must
-     * never reach it.
-     *
-     * Verifies Complete.php:69-77.
+     * Section 11.3: with logging=0, nothing the observer emits reaches the
+     * TaxCloud channel. The observer logs unconditionally and the injected
+     * GatewayLogger is what suppresses it, so this drives the observer through
+     * the real proxy rather than a bare Logger.
      */
-    public function testLoggerIsNoOpStubWhenLoggingDisabled()
+    public function testNothingReachesTheTaxcloudChannelWhenLoggingDisabled()
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap([
@@ -254,17 +253,17 @@ class CompleteTest extends TestCase
 
         $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
 
-        // Real Logger mock — must never receive any call when logging=0.
-        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
-        $logger->expects($this->never())->method('info');
-        $logger->expects($this->never())->method('error');
-        $logger->expects($this->never())->method('debug');
+        // The channel behind the proxy — must never receive anything.
+        $channel = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $channel->expects($this->never())->method('log');
+        $channel->expects($this->never())->method('info');
 
-        $complete = new Complete($scopeConfig, $tcapi, $logger);
+        $gatedLogger = new \Taxcloud\Magento2\Model\Logging\GatewayLogger(
+            $channel,
+            new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($scopeConfig)
+        );
 
-        // Drive execute() through a code path that would normally log
-        // (line 121: "Running Observer ..."). The no-op stub must absorb it.
-        $complete->execute($observer);
+        (new Complete($scopeConfig, $tcapi, $gatedLogger))->execute($observer);
     }
 
     /**

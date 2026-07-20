@@ -9,8 +9,7 @@
 #      modules conventionally extend it.
 #   2. Type-imprecision to burn down during the REST migration: production code
 #      reaches for concrete Quote\Item / Quote\Address / Customer methods through
-#      the narrower *Interface types, and the $tclogger properties are typed
-#      Logger but assigned NullLogger/anonymous fallbacks when logging is off.
+#      the narrower *Interface types.
 #
 # TIME-BOX: burn this down as part of the REST migration (TC-028). New code must
 # pass clean — do not append to this file to silence fresh findings; fix them.
@@ -159,23 +158,3 @@ parameters:
 			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setTaxPercent\\(\\)\\.$#"
 			count: 1
 			path: Model/Tax.php
-
-		-
-			message: "#^Property Taxcloud\\\\Magento2\\\\Model\\\\Tax\\:\\:\\$tclogger \\(Taxcloud\\\\Magento2\\\\Logger\\\\Logger\\) does not accept class@anonymous/Model/Tax\\.php\\:84\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Property Taxcloud\\\\Magento2\\\\Observer\\\\Sales\\\\Address\\:\\:\\$tclogger \\(Taxcloud\\\\Magento2\\\\Logger\\\\Logger\\) does not accept class@anonymous/Observer/Sales/Address\\.php\\:63\\.$#"
-			count: 1
-			path: Observer/Sales/Address.php
-
-		-
-			message: "#^Property Taxcloud\\\\Magento2\\\\Observer\\\\Sales\\\\Complete\\:\\:\\$tclogger \\(Taxcloud\\\\Magento2\\\\Logger\\\\Logger\\) does not accept class@anonymous/Observer/Sales/Complete\\.php\\:72\\.$#"
-			count: 1
-			path: Observer/Sales/Complete.php
-
-		-
-			message: "#^Property Taxcloud\\\\Magento2\\\\Observer\\\\Sales\\\\Refund\\:\\:\\$tclogger \\(Taxcloud\\\\Magento2\\\\Logger\\\\Logger\\) does not accept class@anonymous/Observer/Sales/Refund\\.php\\:63\\.$#"
-			count: 1
-			path: Observer/Sales/Refund.php

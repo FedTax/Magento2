@@ -40,33 +40,24 @@ class Refund implements ObserverInterface
     /**
      * TaxCloud Logger
      *
-     * @var \Taxcloud\Magento2\Logger\Logger
+     * @var \Psr\Log\LoggerInterface
      */
     protected $tclogger;
 
     /**
      * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
      * @param \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi
-     * @param \Taxcloud\Magento2\Logger\Logger $tclogger
+     * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      */
     public function __construct(
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger
+        \Psr\Log\LoggerInterface $tclogger
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->tcapi = $tcapi;
 
-        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->tclogger = $tclogger;
-        } else {
-            $this->tclogger = new class {
-                // phpcs:ignore Magento2.CodeAnalysis.EmptyBlock -- Null logger: logging is off, discard the message.
-                public function info()
-                {
-                }
-            };
-        }
+        $this->tclogger = $tclogger;
     }
 
     /**

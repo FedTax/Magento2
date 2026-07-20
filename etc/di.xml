@@ -120,4 +120,30 @@
     </arguments>
   </type>
 
+  <!--
+    The tax collector and the observers take the same config-gated proxy. The
+    argument is named tclogger here rather than logger, matching those
+    constructors.
+  -->
+  <type name="Taxcloud\Magento2\Model\Tax">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\Address">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\Complete">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\Refund">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
 </config>
