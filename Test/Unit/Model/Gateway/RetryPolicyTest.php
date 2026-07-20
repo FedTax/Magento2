@@ -152,4 +152,138 @@ class RetryPolicyTest extends TestCase
         $fault = new \SoapFault('HTTP', 'Error Fetching http headers');
         $this->assertTrue($this->policy()->isTimeoutError($fault));
     }
+
+    /**
+     * A transport supplies its own rule — REST retries 5xx and never 4xx, which
+     * the fault-code-and-message default cannot express.
+     */
+    public function testPerCallPredicateDecidesRetryability()
+    {
+        $retryServerErrors = static fn (\Throwable $e): bool => $e->getCode() >= 500;
+
+        $calls = 0;
+        $result = $this->policy()->execute(
+            function () use (&$calls) {
+                $calls++;
+                if ($calls === 1) {
+                    throw new \RuntimeException('service unavailable', 503);
+                }
+                return 'recovered';
+            },
+            1,
+            $retryServerErrors
+        );
+
+        $this->assertSame('recovered', $result);
+        $this->assertSame(2, $calls, '5xx is retryable under this predicate');
+    }
+
+    public function testPerCallPredicateRejectionFailsImmediately()
+    {
+        $retryServerErrors = static fn (\Throwable $e): bool => $e->getCode() >= 500;
+
+        $calls = 0;
+        try {
+            $this->policy()->execute(
+                function () use (&$calls) {
+                    $calls++;
+                    throw new \RuntimeException('unauthorized', 401);
+                },
+                1,
+                $retryServerErrors
+            );
+            $this->fail('expected the non-retryable fault to surface');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('unauthorized', $e->getMessage());
+        }
+
+        $this->assertSame(1, $calls, '4xx must not be retried under this predicate');
+    }
+
+    /**
+     * The predicate is the sole authority once supplied: a timeout, which the
+     * default never retries, is retried when the predicate says so.
+     */
+    public function testPredicateOverridesTheDefaultTimeoutRule()
+    {
+        $retryEverything = static fn (\Throwable $e): bool => true;
+
+        $calls = 0;
+        $result = $this->policy()->execute(
+            function () use (&$calls) {
+                $calls++;
+                if ($calls === 1) {
+                    throw new \RuntimeException('Operation timed out');
+                }
+                return 'recovered';
+            },
+            1,
+            $retryEverything
+        );
+
+        $this->assertSame('recovered', $result);
+        $this->assertSame(2, $calls, 'the predicate outranks the default timeout rule');
+    }
+
+    /**
+     * A gateway configures its rule once at construction rather than repeating
+     * it at every call site.
+     */
+    public function testConstructorPredicateAppliesWhenNoPerCallPredicateGiven()
+    {
+        $policy = new RetryPolicy(
+            $this->createMock(LoggerInterface::class),
+            0,
+            static fn (\Throwable $e): bool => false
+        );
+
+        $calls = 0;
+        try {
+            $policy->execute(function () use (&$calls) {
+                $calls++;
+                throw new \RuntimeException('transient blip');
+            });
+            $this->fail('expected the fault to surface without retry');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('transient blip', $e->getMessage());
+        }
+
+        $this->assertSame(1, $calls, 'the instance predicate marked this non-retryable');
+    }
+
+    public function testPerCallPredicateOverridesConstructorPredicate()
+    {
+        $policy = new RetryPolicy(
+            $this->createMock(LoggerInterface::class),
+            0,
+            static fn (\Throwable $e): bool => false
+        );
+
+        $calls = 0;
+        $result = $policy->execute(
+            function () use (&$calls) {
+                $calls++;
+                if ($calls === 1) {
+                    throw new \RuntimeException('transient blip');
+                }
+                return 'recovered';
+            },
+            1,
+            static fn (\Throwable $e): bool => true
+        );
+
+        $this->assertSame('recovered', $result);
+        $this->assertSame(2, $calls, 'the per-call predicate wins over the instance default');
+    }
+
+    /**
+     * Default behaviour is unchanged when no predicate is supplied anywhere.
+     */
+    public function testDefaultRetryabilityRetriesEverythingButTimeouts()
+    {
+        $policy = $this->policy();
+
+        $this->assertTrue($policy->isRetryableByDefault(new \RuntimeException('transient blip')));
+        $this->assertFalse($policy->isRetryableByDefault(new \RuntimeException('Operation timed out')));
+    }
 }
