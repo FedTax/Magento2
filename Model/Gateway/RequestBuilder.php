@@ -119,9 +119,11 @@ class RequestBuilder
             'Address1' => $this->scopeConfig->getValue('shipping/origin/street_line1', $scope),
             'Address2' => $this->scopeConfig->getValue('shipping/origin/street_line2', $scope),
             'City' => $this->scopeConfig->getValue('shipping/origin/city', $scope),
-            'State' => $this->regionFactory->create()->load(
+            // Origin is configured as a bare region ID, with no address object
+            // to read a code from.
+            'State' => $this->regionCodeById(
                 $this->scopeConfig->getValue('shipping/origin/region_id', $scope)
-            )->getCode(),
+            ),
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
         ];
@@ -140,10 +142,53 @@ class RequestBuilder
             'Address1' => $address->getStreet()[0] ?? '',
             'Address2' => $address->getStreet()[1] ?? '',
             'City' => $address->getCity(),
-            'State' => $this->regionFactory->create()->load($address->getRegionId())->getCode(),
+            'State' => $this->resolveRegionCode($address),
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
         ];
+    }
+
+    /**
+     * Resolve an address's two-letter state code for a TaxCloud request.
+     *
+     * An address may carry the code, the region ID, or both: an order loaded
+     * from stored quote data can have an ID with no code, while an address built
+     * in memory can have a code with no persisted ID. The code wins when present
+     * — it is what the address itself claims, and it costs no query — with the
+     * directory lookup filling in a missing one.
+     *
+     * @param \Magento\Framework\DataObject $address Quote or order address
+     * @return string Two-letter code, or '' when neither source resolves one
+     */
+    private function resolveRegionCode($address)
+    {
+        $code = $address->getRegionCode();
+        if (is_string($code) && $code !== '') {
+            return $code;
+        }
+
+        return $this->regionCodeById($address->getRegionId());
+    }
+
+    /**
+     * Look up a region's two-letter code by directory region ID.
+     *
+     * Returns '' rather than null for an unset or unknown ID: 'State' is a
+     * string field in the TaxCloud request, and a null there would serialize as
+     * an empty element the API rejects less clearly than an empty string.
+     *
+     * @param mixed $regionId
+     * @return string
+     */
+    private function regionCodeById($regionId)
+    {
+        if (empty($regionId)) {
+            return '';
+        }
+
+        $code = $this->regionFactory->create()->load($regionId)->getCode();
+
+        return is_string($code) ? $code : '';
     }
 
     /**
@@ -380,7 +425,7 @@ class RequestBuilder
         $street = $address->getStreet();
         $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
         $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
-        $regionCode = $address->getRegionCode() ?? '';
+        $regionCode = $this->resolveRegionCode($address);
         return [
             'Address1' => $street1,
             'Address2' => $street2,

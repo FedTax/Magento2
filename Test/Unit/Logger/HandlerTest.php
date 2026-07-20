@@ -16,24 +16,24 @@ use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Logger\Handler;
 
 /**
- * Covers the injectable log destination: the handler used to overwrite whatever
- * fileName it was constructed with, so /var/log/taxcloud.log could only be changed
- * by editing source.
+ * Covers the injectable log destination: which file the handler resolves to for
+ * an injected name, a blank one, and a filePath prefix.
  *
  * Assertions compare resolved stream URLs against an equivalently-constructed
- * handler rather than a hardcoded absolute path. How the framework normalizes a
- * leading slash is version-dependent, and this suite runs against Magento
- * 2.4.7/2.4.8/2.4.9 — what must hold on all three is that the default resolves to
- * the *same place* the hardcoded value used to.
+ * handler rather than an absolute path spelled out here. How the framework
+ * normalizes a leading slash is version-dependent, and this suite runs against
+ * Magento 2.4.7/2.4.8/2.4.9 — what must hold on all three is that the default
+ * lands in the same place as an explicit /var/log/taxcloud.log.
  */
 #[AllowMockObjectsWithoutExpectations]
 class HandlerTest extends TestCase
 {
     /**
-     * The legacy hardcoded literal, kept verbatim rather than referencing the
-     * constant, so a change to the constant cannot silently move the default.
+     * The module's documented log path, written out literally rather than read
+     * from the constant, so a change to the constant fails these tests instead
+     * of being absorbed by them.
      */
-    private const LEGACY_FILE_NAME = '/var/log/taxcloud.log';
+    private const EXPECTED_FILE_NAME = '/var/log/taxcloud.log';
 
     private function handler($fileName = null, $filePath = null): Handler
     {
@@ -42,18 +42,18 @@ class HandlerTest extends TestCase
         return new Handler($this->createMock(DriverInterface::class), $filePath, $fileName);
     }
 
-    public function testDefaultResolvesWhereTheHardcodedPathUsedTo()
+    public function testDefaultResolvesToTheModuleLogPath()
     {
         $this->assertSame(
-            $this->handler(self::LEGACY_FILE_NAME)->getUrl(),
+            $this->handler(self::EXPECTED_FILE_NAME)->getUrl(),
             $this->handler()->getUrl(),
-            'existing installs must keep logging to /var/log/taxcloud.log after the DI change'
+            'an uninjected handler must log to /var/log/taxcloud.log'
         );
     }
 
-    public function testDefaultConstantMatchesTheLegacyPath()
+    public function testDefaultConstantIsTheModuleLogPath()
     {
-        $this->assertSame(self::LEGACY_FILE_NAME, Handler::DEFAULT_FILE_NAME);
+        $this->assertSame(self::EXPECTED_FILE_NAME, Handler::DEFAULT_FILE_NAME);
     }
 
     /**

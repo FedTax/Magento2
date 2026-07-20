@@ -77,19 +77,14 @@ class ResponseMapper
     /**
      * Normalize a raw SOAP response (\stdClass graph) into a nested array.
      *
-     * Walks the graph directly instead of round-tripping through
-     * json_encode()/json_decode(). Besides being materially faster (~48% on a
-     * single-item Lookup, ~62% on a 25-item cart), this drops two quirks of the
-     * round-trip:
+     * Walks the graph so leaf values reach the gateway exactly as the wire
+     * carried them. Two properties this relies on, both of which a serialize/
+     * deserialize pass would quietly break:
      *
-     * - A single byte of invalid UTF-8 anywhere in the response (a latin-1
-     *   character in a customer name or address) made json_encode() return
-     *   false, collapsing the *entire* response to null — which the gateway then
-     *   read as a failed call. Such values now pass through untouched.
-     * - json_encode() drops a zero fraction, so a whole-number TaxAmount (2.0,
-     *   or 0.0 on a non-taxable item) came back as int rather than float.
-     *   Amounts now keep their wire type; downstream only does arithmetic and
-     *   (float) casts on them, so totals are unaffected.
+     * - Strings are copied byte for byte, so a non-UTF-8 character in a name or
+     *   address cannot fail the conversion or discard the response.
+     * - Numbers keep their type, so a whole-number TaxAmount (2.0, or 0.0 on a
+     *   non-taxable item) stays a float.
      *
      * SoapClient returns trees rather than cyclic graphs, so no cycle guard.
      *
@@ -99,8 +94,7 @@ class ResponseMapper
     public function toArray($response)
     {
         if (is_object($response)) {
-            // Called from outside the object's scope, so this yields public
-            // properties only — the same set json_encode() would have seen.
+            // Called from outside the object's scope, so public properties only.
             $response = get_object_vars($response);
         }
 

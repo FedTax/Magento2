@@ -11,11 +11,13 @@ namespace Taxcloud\Magento2\Test\Unit\Model\Gateway;
 
 use Magento\Directory\Model\RegionFactory;
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Quote\Model\Quote\Address as QuoteAddress;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Address as OrderAddress;
 use Magento\Sales\Model\Order\Item as OrderItem;
 use Magento\Store\Model\ScopeInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
@@ -170,6 +172,128 @@ class RequestBuilderTest extends TestCase
         $this->assertSame('Duluth', $destination['City']);
         $this->assertSame('GA', $destination['State']);
         $this->assertSame('30097', $destination['Zip5']);
+    }
+
+    /**
+     * Stub the directory lookup, so a region ID resolves to $code (null models
+     * an ID with no matching region row).
+     */
+    private function stubRegionLookup(?string $code): void
+    {
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['load', 'getCode'])
+            ->getMock();
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn($code);
+        $this->regionFactory->method('create')->willReturn($region);
+    }
+
+    private function quoteAddress(?string $regionCode, $regionId)
+    {
+        $address = $this->createMock(QuoteAddress::class);
+        $address->method('getStreet')->willReturn(['1 Main St']);
+        $address->method('getCity')->willReturn('Albany');
+        $address->method('getRegionCode')->willReturn($regionCode);
+        $address->method('getRegionId')->willReturn($regionId);
+
+        return $address;
+    }
+
+    private function orderAddress(?string $regionCode, $regionId)
+    {
+        $address = $this->createMock(OrderAddress::class);
+        $address->method('getPostcode')->willReturn('12207');
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getStreet')->willReturn(['1 Main St']);
+        $address->method('getCity')->willReturn('Albany');
+        $address->method('getRegionCode')->willReturn($regionCode);
+        $address->method('getRegionId')->willReturn($regionId);
+
+        return $address;
+    }
+
+    private function orderWith($address)
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getShippingAddress')->willReturn($address);
+
+        return $order;
+    }
+
+    private function lookupState($address): string
+    {
+        return $this->builder->buildLookupDestination($address, ['Zip5' => '12207', 'Zip4' => null])['State'];
+    }
+
+    /**
+     * A code on the address is used directly, with no directory query issued.
+     */
+    public function testRegionCodeOnAddressIsUsedWithoutADirectoryLookup()
+    {
+        $this->regionFactory->expects($this->never())->method('create');
+
+        $this->assertSame('NY', $this->lookupState($this->quoteAddress('NY', 43)));
+        $this->assertSame(
+            'NY',
+            $this->builder->buildDestinationFromOrder($this->orderWith($this->orderAddress('NY', 43)))['State']
+        );
+    }
+
+    /**
+     * An address carrying only a region ID resolves through the directory.
+     */
+    public function testRegionIdAloneResolvesThroughTheDirectory()
+    {
+        $this->stubRegionLookup('NY');
+
+        $this->assertSame('NY', $this->lookupState($this->quoteAddress(null, 43)));
+        $this->assertSame(
+            'NY',
+            $this->builder->buildDestinationFromOrder($this->orderWith($this->orderAddress(null, 43)))['State']
+        );
+    }
+
+    /**
+     * When both are present, the code on the address wins.
+     */
+    public function testRegionCodeWinsOverRegionIdWhenBothPresent()
+    {
+        // Directory would answer 'CA' — proving the ID was not consulted.
+        $this->stubRegionLookup('CA');
+
+        $this->assertSame('NY', $this->lookupState($this->quoteAddress('NY', 43)));
+        $this->assertSame(
+            'NY',
+            $this->builder->buildDestinationFromOrder($this->orderWith($this->orderAddress('NY', 43)))['State']
+        );
+    }
+
+    /**
+     * An ID with no matching region row resolves to '' rather than reaching the
+     * request as null.
+     *
+     * @dataProvider unresolvableRegionProvider
+     */
+    #[DataProvider('unresolvableRegionProvider')]
+    public function testUnresolvableRegionYieldsEmptyString(?string $regionCode, $regionId, string $message)
+    {
+        $this->stubRegionLookup(null);
+
+        $state = $this->lookupState($this->quoteAddress($regionCode, $regionId));
+
+        $this->assertSame('', $state, $message);
+        $this->assertIsString($state, 'State must never reach the request as null');
+    }
+
+    public static function unresolvableRegionProvider(): array
+    {
+        return [
+            'invalid id' => [null, 999999, 'unknown region id resolves to empty string'],
+            'null id' => [null, null, 'no region at all resolves to empty string'],
+            'zero id' => [null, 0, 'region id 0 means "unset" and resolves to empty string'],
+            'empty code' => ['', 43, 'empty code falls through to the directory lookup'],
+        ];
     }
 
     public function testBuildLookupCartItemsIndexesProductsAndShipping()

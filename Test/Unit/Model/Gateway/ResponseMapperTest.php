@@ -131,13 +131,10 @@ class ResponseMapperTest extends TestCase
     }
 
     /**
-     * Regression guard: the previous json_encode()/json_decode() round-trip
-     * returned false for a payload containing invalid UTF-8, which json_decode()
-     * then turned into null — silently discarding the whole response, which the
-     * gateway read as a failed call. A latin-1 byte in a name or address is
-     * enough to trigger it.
+     * A non-UTF-8 byte in a name or address must not cost the response: the
+     * value passes through and the rest of the payload stays intact.
      */
-    public function testToArraySurvivesInvalidUtf8InsteadOfDiscardingResponse()
+    public function testToArrayPreservesNonUtf8Strings()
     {
         $latin1Name = "caf\xE9";
 
@@ -145,19 +142,13 @@ class ResponseMapperTest extends TestCase
             'VerifyAddressResult' => (object) ['City' => $latin1Name, 'Zip5' => '10001'],
         ]);
 
-        $this->assertNull(
-            json_decode(json_encode($arr), true),
-            'precondition: this payload is exactly what the old round-trip collapsed to null'
-        );
         $this->assertSame($latin1Name, $arr['VerifyAddressResult']['City']);
         $this->assertSame('10001', $arr['VerifyAddressResult']['Zip5']);
     }
 
     /**
-     * The round-trip dropped zero fractions, so a whole-dollar or zero tax came
-     * back as int. Amounts now keep the float the wire carried. Downstream does
-     * arithmetic and (float) casts only, so totals are unaffected — but pin the
-     * type so the change stays deliberate.
+     * Amounts keep the type the wire carried, including whole-dollar and zero
+     * taxes whose fraction is zero.
      */
     public function testToArrayPreservesWholeNumberFloatsAsFloats()
     {
