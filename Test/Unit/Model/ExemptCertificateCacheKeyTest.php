@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Api;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Event\ManagerInterface;
 use Magento\Framework\Webapi\Soap\ClientFactory;
 use Magento\Framework\DataObjectFactory;
@@ -63,7 +63,7 @@ class ExemptCertificateCacheKeyTest extends TestCase
         // so we can compare the keys used for two different customers.
         $writtenKeys = [];
 
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->cacheType->method('load')->willReturn(false);
         $this->cacheType->method('save')
             ->willReturnCallback(function ($data, $key) use (&$writtenKeys) {
@@ -105,7 +105,7 @@ class ExemptCertificateCacheKeyTest extends TestCase
         $storedPayload = null;
         $storedKey     = null;
 
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->cacheType->method('load')
             ->willReturnCallback(function ($key) use (&$storedPayload, &$storedKey) {
                 return ($key === $storedKey) ? $storedPayload : false;
@@ -141,7 +141,7 @@ class ExemptCertificateCacheKeyTest extends TestCase
         // also short-circuits on empty inputs. This test pins both, so a
         // future refactor that drops one of those guards still won't
         // produce a cache key without a customer scope.
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->cacheType->expects($this->never())->method('load');
         $this->cacheType->expects($this->never())->method('save');
 

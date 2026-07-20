@@ -17,7 +17,7 @@
 
 namespace Taxcloud\Magento2\Model\Gateway;
 
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
@@ -51,7 +51,7 @@ class ExemptionValidator
     private $config;
 
     /**
-     * @var CacheInterface
+     * @var FrontendInterface
      */
     private $cacheType;
 
@@ -73,7 +73,7 @@ class ExemptionValidator
     /**
      * @param SoapClientProviderInterface $soapClientProvider
      * @param TaxcloudConfig              $config
-     * @param CacheInterface              $cacheType
+     * @param FrontendInterface           $cacheType Bound to the TaxCloud cache type in di.xml
      * @param CacheKeyBuilder             $cacheKeyBuilder
      * @param ResponseMapper              $responseMapper
      * @param LoggerInterface|null        $logger
@@ -81,7 +81,7 @@ class ExemptionValidator
     public function __construct(
         SoapClientProviderInterface $soapClientProvider,
         TaxcloudConfig $config,
-        CacheInterface $cacheType,
+        FrontendInterface $cacheType,
         CacheKeyBuilder $cacheKeyBuilder,
         ResponseMapper $responseMapper,
         ?LoggerInterface $logger = null

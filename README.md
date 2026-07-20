@@ -195,7 +195,7 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 * **Default TIC** - Enter the Taxability Information Code you would like to use for products where an explicit TIC has not been specified.
 * **Shipping TIC** - Enter the Taxability Information Code you would like to use for shipping costs. Use `11010` if you charge only postage, and `11000` for shipping & handling.
 * **Cache Lifetime** - Enter the amount of time in seconds you would like to cache the sales tax lookup and verify address API calls. The default value is `86400` (24 hours), or enter `0` to disable caching for development purposes.
-* **WSDL Endpoint** - *Advanced.* The TaxCloud SOAP endpoint the module calls. Defaults to the production endpoint `https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl`; leave it alone unless TaxCloud support has directed you to a sandbox or staging endpoint. Clearing the field restores the production default. Because the setting is store-scoped, you can point a staging store at a sandbox endpoint while production keeps using the default. Note that tax lookups are cached by request payload, not by endpoint — if you switch endpoints while reusing the same API credentials, flush the Magento cache so results from the previous endpoint are not reused.
+* **WSDL Endpoint** - *Advanced.* The TaxCloud SOAP endpoint the module calls. Defaults to the production endpoint `https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl`; leave it alone unless TaxCloud support has directed you to a sandbox or staging endpoint. Clearing the field restores the production default. Because the setting is store-scoped, you can point a staging store at a sandbox endpoint while production keeps using the default. Note that tax lookups are cached by request payload, not by endpoint — if you switch endpoints while reusing the same API credentials, clear the TaxCloud cache type so results from the previous endpoint are not reused (see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache)).
 * **Capture in TaxCloud** - Choose when the order is sent to TaxCloud: *On order creation* (at checkout; default), *On payment* (when an invoice is paid; recommended to avoid canceled orders reaching TaxCloud), or *On shipment* (when a shipment is created). For online payment methods, "on creation" and "on payment" often fire together; the choice matters for offline payment or when you only want to report tax on fulfilled orders.
 
 #### Product Settings
@@ -239,7 +239,7 @@ Here you can add the 36 character plus dashes UUID for the already existing exem
 
 At checkout, the extension calls TaxCloud's `GetExemptCertificates` API to confirm that the linked certificate actually covers the destination state — a certificate registered for NY does not exempt a shipment to GA. The list of states covered by a certificate is cached **per (customer, certificate) for 1 hour** so that repeated checkouts do not call `GetExemptCertificates` on every page load.
 
-The trade-off is a propagation window: if a certificate is revoked or its covered-states list is edited in the TaxCloud dashboard, this extension may continue to apply the previous covered-states list to that customer's checkouts for up to one hour. Cache entries expire on their own; there is no admin action required, and the next request after expiry validates against TaxCloud and refreshes the cache. The "Cache Lifetime" admin setting controls the tax-lookup and address-verification caches separately and does **not** shorten this 1-hour exempt-states window. If you have just revoked or modified a certificate and need the change reflected at checkout immediately, flush Magento's cache (`bin/magento cache:flush` or *System → Cache Management → Flush Magento Cache*).
+The trade-off is a propagation window: if a certificate is revoked or its covered-states list is edited in the TaxCloud dashboard, this extension may continue to apply the previous covered-states list to that customer's checkouts for up to one hour. Cache entries expire on their own; there is no admin action required, and the next request after expiry validates against TaxCloud and refreshes the cache. The "Cache Lifetime" admin setting controls the tax-lookup and address-verification caches separately and does **not** shorten this 1-hour exempt-states window. If you have just revoked or modified a certificate and need the change reflected at checkout immediately, clear the TaxCloud cache type — see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache).
 
 ## Testing the TaxCloud Module
 
@@ -315,6 +315,39 @@ When an order is canceled before any invoice is created, the extension automatic
 4. **Refunds unchanged**: Orders that have been invoiced and then refunded via credit memo are not affected; they continue to use the refund flow described above.
 
 **Note:** This behavior applies to all merchants. It is especially relevant if you use offline or deferred payment methods where orders can be created and later canceled before payment.
+
+## Troubleshooting
+
+### Clearing the TaxCloud cache
+
+The extension stores its API responses — tax lookups, address verifications, and exemption-certificate state lists — in a dedicated **TaxCloud** cache type rather than the general application cache. It appears as its own row under *System → Cache Management*, alongside Configuration, Page Cache, and the rest.
+
+This means TaxCloud entries can be cleared on their own:
+
+* **Admin** — *System → Cache Management*, tick **TaxCloud**, choose *Refresh* from the Actions dropdown, and Submit.
+* **CLI** — `bin/magento cache:clean taxcloud`
+
+Both clear only TaxCloud entries; the configuration, block, and full-page caches are untouched, so clearing after a TaxCloud-side change no longer costs a site-wide cache warm-up. Conversely, `bin/magento cache:flush` still clears everything including TaxCloud.
+
+Reach for this when:
+
+* You changed a product's TIC, or origin/nexus settings, and want the next checkout to re-price immediately rather than serving a cached lookup.
+* You revoked or edited an exemption certificate in the TaxCloud dashboard and need the change reflected at checkout before the 1-hour exempt-states window expires.
+* You switched the **WSDL Endpoint** while keeping the same API credentials, so cached results from the previous endpoint could still be served.
+
+Disabling the TaxCloud cache type entirely (*System → Cache Management → Disable*) stops all TaxCloud response caching regardless of the **Cache Lifetime** setting, which is useful when diagnosing whether a wrong tax figure is stale or freshly returned. Remember to re-enable it — every checkout will otherwise call TaxCloud.
+
+A setup patch enables the type on `bin/magento setup:upgrade`, so no action is normally needed. Enabling writes to `app/etc/env.php`; if that file is read-only at deploy time — as it can be on Adobe Commerce Cloud or a pipeline deploy — the patch logs a warning instead of failing the upgrade, and the type stays disabled. Check with:
+
+```
+bin/magento cache:status
+```
+
+and enable it by hand if `taxcloud` shows as `0`:
+
+```
+bin/magento cache:enable taxcloud
+```
 
 ## Extending the TaxCloud Module
 

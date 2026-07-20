@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Api;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Event\ManagerInterface;
 use Magento\Framework\Webapi\Soap\ClientFactory;
 use Magento\Framework\DataObjectFactory;
@@ -205,7 +205,7 @@ class ApiRedactionTest extends TestCase
     ): Api {
         return $this->buildGatewayApi([
             'scopeConfig' => $scopeConfig ?: $this->createMock(ScopeConfigInterface::class),
-            'cacheType' => $this->createMock(CacheInterface::class),
+            'cacheType' => $this->createMock(FrontendInterface::class),
             'eventManager' => $eventManager ?: $this->createMock(ManagerInterface::class),
             'soapClientFactory' => $soapClientFactory ?: $this->createMock(ClientFactory::class),
             'objectFactory' => $objectFactory ?: $this->createMock(DataObjectFactory::class),

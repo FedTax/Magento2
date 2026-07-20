@@ -17,7 +17,7 @@
 
 namespace Taxcloud\Magento2\Model\Cache;
 
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Serialize\SerializerInterface;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
@@ -34,7 +34,7 @@ use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
 class ResultCache
 {
     /**
-     * @var CacheInterface
+     * @var FrontendInterface
      */
     private $cacheType;
 
@@ -54,13 +54,13 @@ class ResultCache
     private $config;
 
     /**
-     * @param CacheInterface      $cacheType
+     * @param FrontendInterface   $cacheType Bound to the TaxCloud cache type in di.xml
      * @param SerializerInterface $serializer
      * @param CacheKeyBuilder     $cacheKeyBuilder
      * @param TaxcloudConfig      $config
      */
     public function __construct(
-        CacheInterface $cacheType,
+        FrontendInterface $cacheType,
         SerializerInterface $serializer,
         CacheKeyBuilder $cacheKeyBuilder,
         TaxcloudConfig $config

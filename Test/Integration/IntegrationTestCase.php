@@ -170,9 +170,11 @@ abstract class IntegrationTestCase extends TestCase
 
         // lookup/verifyAddress results are cached (cache_lifetime defaults to
         // 86400s, in Redis) keyed by request hash — and an unsaved quote has a
-        // null cartID, so the key collides across tests. Clear the TaxCloud cache
-        // tags so each test's first lookup actually reaches the (mock) SOAP layer.
-        $this->get(\Magento\Framework\App\CacheInterface::class)->clean(['taxcloud_rates', 'taxcloud_address']);
+        // null cartID, so the key collides across tests. Flush the TaxCloud cache
+        // type so each test's first lookup actually reaches the (mock) SOAP layer.
+        // clean() on this frontend is scoped to the TaxCloud tag, so it leaves
+        // every other cache type intact.
+        $this->get(\Taxcloud\Magento2\Model\Cache\Type\Taxcloud::class)->clean();
 
         return $client;
     }

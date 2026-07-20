@@ -9,7 +9,7 @@
 
 namespace Taxcloud\Magento2\Test\Unit\Model\Cache;
 
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Serialize\SerializerInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
@@ -31,7 +31,7 @@ class ResultCacheTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->serializer = $this->createMock(SerializerInterface::class);
         $this->config = $this->createMock(TaxcloudConfig::class);
     }

@@ -82,6 +82,20 @@
   <type name="Taxcloud\Magento2\Model\Gateway\ExemptionValidator">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <!--
+    Every TaxCloud cache write goes through the module's own cache type, so
+    System → Cache Management can flush TaxCloud entries on their own.
+    Magento\Framework\Cache\FrontendInterface has no global preference, so these
+    bindings are what resolve it — a missing one fails loudly at compile time
+    rather than silently falling back to another frontend.
+  -->
+  <type name="Taxcloud\Magento2\Model\Cache\ResultCache">
+    <arguments>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback">

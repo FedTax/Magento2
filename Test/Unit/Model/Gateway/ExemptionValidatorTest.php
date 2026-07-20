@@ -9,7 +9,7 @@
 
 namespace Taxcloud\Magento2\Test\Unit\Model\Gateway;
 
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -40,7 +40,7 @@ class ExemptionValidatorTest extends TestCase
         $this->config = $this->createMock(TaxcloudConfig::class);
         $this->config->method('getApiId')->willReturn('login-id');
         $this->config->method('getApiKey')->willReturn('secret-key');
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->soapClient = $this->getMockBuilder(SoapClientDouble::class)
             ->onlyMethods(['GetExemptCertificates'])
             ->getMock();

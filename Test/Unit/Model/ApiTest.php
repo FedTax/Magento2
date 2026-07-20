@@ -23,7 +23,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Test\Unit\Double as Dbl;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Event\ManagerInterface;
 use Magento\Framework\Webapi\Soap\ClientFactory;
 use Magento\Framework\DataObjectFactory;
@@ -73,7 +73,7 @@ class ApiTest extends TestCase
     protected function setUp(): void
     {
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->eventManager = $this->createMock(ManagerInterface::class);
         $this->soapClientFactory = $this->createMock(ClientFactory::class);
         $this->objectFactory = $this->createMock(DataObjectFactory::class);
@@ -961,7 +961,7 @@ class ApiTest extends TestCase
     private function setUpLookupWithCert(string $certID, string $destinationState): array
     {
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->eventManager = $this->createMock(ManagerInterface::class);
         $this->soapClientFactory = $this->createMock(ClientFactory::class);
         $this->objectFactory = $this->createMock(DataObjectFactory::class);
