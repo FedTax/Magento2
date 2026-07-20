@@ -145,11 +145,10 @@ class Cancel implements ObserverInterface
             return;
         }
 
-        $details = $this->tcapi->getOrderDetails($order);
-        if (!$details || empty($details['CapturedDate'])) {
+        if (!$this->wasCapturedInTaxcloud($order)) {
             $this->tclogger->info(
                 'TaxCloud Cancel: skipping order ' . $order->getIncrementId()
-                . ' (order was not captured in TaxCloud or OrderDetails unavailable)'
+                . ' (order was not captured in TaxCloud or capture state unavailable)'
             );
             return;
         }
@@ -167,5 +166,27 @@ class Cancel implements ObserverInterface
                 'TaxCloud Cancel: Returned completed for order ' . $order->getIncrementId()
             );
         }
+    }
+
+    /**
+     * Decide whether the order was captured in TaxCloud.
+     *
+     * Primary signal is the local taxcloud_captured flag set at capture time, which
+     * needs no API call. For legacy orders placed before that flag existed, fall back
+     * to the OrderDetails API. OrderDetails is license-gated and getOrderDetails()
+     * returns null when it is unavailable, so a merchant without that license simply
+     * skips the fallback rather than erroring.
+     *
+     * @param Order $order
+     * @return bool
+     */
+    private function wasCapturedInTaxcloud(Order $order)
+    {
+        if ($order->getData('taxcloud_captured')) {
+            return true;
+        }
+
+        $details = $this->tcapi->getOrderDetails($order);
+        return $details && !empty($details['CapturedDate']);
     }
 }
