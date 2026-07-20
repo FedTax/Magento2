@@ -18,9 +18,15 @@
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
 
+  <!--
+    fileName is the module's default log target, relative to the Magento base
+    directory. Operators can redirect TaxCloud logging by re-declaring this
+    argument in their own di.xml — see README "Changing the log file location".
+  -->
   <type name="Taxcloud\Magento2\Logger\Handler">
     <arguments>
       <argument name="filesystem" xsi:type="object">Magento\Framework\Filesystem\Driver\File</argument>
+      <argument name="fileName" xsi:type="string">/var/log/taxcloud.log</argument>
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Logger\Logger">

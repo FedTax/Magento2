@@ -187,7 +187,7 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 ![TaxCloud Settings](docs/images/configuration-admin-settings.png)
 
 * **Enabled** - Select `Enabled` in order to enable the TaxCloud module.
-* **Logging Enabled** - Useful for debugging and testing, select `Enabled` in order to log all TaxCloud API calls into `var/log/taxcloud.log`. Make sure to set up log rotation if you keep this option enabled during production! Your TaxCloud `apiLoginID` and `apiKey` are redacted in the log file: the field names still appear, but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.).
+* **Logging Enabled** - Useful for debugging and testing, select `Enabled` in order to log all TaxCloud API calls into `var/log/taxcloud.log`. Make sure to set up log rotation if you keep this option enabled during production! Your TaxCloud `apiLoginID` and `apiKey` are redacted in the log file: the field names still appear, but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.). The log file location is configurable — see [Changing the log file location](#changing-the-log-file-location).
 * **Verify Address** - Select `Enabled` to turn on TaxCloud's address verification API calls. You may want to disable this if you have another module that validates shipping addresses.
 * **API ID** - Enter your API ID from your TaxCloud account.
 * **API Key** - Enter your API Key from your TaxCloud account.
@@ -333,6 +333,25 @@ Each of these situations can be accomplished using an event observer. For every 
 | `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created or when a canceled unpaid order is reversed | `$result`, `$order`, `$items`, `$creditmemo` |
 
 For order cancellation, `$creditmemo` is null and `$items` are the order items.
+
+### Changing the log file location
+
+TaxCloud logging goes to `var/log/taxcloud.log`. The filename is a constructor argument on `Taxcloud\Magento2\Logger\Handler`, bound to that default in the module's `etc/di.xml`, so you can redirect it from your own module's `di.xml` without editing this one:
+
+```xml
+<type name="Taxcloud\Magento2\Logger\Handler">
+    <arguments>
+        <argument name="fileName" xsi:type="string">/var/log/taxcloud-custom.log</argument>
+    </arguments>
+</type>
+```
+
+The path is relative to the Magento base directory, and the log directory is created if it does not exist. Run `bin/magento setup:di:compile` (or clear `generated/`) after changing it. To split TaxCloud logs per environment, bind the argument in an environment-specific `di.xml` area file as usual.
+
+Two things to keep in mind:
+
+* Whatever path you choose inherits the same rotation caveat as the default — see **Logging Enabled** under *TaxCloud Settings*.
+* Credential redaction happens before records reach the handler, so `apiLoginID` and `apiKey` stay redacted at any destination.
 
 ## Automated Deployment
 
