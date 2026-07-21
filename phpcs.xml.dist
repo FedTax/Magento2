@@ -9,6 +9,7 @@
     <file>Logger</file>
     <file>Model</file>
     <file>Observer</file>
+    <file>Plugin</file>
     <file>Setup</file>
     <file>registration.php</file>
 

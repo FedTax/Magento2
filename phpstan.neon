@@ -11,6 +11,7 @@ parameters:
         - Logger
         - Model
         - Observer
+        - Plugin
         - Setup
         - registration.php
     # Test/ is intentionally excluded: unit tests use partial mocks and doubles that

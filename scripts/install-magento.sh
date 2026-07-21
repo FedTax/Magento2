@@ -194,8 +194,16 @@ docker compose exec -T app sh -c '
     # app/code/. Copying breaks that chain.
     cp /srv/module/registration.php registration.php
 
-    for d in Api Logger Model Observer Setup etc; do
-        ln -s /srv/module/$d $d
+    # Link every directory except the dev-only ones. This is a denylist, not an
+    # allowlist: a new production directory (Plugin/, Block/, Ui/, ...) must be
+    # picked up automatically, or di:compile fails with "class doesn'\''t exist"
+    # for something that is plainly there in the repo.
+    for d in /srv/module/*/; do
+        name=$(basename "$d")
+        case "$name" in
+            Test|scripts|docs) continue ;;
+        esac
+        ln -s "/srv/module/$name" "$name"
     done
     for f in composer.json LICENSE.txt CHANGELOG.md README.md; do
         [ -e /srv/module/$f ] && ln -s /srv/module/$f $f
