@@ -28,7 +28,8 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
  *
  * A cancellation only reaches TaxCloud when the order is genuinely canceled,
  * has no invoices (an invoiced order reverses through the refund flow instead),
- * and TaxCloud reports it as captured. Anything else is a no-op.
+ * and was captured in TaxCloud (local taxcloud_captured flag, with OrderDetails
+ * as a legacy fallback). Anything else is a no-op.
  */
 class CancellationProcessor
 {
@@ -110,11 +111,10 @@ class CancellationProcessor
             return;
         }
 
-        $details = $this->gateway->getOrderDetails($order);
-        if (!$details || empty($details['CapturedDate'])) {
+        if (!$this->wasCapturedInTaxcloud($order)) {
             $this->logger->info(
                 'TaxCloud Cancel: skipping order ' . $order->getIncrementId()
-                . ' (order was not captured in TaxCloud or OrderDetails unavailable)'
+                . ' (order was not captured in TaxCloud or capture state unavailable)'
             );
             return;
         }
@@ -130,5 +130,27 @@ class CancellationProcessor
                 'TaxCloud Cancel: Returned completed for order ' . $order->getIncrementId()
             );
         }
+    }
+
+    /**
+     * Decide whether the order was captured in TaxCloud.
+     *
+     * Primary signal is the local taxcloud_captured flag set at capture time, which
+     * needs no API call. For legacy orders placed before that flag existed, fall back
+     * to the OrderDetails API. OrderDetails is license-gated and getOrderDetails()
+     * returns null when it is unavailable, so a merchant without that license simply
+     * skips the fallback rather than erroring.
+     *
+     * @param Order $order
+     * @return bool
+     */
+    private function wasCapturedInTaxcloud(Order $order)
+    {
+        if ($order->getData('taxcloud_captured')) {
+            return true;
+        }
+
+        $details = $this->gateway->getOrderDetails($order);
+        return $details && !empty($details['CapturedDate']);
     }
 }

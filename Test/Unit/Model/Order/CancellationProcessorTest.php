@@ -75,6 +75,21 @@ class CancellationProcessorTest extends TestCase
         $this->processor()->process($this->order());
     }
 
+    /**
+     * When the local taxcloud_captured flag is set, Returned is called and the
+     * license-gated OrderDetails API is never queried.
+     */
+    public function testReversesSaleUsingLocalCapturedFlagWithoutOrderDetails()
+    {
+        $this->gateway->expects($this->never())->method('getOrderDetails');
+        $this->gateway->expects($this->once())->method('returnOrderCancellation')->willReturn(true);
+
+        $order = $this->order();
+        $order->method('getData')->with('taxcloud_captured')->willReturn(1);
+
+        $this->processor()->process($order);
+    }
+
     public function testDoesNothingWhenModuleDisabled()
     {
         $this->config = $this->createMock(TaxcloudConfig::class);
