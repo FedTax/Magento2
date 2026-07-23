@@ -121,6 +121,7 @@ The seeded baseline every test can rely on:
 | TaxCloud config | `enabled`, `logging`, `verify_address` = 1; `default_tic` = 20000; `api_id`/`api_key` from env |
 | Shipping origin | 1401 Lavaca St, Austin TX 78701-1634 (region 57) |
 | Checkout methods | `carriers/flatrate` + `payment/checkmo` active |
+| Multi-store | Second website/group/store view (all code `second`), same root category, full test catalog assigned; `tax/taxcloud_settings/enabled` = 0 at `stores/second` scope (TaxCloud OFF there). `web/url/use_store` = 1, so storefronts are `/default/...` and `/second/...` on one base URL |
 | Indexers / caches | All reindexed, all flushed |
 
 The script is idempotent — re-running updates rather than duplicates. It

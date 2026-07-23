@@ -134,7 +134,7 @@ functions, proxies/interceptors requested in constructors, legacy `Mage`
 entities, and Magento's PHPDoc conventions.
 
 The ruleset, the scanned paths and the deferrals all live in
-[`phpcs.xml.dist`](phpcs.xml.dist), which both CI and `make lint` run with no
+`[phpcs.xml.dist](phpcs.xml.dist)`, which both CI and `make lint` run with no
 arguments, so the two cannot drift:
 
 ```bash
@@ -159,14 +159,14 @@ Two things are worth knowing before changing this setup:
   wins.
 
 Some sniffs are deferred rather than satisfied, in the same tactical spirit as
-[`phpstan-baseline.neon`](phpstan-baseline.neon), to burn down during the REST
+`[phpstan-baseline.neon](phpstan-baseline.neon)`, to burn down during the REST
 migration. Each carries its rationale inline in `phpcs.xml.dist`; the largest is
 `Magento2.Annotation` (PHPDoc formatting, redundant with the native PHP 8.2 types
 already on the signatures). Deferrals are scoped to a specific file wherever the
 findings are confined to one, so new code is still held to the rule.
 
 Static analysis runs separately, via PHPStan at level 5 — see
-[`phpstan.neon`](phpstan.neon) and `make phpstan`.
+`[phpstan.neon](phpstan.neon)` and `make phpstan`.
 
 ## Configuring the TaxCloud Module
 
@@ -414,7 +414,7 @@ This extension includes automated deployment to sandbox environments via GitHub 
 
 ### Deployment
 
-- **Automatic**: Push to `main`, `develop`, or `DEV-*` branches
+- **Automatic**: Push to `main`, `develop`, or `DEV-`* branches
 - **Manual**: Go to Actions → Deploy to Sandbox → Run workflow
 
 The deployment process will:
