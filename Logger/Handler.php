@@ -30,10 +30,13 @@ class Handler extends Base
     public const DEFAULT_FILE_NAME = '/var/log/taxcloud.log';
 
     /**
-     * Logging level
+     * Logging level. DEBUG so Advanced-mode records (payload dumps, wire
+     * traces) reach the file; whether debug records are emitted at all is
+     * decided upstream by GatewayLogger from the store's logging mode.
+     *
      * @var int
      */
-    protected $loggerType = \Monolog\Logger::INFO;
+    protected $loggerType = \Monolog\Logger::DEBUG;
 
     /**
      * Operators can point TaxCloud logging elsewhere by overriding the fileName

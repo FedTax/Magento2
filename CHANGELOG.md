@@ -4,32 +4,42 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ## 1.3.0
 
+### Added
+
+- **Reliable tax reversal on order cancellation.** Canceling an unpaid order
+  now reverses the sale in TaxCloud: the reversal hooks `Order::cancel`
+  directly (instead of a broad order-save fallback), and the module tracks its
+  own `taxcloud_captured` flag on each order, so cancellation works without
+  the license-gated OrderDetails API (kept only as a fallback for orders
+  captured before this release).
+- **Three-mode Logging setting.** *Enable - Basic*: lifecycle events,
+  decisions and errors — enough to confirm the extension works, suitable for
+  day-to-day use. *Enable - Advanced*: adds full API requests/responses
+  including the raw SOAP XML (credentials redacted) and per-call timing — for
+  debugging, too verbose for production. *Disable*: no logs. Upgrading
+  installs keep their behavior: the old *Enabled* becomes Basic.
+- **Dedicated TaxCloud cache type.** API responses are cached under their own
+  entry in System → Cache Management, so they can be flushed without touching
+  the rest of Magento's caches.
+- **Configurable endpoint and log location.** The TaxCloud WSDL endpoint is
+  now a store setting (point staging at a sandbox without a code change), and
+  the log file path can be overridden via DI.
+
 ### Changed
 
-- Extracted the TaxCloud gateway into service-contract interfaces under
-  `Taxcloud\Magento2\Api` (`LookupGatewayInterface`, `OrderGatewayInterface`,
-  `AddressGatewayInterface`, `ExemptionGatewayInterface`, and the aggregate
-  `GatewayInterface`). The tax collector and the sales observers now depend on
-  the narrow interface each needs rather than the concrete `Model\Api`, and
-  `di.xml` binds every contract to the existing SOAP implementation. This is a
-  pure refactor with no behavior change; it creates the seam needed to swap the
-  transport (e.g. a REST gateway) without touching any call site.
+- Log entries now carry real severities (error / warning / info / debug), so
+  failures can be grepped and alerted on. Previously everything was logged as
+  info.
+- Internal restructuring: the monolithic gateway class was split into
+  service-contract interfaces and focused, individually tested collaborators,
+  creating the seam for a future REST transport. No behavior change.
+- CI now enforces the Magento coding standard and PHPStan (level 5) alongside
+  the unit, integration and E2E suites.
 
-- Decomposed the 1,600-line `Model\Api` god class into focused, individually
-  unit-tested collaborators: SOAP transport (`Gateway\Soap\SoapGateway`),
-  request building (`Gateway\RequestBuilder`), response mapping
-  (`Gateway\ResponseMapper`), caching (`Cache\ResultCache` +
-  `Gateway\CacheKeyBuilder`), retry policy (`Gateway\RetryPolicy`),
-  exemption-certificate validation (`Gateway\ExemptionValidator`),
-  Magento-native tax fallback (`Fallback\MagentoTaxFallback`), event dispatch
-  (`Event\GatewayEventDispatcher`), and configuration access
-  (`Config\TaxcloudConfig`). A config-gated `Logging\GatewayLogger` replaces the
-  ad-hoc per-class null-logger.
+### Fixed
 
-  `Model\Api` is now a thin orchestrator wired from these collaborators via
-  constructor injection (down from 19 dependencies to 10), and the
-  `TooManyFields`/`CouplingBetweenObjects` suppressions are removed. Behavior is
-  unchanged and the full unit suite passes.
+- "Using default TIC" messages were written to the log even with logging
+  disabled; they now respect the logging setting.
 
 ## 1.2.0
 

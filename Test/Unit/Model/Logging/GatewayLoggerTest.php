@@ -18,48 +18,89 @@ use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 
 /**
  * Covers the config gate that replaces the per-class null-logger pattern:
- * records reach the TaxCloud channel only when logging is enabled.
+ * records reach the TaxCloud channel only when logging is enabled, and
+ * debug-level records (payload dumps, wire traces) only in Advanced mode.
  */
 #[AllowMockObjectsWithoutExpectations]
 class GatewayLoggerTest extends TestCase
 {
-    private function logger(bool $enabled, Logger $inner): GatewayLogger
+    private function logger(int $mode, Logger $inner): GatewayLogger
     {
         $config = $this->createMock(TaxcloudConfig::class);
-        $config->method('isLoggingEnabled')->willReturn($enabled);
+        $config->method('getLoggingMode')->willReturn($mode);
         return new GatewayLogger($inner, $config);
     }
 
-    public function testForwardsToInnerWhenEnabled()
+    public function testBasicForwardsInfoAndAbove()
     {
         $inner = $this->createMock(Logger::class);
-        $inner->expects($this->once())
-            ->method('log')
-            ->with(LogLevel::INFO, 'hello', []);
+        $forwarded = [];
+        $inner->method('log')->willReturnCallback(function ($level, $message) use (&$forwarded) {
+            $forwarded[] = [$level, $message];
+        });
 
-        $this->logger(true, $inner)->info('hello');
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $inner);
+        $logger->info('lifecycle');
+        $logger->warning('odd');
+        $logger->error('broken');
+
+        $this->assertSame(
+            [
+                [LogLevel::INFO, 'lifecycle'],
+                [LogLevel::WARNING, 'odd'],
+                [LogLevel::ERROR, 'broken'],
+            ],
+            $forwarded
+        );
     }
 
-    public function testSuppressesWhenDisabled()
+    public function testBasicSuppressesDebugRecords()
     {
         $inner = $this->createMock(Logger::class);
         $inner->expects($this->never())->method('log');
 
-        $this->logger(false, $inner)->info('hello');
+        $this->logger(TaxcloudConfig::LOGGING_BASIC, $inner)->debug('PARAMS dump');
+    }
+
+    public function testAdvancedForwardsDebugRecords()
+    {
+        $inner = $this->createMock(Logger::class);
+        $inner->expects($this->once())
+            ->method('log')
+            ->with(LogLevel::DEBUG, 'PARAMS dump', []);
+
+        $this->logger(TaxcloudConfig::LOGGING_ADVANCED, $inner)->debug('PARAMS dump');
+    }
+
+    public function testDisabledSuppressesEverything()
+    {
+        $inner = $this->createMock(Logger::class);
+        $inner->expects($this->never())->method('log');
+
+        $logger = $this->logger(TaxcloudConfig::LOGGING_DISABLED, $inner);
+        $logger->debug('dump');
+        $logger->info('lifecycle');
+        $logger->error('broken');
     }
 
     /**
-     * The flag is read per call, not captured at construction. A singleton built
-     * under one store's configuration must not keep applying it after the value
-     * changes — the multi-website case, where the flag differs per scope.
+     * The mode is read per call, not captured at construction. A singleton
+     * built under one store's configuration must not keep applying it after
+     * the value changes — the multi-website case, where the mode differs per
+     * scope.
      */
     public function testConfigIsReadPerCallSoAFlipTakesEffectImmediately()
     {
         $inner = $this->createMock(Logger::class);
         $config = $this->createMock(TaxcloudConfig::class);
 
-        // off -> on -> off across three calls on one long-lived instance.
-        $config->method('isLoggingEnabled')->willReturnOnConsecutiveCalls(false, true, false);
+        // off -> basic -> advanced -> off across four calls on one instance.
+        $config->method('getLoggingMode')->willReturnOnConsecutiveCalls(
+            TaxcloudConfig::LOGGING_DISABLED,
+            TaxcloudConfig::LOGGING_BASIC,
+            TaxcloudConfig::LOGGING_ADVANCED,
+            TaxcloudConfig::LOGGING_DISABLED
+        );
 
         $forwarded = [];
         $inner->method('log')->willReturnCallback(function ($level, $message) use (&$forwarded) {
@@ -68,13 +109,14 @@ class GatewayLoggerTest extends TestCase
 
         $logger = new GatewayLogger($inner, $config);
         $logger->info('while off');
-        $logger->info('while on');
+        $logger->info('while basic');
+        $logger->debug('while advanced');
         $logger->info('after flipping back off');
 
         $this->assertSame(
-            ['while on'],
+            ['while basic', 'while advanced'],
             $forwarded,
-            'only the message logged while the flag was enabled may reach the channel'
+            'only messages logged while the mode allowed them may reach the channel'
         );
     }
 }

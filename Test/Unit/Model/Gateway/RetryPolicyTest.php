@@ -105,7 +105,7 @@ class RetryPolicyTest extends TestCase
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->once())
-            ->method('info')
+            ->method('warning')
             ->with($this->stringContains('retrying (1/1)'));
 
         $calls = 0;

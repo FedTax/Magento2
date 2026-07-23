@@ -28,6 +28,7 @@ use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
 use Taxcloud\Magento2\Model\Gateway\RetryPolicy;
 use Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
+use Taxcloud\Magento2\Model\Logging\LogRedactor;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Throwable;
 
@@ -237,11 +238,19 @@ class Api implements GatewayInterface
      *
      * @param callable $call
      * @param int      $maxRetries Retries after the initial attempt (default 1)
+     * @param string   $operation  Label for the Advanced-mode timing record
      * @return mixed
      */
-    public function callSoapWithRetry(callable $call, $maxRetries = 1)
+    public function callSoapWithRetry(callable $call, $maxRetries = 1, $operation = 'SOAP')
     {
-        return $this->retryPolicy->execute($call, $maxRetries);
+        $start = microtime(true);
+        try {
+            return $this->retryPolicy->execute($call, $maxRetries);
+        } finally {
+            $this->tclogger->debug(
+                sprintf('%s round-trip took %.0f ms (including retries)', $operation, (microtime(true) - $start) * 1000)
+            );
+        }
     }
 
     /**
@@ -254,6 +263,9 @@ class Api implements GatewayInterface
     public function lookupTaxes($itemsByType, $shippingAssignment, $quote)
     {
         $this->tclogger->info('Calling lookupTaxes');
+        $this->tclogger->debug(
+            'lookupTaxes context: store=' . $quote->getStoreId() . ', quote=' . ($quote->getId() ?: '(new)')
+        );
 
         $result = [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
 
@@ -269,7 +281,7 @@ class Api implements GatewayInterface
         
         // Validate the parsed ZIP code
         if (!PostalCodeParser::isValid($parsedZip)) {
-            $this->tclogger->info('Invalid ZIP code format: ' . $destinationPostcode);
+            $this->tclogger->warning('Invalid ZIP code format: ' . $destinationPostcode);
             return $result;
         }
         
@@ -325,7 +337,7 @@ class Api implements GatewayInterface
 
         $origin = $this->requestBuilder->buildOrigin();
         if ($origin === null) {
-            $this->tclogger->info('Invalid origin address configuration - cannot proceed with tax calculation');
+            $this->tclogger->error('Invalid origin address configuration - cannot proceed with tax calculation');
             return $result;
         }
 
@@ -357,37 +369,40 @@ class Api implements GatewayInterface
         $client = $this->getClient();
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during lookupTaxes: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during lookupTaxes: Cannot get SoapClient');
             return $result;
         }
 
         // Call the TaxCloud web service
 
         $this->tclogger->info('Calling lookupTaxes LIVE API');
-        $this->tclogger->info('lookupTaxes PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('lookupTaxes PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $lookupResponse = $this->callSoapWithRetry(function () use ($client, $params) {
                 return $client->lookup($params);
-            });
+            }, 1, 'lookupTaxes');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
+            $this->tclogger->error('Error encountered during lookupTaxes: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'lookupTaxes');
 
             // Check if fallback to Magento is enabled
             if ($this->config->isFallbackToMagentoEnabled()) {
-                $this->tclogger->info('TaxCloud lookup failed, falling back to Magento tax rates');
+                $this->tclogger->warning('TaxCloud lookup failed, falling back to Magento tax rates');
                 return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
 
             return $result;
         }
 
+        $this->logSoapTrace($client, 'lookupTaxes');
+
         // Force into array
         $lookupResponse = $this->responseMapper->toArray($lookupResponse);
 
-        $this->tclogger->info('lookupTaxes RESPONSE:');
-        $this->tclogger->info(print_r($lookupResponse, true));
+        $this->tclogger->debug('lookupTaxes RESPONSE:');
+        $this->tclogger->debug(print_r($lookupResponse, true));
 
         $lookupResult = $lookupResponse['LookupResult'];
 
@@ -404,7 +419,7 @@ class Api implements GatewayInterface
             $cartItemResponse = $lookupResult['CartItemsResponse']['CartItemResponse'];
             
             if (empty($cartItemResponse)) {
-                $this->tclogger->info('CartItemResponse is empty, skipping tax calculation');
+                $this->tclogger->warning('CartItemResponse is empty, skipping tax calculation');
                 return $result;
             }
             $this->responseMapper->applyCartItemResponses(
@@ -419,12 +434,15 @@ class Api implements GatewayInterface
 
             return $result;
         } else {
-            $this->tclogger->info('Error encountered during lookupTaxes: ');
-            $this->tclogger->info(print_r($lookupResult, true));
-            
+            $this->tclogger->error(
+                'Error encountered during lookupTaxes: '
+                . ($lookupResult['Messages']['ResponseMessage']['Message'] ?? 'non-OK response')
+            );
+            $this->tclogger->debug(print_r($lookupResult, true));
+
             // Check if fallback to Magento is enabled
             if ($this->config->isFallbackToMagentoEnabled()) {
-                $this->tclogger->info('TaxCloud lookup returned error response, falling back to Magento tax rates');
+                $this->tclogger->warning('TaxCloud lookup returned error response, falling back to Magento tax rates');
                 return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
             
@@ -441,12 +459,12 @@ class Api implements GatewayInterface
      */
     public function authorizeCapture($order)
     {
-        $this->tclogger->info('Calling authorizeCapture');
+        $this->tclogger->info('Calling authorizeCapture for order ' . $order->getIncrementId());
 
         $client = $this->getClient();
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during authorizeCapture: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during authorizeCapture: Cannot get SoapClient');
             return false;
         }
 
@@ -459,23 +477,26 @@ class Api implements GatewayInterface
             'order' => $order,
         ]);
 
-        $this->tclogger->info('authorizedWithCapture PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('authorizedWithCapture PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $authorizedResponse = $this->callSoapWithRetry(function () use ($client, $params) {
                 return $client->authorizedWithCapture($params);
-            });
+            }, 1, 'authorizedWithCapture');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during authorizeCapture: ' . $e->getMessage());
+            $this->tclogger->error('Error encountered during authorizeCapture: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'authorizedWithCapture');
             return false;
         }
+
+        $this->logSoapTrace($client, 'authorizedWithCapture');
 
         // Force into array
         $authorizedResponse = $this->responseMapper->toArray($authorizedResponse);
 
-        $this->tclogger->info('authorizedWithCapture RESPONSE:');
-        $this->tclogger->info(print_r($authorizedResponse, true));
+        $this->tclogger->debug('authorizedWithCapture RESPONSE:');
+        $this->tclogger->debug(print_r($authorizedResponse, true));
 
         $authorizedResult = $authorizedResponse['AuthorizedWithCaptureResult'];
 
@@ -490,10 +511,10 @@ class Api implements GatewayInterface
             $respMsg = $authorizedResult['Messages']['ResponseMessage']['Message'];
             if (trim(substr($respMsg, 0, strlen($dup))) === $dup) {
                 // Duplicate means the the previous call was good. Therefore, consider this to be good
-                $this->tclogger->info('Warning encountered during authorizeCapture: Duplicate transaction');
+                $this->tclogger->warning('Warning encountered during authorizeCapture: Duplicate transaction');
                 return true;
             } else {
-                $this->tclogger->info('Error encountered during authorizeCapture: ' . $respMsg);
+                $this->tclogger->error('Error encountered during authorizeCapture: ' . $respMsg);
                 return false;
             }
         }
@@ -508,12 +529,12 @@ class Api implements GatewayInterface
      */
     public function returnOrder($creditmemo)
     {
-        $this->tclogger->info('Calling returnOrder');
+        $this->tclogger->info('Calling returnOrder for creditmemo ' . $creditmemo->getIncrementId());
 
         $client = $this->getClient();
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during returnOrder: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during returnOrder: Cannot get SoapClient');
             return false;
         }
 
@@ -540,8 +561,8 @@ class Api implements GatewayInterface
             $params['returnCoDeliveryFeeWhenNoCartItems'] = false;
         }
 
-        $this->tclogger->info('returnOrder PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('returnOrder PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
         $soapParams = [
@@ -553,26 +574,29 @@ class Api implements GatewayInterface
             'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
         ];
 
-        $this->tclogger->info('returnOrder SOAP PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
+        $this->tclogger->debug('returnOrder SOAP PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
             $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
                 return $client->Returned($soapParams);
-            });
+            }, 1, 'Returned');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
-            $this->tclogger->info(
+            $this->tclogger->error('Error encountered during returnOrder: ' . $e->getMessage());
+            $this->tclogger->debug(
                 'SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true)
             );
+            $this->logSoapTrace($client, 'Returned');
             return false;
         }
+
+        $this->logSoapTrace($client, 'Returned');
 
         // Force into array
         $returnResponse = $this->responseMapper->toArray($returnResponse);
 
-        $this->tclogger->info('returnOrder RESPONSE:');
-        $this->tclogger->info(print_r($returnResponse, true));
+        $this->tclogger->debug('returnOrder RESPONSE:');
+        $this->tclogger->debug(print_r($returnResponse, true));
 
         $returnResult = $returnResponse['ReturnedResult'];
 
@@ -588,7 +612,7 @@ class Api implements GatewayInterface
             if ($returnResult && isset($returnResult['Messages']['ResponseMessage']['Message'])) {
                 $errorMessage = $returnResult['Messages']['ResponseMessage']['Message'];
             }
-            $this->tclogger->info('Error encountered during returnOrder: ' . $errorMessage);
+            $this->tclogger->error('Error encountered during returnOrder: ' . $errorMessage);
             return false;
         }
 
@@ -597,10 +621,10 @@ class Api implements GatewayInterface
             if ($this->lookupForOrderExempt($order, $client)) {
                 $exemptCartId = $order->getIncrementId() . '-exempt';
                 if (!$this->authorizeCaptureWithCartId($order, $exemptCartId, $client)) {
-                    $this->tclogger->info('returnOrder: re-create as exempt capture failed; return was successful');
+                    $this->tclogger->warning('returnOrder: re-create as exempt capture failed; return was successful');
                 }
             } else {
-                $this->tclogger->info('returnOrder: re-create as exempt lookup failed; return was successful');
+                $this->tclogger->warning('returnOrder: re-create as exempt lookup failed; return was successful');
             }
         }
 
@@ -620,18 +644,25 @@ class Api implements GatewayInterface
 
         $client = $this->getClient();
         if (!$client) {
-            $this->tclogger->info('Error in getOrderDetails: Cannot get SoapClient');
+            $this->tclogger->error('Error in getOrderDetails: Cannot get SoapClient');
             return null;
         }
 
         $params = $this->requestBuilder->buildOrderDetailsParams($order);
+        $this->tclogger->debug('getOrderDetails PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $response = $client->OrderDetails($params);
         } catch (Throwable $e) {
-            $this->tclogger->info('getOrderDetails failed: ' . $e->getMessage());
+            $this->tclogger->error('getOrderDetails failed: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'OrderDetails');
             return null;
         }
+
+        $this->logSoapTrace($client, 'OrderDetails');
+        $this->tclogger->debug('getOrderDetails RESPONSE:');
+        $this->tclogger->debug(print_r($this->responseMapper->toArray($response), true));
 
         $response = $this->responseMapper->toArray($response);
         if (empty($response['OrderDetailsResult'])) {
@@ -648,7 +679,7 @@ class Api implements GatewayInterface
             if (isset($result['Messages']['ResponseMessage']['Message'])) {
                 $errorMessage = $result['Messages']['ResponseMessage']['Message'];
             }
-            $this->tclogger->info(
+            $this->tclogger->error(
                 'getOrderDetails returned non-OK for order ' . $order->getIncrementId() . ': '
                 . ($result['ResponseType'] ?? 'unknown') . ' - ' . $errorMessage
             );
@@ -665,19 +696,19 @@ class Api implements GatewayInterface
      */
     public function returnOrderCancellation($order)
     {
-        $this->tclogger->info('Calling returnOrderCancellation');
+        $this->tclogger->info('Calling returnOrderCancellation for order ' . $order->getIncrementId());
 
         $client = $this->getClient();
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during returnOrderCancellation: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during returnOrderCancellation: Cannot get SoapClient');
             return false;
         }
 
         $cartItems = $this->requestBuilder->buildCartItemsFromOrder($order);
 
         if (empty($cartItems)) {
-            $this->tclogger->info('returnOrderCancellation: no cart items for order ' . $order->getIncrementId());
+            $this->tclogger->warning('returnOrderCancellation: no cart items for order ' . $order->getIncrementId());
             return false;
         }
 
@@ -695,8 +726,8 @@ class Api implements GatewayInterface
             $params['returnCoDeliveryFeeWhenNoCartItems'] = false;
         }
 
-        $this->tclogger->info('returnOrderCancellation PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('returnOrderCancellation PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
         $soapParams = [
@@ -708,26 +739,29 @@ class Api implements GatewayInterface
             'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
         ];
 
-        $this->tclogger->info('returnOrderCancellation SOAP PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
+        $this->tclogger->debug('returnOrderCancellation SOAP PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
             $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
                 return $client->Returned($soapParams);
-            });
+            }, 1, 'Returned');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $e->getMessage());
-            $this->tclogger->info(
+            $this->tclogger->error('Error encountered during returnOrderCancellation: ' . $e->getMessage());
+            $this->tclogger->debug(
                 'SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true)
             );
+            $this->logSoapTrace($client, 'Returned');
             return false;
         }
+
+        $this->logSoapTrace($client, 'Returned');
 
         // Force into array
         $returnResponse = $this->responseMapper->toArray($returnResponse);
 
-        $this->tclogger->info('returnOrderCancellation RESPONSE:');
-        $this->tclogger->info(print_r($returnResponse, true));
+        $this->tclogger->debug('returnOrderCancellation RESPONSE:');
+        $this->tclogger->debug(print_r($returnResponse, true));
 
         $returnResult = $returnResponse['ReturnedResult'];
 
@@ -743,7 +777,7 @@ class Api implements GatewayInterface
             if ($returnResult && isset($returnResult['Messages']['ResponseMessage']['Message'])) {
                 $errorMessage = $returnResult['Messages']['ResponseMessage']['Message'];
             }
-            $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $errorMessage);
+            $this->tclogger->error('Error encountered during returnOrderCancellation: ' . $errorMessage);
             return false;
         }
 
@@ -765,7 +799,7 @@ class Api implements GatewayInterface
         }
         $destination = $this->requestBuilder->buildDestinationFromOrder($order);
         if ($destination === null) {
-            $this->tclogger->info('returnOrder: no valid shipping address for exempt lookup');
+            $this->tclogger->warning('returnOrder: no valid shipping address for exempt lookup');
             return false;
         }
         $origin = $this->requestBuilder->buildOrigin();
@@ -773,12 +807,16 @@ class Api implements GatewayInterface
             return false;
         }
         $params = $this->requestBuilder->buildExemptLookupParams($order, $cartItems, $destination, $origin);
+        $this->tclogger->debug('exempt lookup PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
         try {
             $lookupResponse = $client->lookup($params);
         } catch (Throwable $e) {
-            $this->tclogger->info('returnOrder: exempt lookup failed: ' . $e->getMessage());
+            $this->tclogger->error('returnOrder: exempt lookup failed: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'exempt lookup');
             return false;
         }
+        $this->logSoapTrace($client, 'exempt lookup');
         $lookupResponse = $this->responseMapper->toArray($lookupResponse);
         $result = isset($lookupResponse['LookupResult']) ? $lookupResponse['LookupResult'] : [];
         $responseType = isset($result['ResponseType']) ? $result['ResponseType'] : '';
@@ -796,12 +834,16 @@ class Api implements GatewayInterface
     private function authorizeCaptureWithCartId($order, $cartId, $client)
     {
         $params = $this->requestBuilder->buildAuthorizeCaptureParams($order, $cartId);
+        $this->tclogger->debug('exempt authorizedWithCapture PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
         try {
             $response = $client->authorizedWithCapture($params);
         } catch (Throwable $e) {
-            $this->tclogger->info('returnOrder: authorizeCapture failed: ' . $e->getMessage());
+            $this->tclogger->error('returnOrder: authorizeCapture failed: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'exempt authorizedWithCapture');
             return false;
         }
+        $this->logSoapTrace($client, 'exempt authorizedWithCapture');
         $response = $this->responseMapper->toArray($response);
         $result = isset($response['AuthorizedWithCaptureResult']) ? $response['AuthorizedWithCaptureResult'] : [];
         return (isset($result['ResponseType']) ? $result['ResponseType'] : '') === 'OK';
@@ -828,7 +870,7 @@ class Api implements GatewayInterface
         $client = $this->getClient();
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during verifyAddress: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during verifyAddress: Cannot get SoapClient');
             return false;
         }
 
@@ -839,23 +881,26 @@ class Api implements GatewayInterface
         // Call the TaxCloud web service
 
         $this->tclogger->info('Calling verifyAddress LIVE API');
-        $this->tclogger->info('verifyAddress PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('verifyAddress PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $verifyResponse = $this->callSoapWithRetry(function () use ($client, $params) {
                 return $client->verifyAddress($params);
-            });
+            }, 1, 'verifyAddress');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during verifyAddress: ' . $e->getMessage());
+            $this->tclogger->error('Error encountered during verifyAddress: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'verifyAddress');
             return false;
         }
+
+        $this->logSoapTrace($client, 'verifyAddress');
 
         // Force into array
         $verifyResponse = $this->responseMapper->toArray($verifyResponse);
 
-        $this->tclogger->info('verifyAddress RESPONSE:');
-        $this->tclogger->info(print_r($verifyResponse, true));
+        $this->tclogger->debug('verifyAddress RESPONSE:');
+        $this->tclogger->debug(print_r($verifyResponse, true));
 
         $verifyResult = $verifyResponse['VerifyAddressResult'];
 
@@ -877,7 +922,7 @@ class Api implements GatewayInterface
 
             return $result;
         } else {
-            $this->tclogger->info('Error encountered during verifyAddress: ' . $verifyResult['ErrDescription']);
+            $this->tclogger->warning('Error encountered during verifyAddress: ' . $verifyResult['ErrDescription']);
             return false;
         }
     }
@@ -885,7 +930,7 @@ class Api implements GatewayInterface
     /**
      * Placeholder substituted for credential values in log output.
      */
-    public const REDACTED_PLACEHOLDER = '***REDACTED***';
+    public const REDACTED_PLACEHOLDER = LogRedactor::PLACEHOLDER;
 
     /**
      * Return a copy of a SOAP params array with TaxCloud credentials masked
@@ -899,12 +944,47 @@ class Api implements GatewayInterface
      */
     public function redactParamsForLog(array $params)
     {
-        if (array_key_exists('apiLoginID', $params)) {
-            $params['apiLoginID'] = self::REDACTED_PLACEHOLDER;
+        return LogRedactor::redactArray($params);
+    }
+
+    /**
+     * Log the raw SOAP wire traffic of the client's most recent call at debug
+     * level (Advanced mode only), credentials redacted.
+     *
+     * The client only buffers wire traffic when it was constructed with
+     * trace=true (see SoapGateway::buildSoapOptions, also Advanced-gated);
+     * otherwise the trace getters return null/empty and nothing is logged.
+     * Safe to call in catch blocks — after a fault the buffers still hold
+     * whatever was sent and received last.
+     *
+     * @param \SoapClient|object $client
+     * @param string $operation
+     * @return void
+     */
+    private function logSoapTrace($client, $operation)
+    {
+        if (!$this->config->isAdvancedLoggingEnabled()) {
+            return;
         }
-        if (array_key_exists('apiKey', $params)) {
-            $params['apiKey'] = self::REDACTED_PLACEHOLDER;
+        if (!$client instanceof \SoapClient) {
+            return;
         }
-        return $params;
+
+        $requestHeaders = $client->__getLastRequestHeaders();
+        if ($requestHeaders) {
+            $this->tclogger->debug($operation . ' HTTP request headers: ' . trim($requestHeaders));
+        }
+        $request = $client->__getLastRequest();
+        if ($request) {
+            $this->tclogger->debug($operation . ' SOAP request XML: ' . LogRedactor::redactXml($request));
+        }
+        $responseHeaders = $client->__getLastResponseHeaders();
+        if ($responseHeaders) {
+            $this->tclogger->debug($operation . ' HTTP response headers: ' . trim($responseHeaders));
+        }
+        $response = $client->__getLastResponse();
+        if ($response) {
+            $this->tclogger->debug($operation . ' SOAP response XML: ' . LogRedactor::redactXml($response));
+        }
     }
 }

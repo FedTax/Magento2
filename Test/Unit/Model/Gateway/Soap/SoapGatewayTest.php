@@ -54,6 +54,26 @@ class SoapGatewayTest extends TestCase
         $this->assertIsResource($options['stream_context']);
     }
 
+    /**
+     * The trace buffers cost memory on every call, so they are only enabled
+     * when Advanced logging will actually read them.
+     */
+    public function testBuildSoapOptionsOmitsTraceUnlessAdvancedLogging()
+    {
+        $this->assertArrayNotHasKey('trace', $this->gateway()->buildSoapOptions());
+    }
+
+    public function testBuildSoapOptionsEnablesTraceForAdvancedLogging()
+    {
+        $this->config = $this->createMock(TaxcloudConfig::class);
+        $this->config->method('getSoapTimeout')->willReturn(10);
+        $this->config->method('isAdvancedLoggingEnabled')->willReturn(true);
+
+        $options = $this->gateway()->buildSoapOptions();
+
+        $this->assertTrue($options['trace']);
+    }
+
     public function testGetClientBuildsFromFactoryAtWsdlEndpoint()
     {
         $soapClient = $this->getMockBuilder(SoapClientDouble::class)

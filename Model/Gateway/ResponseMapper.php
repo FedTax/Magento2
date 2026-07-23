@@ -123,7 +123,7 @@ class ResponseMapper
     {
         $result = $response->GetExemptCertificatesResult ?? null;
         if (!$result || ($result->ResponseType ?? '') !== 'OK') {
-            $this->logger->info('GetExemptCertificates returned non-OK response');
+            $this->logger->warning('GetExemptCertificates returned non-OK response');
             return [];
         }
 
@@ -153,7 +153,7 @@ class ResponseMapper
             return $states;
         }
 
-        $this->logger->info('Certificate ' . $certificateId . ' not found in GetExemptCertificates response');
+        $this->logger->warning('Certificate ' . $certificateId . ' not found in GetExemptCertificates response');
         return [];
     }
 }

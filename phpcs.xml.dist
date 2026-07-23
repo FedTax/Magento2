@@ -61,11 +61,12 @@
         <exclude-pattern>Model/Gateway/Soap/SoapGateway\.php$</exclude-pattern>
     </rule>
 
-    <!-- 2 findings: pure static string helpers with no collaborators. The sniff's
-         rationale is that static methods cannot be intercepted by a plugin; there is
-         nothing here a plugin would want to intercept. -->
+    <!-- Pure static string helpers with no collaborators. The sniff's rationale is
+         that static methods cannot be intercepted by a plugin; there is nothing
+         here a plugin would want to intercept. -->
     <rule ref="Magento2.Functions.StaticFunction">
         <exclude-pattern>Model/PostalCodeParser\.php$</exclude-pattern>
+        <exclude-pattern>Model/Logging/LogRedactor\.php$</exclude-pattern>
     </rule>
 
     <!-- 1 finding: stream_context_create() flagged as an unguarded system-resource

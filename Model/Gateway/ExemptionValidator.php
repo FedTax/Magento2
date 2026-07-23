@@ -22,6 +22,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\Soap\SoapClientProviderInterface;
+use Taxcloud\Magento2\Model\Logging\LogRedactor;
 use Throwable;
 
 /**
@@ -129,9 +130,11 @@ class ExemptionValidator
         // Fetch certificate details from TaxCloud
         $client = $this->soapClientProvider->getClient();
         if (!$client) {
-            $this->logger->info('Cannot validate exemption cert: no SOAP client');
+            $this->logger->error('Cannot validate exemption cert: no SOAP client');
             return null;
         }
+
+        $this->logger->debug('GetExemptCertificates for customer ' . $customerID);
 
         try {
             $response = $client->GetExemptCertificates([
@@ -141,9 +144,12 @@ class ExemptionValidator
             ]);
         } catch (Throwable $e) {
             // Fail closed — don't apply an unverified exemption
-            $this->logger->info('GetExemptCertificates SOAP error: ' . $e->getMessage());
+            $this->logger->error('GetExemptCertificates SOAP error: ' . $e->getMessage());
+            $this->logSoapTrace($client);
             return null;
         }
+
+        $this->logSoapTrace($client);
 
         $exemptStates = $this->responseMapper->extractExemptStates($response, $certificateID);
 
@@ -161,5 +167,33 @@ class ExemptionValidator
             . ' — destination ' . $destinationState . ($match ? ' MATCHES' : ' does NOT match')
         );
         return $match ? $certificateID : null;
+    }
+
+    /**
+     * Log the raw SOAP wire traffic of the client's most recent call at debug
+     * level (Advanced mode only), credentials redacted. The client only
+     * buffers traffic when built with trace=true, which SoapGateway enables
+     * under the same Advanced setting.
+     *
+     * @param \SoapClient|object $client
+     * @return void
+     */
+    private function logSoapTrace($client)
+    {
+        if (!$this->config->isAdvancedLoggingEnabled()) {
+            return;
+        }
+        if (!$client instanceof \SoapClient) {
+            return;
+        }
+
+        $request = $client->__getLastRequest();
+        if ($request) {
+            $this->logger->debug('GetExemptCertificates SOAP request XML: ' . LogRedactor::redactXml($request));
+        }
+        $response = $client->__getLastResponse();
+        if ($response) {
+            $this->logger->debug('GetExemptCertificates SOAP response XML: ' . LogRedactor::redactXml($response));
+        }
     }
 }

@@ -19,7 +19,7 @@ namespace Taxcloud\Magento2\Model;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
-use Taxcloud\Magento2\Logger\Logger;
+use Psr\Log\LoggerInterface;
 
 /**
  * Service for handling Product TIC (Taxability Information Code) logic
@@ -54,19 +54,22 @@ class ProductTicService
     private $productRepository;
 
     /**
-     * @var Logger
+     * TaxCloud logger. di.xml binds this to the config-gated GatewayLogger so
+     * these records honor the store's logging mode like every other class.
+     *
+     * @var LoggerInterface
      */
     private $logger;
 
     /**
      * @param ScopeConfigInterface $scopeConfig
      * @param ProductRepositoryInterface $productRepository
-     * @param Logger $logger
+     * @param LoggerInterface $logger
      */
     public function __construct(
         ScopeConfigInterface $scopeConfig,
         ProductRepositoryInterface $productRepository,
-        Logger $logger
+        LoggerInterface $logger
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->productRepository = $productRepository;
@@ -87,7 +90,7 @@ class ProductTicService
 
         // Handle case where product has been deleted
         if (!$product || !$product->getId()) {
-            $this->logger->info(
+            $this->logger->warning(
                 'Product not found for item ' . $item->getSku() . ' in ' . $context . ', using default TIC'
             );
             return $this->getDefaultTic();
@@ -96,7 +99,7 @@ class ProductTicService
         try {
             $productModel = $this->productRepository->getById($product->getId());
         } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
-            $this->logger->info(
+            $this->logger->warning(
                 'Product ID ' . $product->getId() . ' not found in repository for ' . $context . ', using default TIC'
             );
             return $this->getDefaultTic();

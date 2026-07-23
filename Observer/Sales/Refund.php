@@ -82,7 +82,7 @@ class Refund implements ObserverInterface
         } catch (\Throwable $e) {
             // Magento has already committed the refund — don't let a TaxCloud
             // failure surface to the admin user.
-            $this->tclogger->info('returnOrder threw exception: ' . $e->getMessage());
+            $this->tclogger->error('returnOrder threw exception: ' . $e->getMessage());
         }
     }
 }

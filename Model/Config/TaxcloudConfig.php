@@ -44,6 +44,19 @@ class TaxcloudConfig
     public const DEFAULT_WSDL_URL = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
 
     /**#@+
+     * Logging modes stored under XML_PATH_LOGGING.
+     *
+     * BASIC (1) is the pre-existing "Enable" value, so installs upgraded from
+     * the two-state flag keep logging exactly what they logged before.
+     * ADVANCED additionally emits debug-level records: full request/response
+     * payloads, SOAP wire traces, and timing.
+     */
+    public const LOGGING_DISABLED = 0;
+    public const LOGGING_BASIC = 1;
+    public const LOGGING_ADVANCED = 2;
+    /**#@-*/
+
+    /**#@+
      * Store-config paths.
      */
     public const XML_PATH_ENABLED = 'tax/taxcloud_settings/enabled';
@@ -81,13 +94,40 @@ class TaxcloudConfig
     }
 
     /**
-     * Whether TaxCloud request/response logging is enabled.
+     * Configured logging mode (one of the LOGGING_* constants).
+     *
+     * Unknown stored values collapse to BASIC rather than ADVANCED so a
+     * corrupted row can never silently turn on payload logging.
+     *
+     * @return int
+     */
+    public function getLoggingMode(): int
+    {
+        $mode = (int) $this->scopeConfig->getValue(self::XML_PATH_LOGGING, ScopeInterface::SCOPE_STORE);
+        if (!in_array($mode, [self::LOGGING_DISABLED, self::LOGGING_BASIC, self::LOGGING_ADVANCED], true)) {
+            return self::LOGGING_BASIC;
+        }
+        return $mode;
+    }
+
+    /**
+     * Whether TaxCloud logging is enabled at all (Basic or Advanced).
      *
      * @return bool
      */
     public function isLoggingEnabled(): bool
     {
-        return (bool) $this->scopeConfig->getValue(self::XML_PATH_LOGGING, ScopeInterface::SCOPE_STORE);
+        return $this->getLoggingMode() !== self::LOGGING_DISABLED;
+    }
+
+    /**
+     * Whether Advanced logging is enabled (payload dumps, SOAP wire traces).
+     *
+     * @return bool
+     */
+    public function isAdvancedLoggingEnabled(): bool
+    {
+        return $this->getLoggingMode() === self::LOGGING_ADVANCED;
     }
 
     /**

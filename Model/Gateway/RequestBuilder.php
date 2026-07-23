@@ -110,7 +110,7 @@ class RequestBuilder
 
         // Validate the parsed ZIP code
         if (!PostalCodeParser::isValid($parsedZip)) {
-            $this->logger->info('Invalid origin ZIP code format: ' . $originPostcode);
+            $this->logger->warning('Invalid origin ZIP code format: ' . $originPostcode);
             // For origin address, we need a valid ZIP code - return null to indicate invalid origin
             return null;
         }

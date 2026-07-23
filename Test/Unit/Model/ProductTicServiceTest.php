@@ -92,7 +92,7 @@ class ProductTicServiceTest extends TestCase
             ->willReturn('00000');
 
         $this->logger->expects($this->once())
-            ->method('info')
+            ->method('warning')
             ->with('Product not found for item DELETED_SKU in testContext, using default TIC');
 
         $result = $this->productTicService->getProductTic($item, 'testContext');
@@ -117,7 +117,7 @@ class ProductTicServiceTest extends TestCase
             ->willReturn('00000');
 
         $this->logger->expects($this->once())
-            ->method('info')
+            ->method('warning')
             ->with('Product not found for item NO_ID_SKU in testContext, using default TIC');
 
         $result = $this->productTicService->getProductTic($item, 'testContext');
@@ -166,7 +166,7 @@ class ProductTicServiceTest extends TestCase
             ->willReturn('00000');
 
         $this->logger->expects($this->once())
-            ->method('info')
+            ->method('warning')
             ->with('Product not found for item TEST_SKU in , using default TIC');
 
         $result = $this->productTicService->getProductTic($item, '');
@@ -281,7 +281,7 @@ class ProductTicServiceTest extends TestCase
             ->willReturn('00000');
 
         $this->logger->expects($this->once())
-            ->method('info')
+            ->method('warning')
             ->with('Product ID 999 not found in repository for returnOrder, using default TIC');
 
         $result = $this->productTicService->getProductTic($item, 'returnOrder');

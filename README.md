@@ -187,7 +187,12 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 ![TaxCloud Settings](docs/images/configuration-admin-settings.png)
 
 * **Enabled** - Select `Enabled` in order to enable the TaxCloud module.
-* **Logging Enabled** - Useful for debugging and testing, select `Enabled` in order to log all TaxCloud API calls into `var/log/taxcloud.log`. Make sure to set up log rotation if you keep this option enabled during production! Your TaxCloud `apiLoginID` and `apiKey` are redacted in the log file: the field names still appear, but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.). The log file location is configurable — see [Changing the log file location](#changing-the-log-file-location).
+* **Logging** - Writes TaxCloud activity to `var/log/taxcloud.log`. Three modes:
+  * `Enable - Basic` - lifecycle events, decisions and errors: which observers ran, which API operations were called, cache hits, early exits (invalid ZIP, non-US address, …) and every warning/error. Enough to confirm the extension works and events trigger, at low log volume. This is the mode pre-existing installs land on after upgrading from the old `Enabled` value.
+  * `Enable - Advanced` - everything in Basic, plus debug-level detail for support and troubleshooting: the full API request/response payloads, the raw SOAP request/response XML and HTTP headers as sent over the wire, per-call timing, and cache/context detail. Make sure to set up log rotation if you keep this mode enabled in production!
+  * `Disable` - no TaxCloud logging.
+
+  In every mode your TaxCloud `apiLoginID` and `apiKey` are redacted: the field names still appear (in both the params dumps and the raw XML), but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.). The log file location is configurable — see [Changing the log file location](#changing-the-log-file-location).
 * **Verify Address** - Select `Enabled` to turn on TaxCloud's address verification API calls. You may want to disable this if you have another module that validates shipping addresses.
 * **API ID** - Enter your API ID from your TaxCloud account.
 * **API Key** - Enter your API Key from your TaxCloud account.
@@ -384,7 +389,7 @@ The path is relative to the Magento base directory, and the log directory is cre
 
 Two things to keep in mind:
 
-* Whatever path you choose inherits the same rotation caveat as the default — see **Logging Enabled** under *TaxCloud Settings*.
+* Whatever path you choose inherits the same rotation caveat as the default — see **Logging** under *TaxCloud Settings*.
 * Credential redaction happens before records reach the handler, so `apiLoginID` and `apiKey` stay redacted at any destination.
 
 ## Automated Deployment

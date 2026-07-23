@@ -196,10 +196,11 @@ class MagentoTaxFallback
                 }
             }
 
-            $this->logger->info('Successfully calculated Magento tax rates: ' . json_encode($result));
+            $this->logger->info('Successfully calculated Magento tax rates');
+            $this->logger->debug('Magento fallback tax rates: ' . json_encode($result));
             return $result;
         } catch (\Throwable $e) {
-            $this->logger->info('Error calculating Magento tax rates: ' . $e->getMessage());
+            $this->logger->error('Error calculating Magento tax rates: ' . $e->getMessage());
             return $result;
         }
     }

@@ -62,6 +62,36 @@ class TaxcloudConfigTest extends TestCase
         $this->assertFalse($config->isFallbackToMagentoEnabled());
     }
 
+    /**
+     * @dataProvider loggingModeProvider
+     */
+    #[DataProvider('loggingModeProvider')]
+    public function testLoggingModeAccessors($stored, int $mode, bool $enabled, bool $advanced, string $message)
+    {
+        $map = $stored === null ? [] : [self::value(TaxcloudConfig::XML_PATH_LOGGING, $stored)];
+        $config = $this->config($map);
+
+        $this->assertSame($mode, $config->getLoggingMode(), $message);
+        $this->assertSame($enabled, $config->isLoggingEnabled(), $message);
+        $this->assertSame($advanced, $config->isAdvancedLoggingEnabled(), $message);
+    }
+
+    public static function loggingModeProvider(): array
+    {
+        return [
+            'unset stays disabled' => [null, TaxcloudConfig::LOGGING_DISABLED, false, false,
+                'no stored value must not log'],
+            'disabled' => ['0', TaxcloudConfig::LOGGING_DISABLED, false, false,
+                'stored 0 stays disabled'],
+            'legacy enable is basic' => ['1', TaxcloudConfig::LOGGING_BASIC, true, false,
+                'the pre-upgrade "Enable" value must keep exactly Basic behavior'],
+            'advanced' => ['2', TaxcloudConfig::LOGGING_ADVANCED, true, true,
+                'stored 2 is advanced'],
+            'unknown value collapses to basic' => ['7', TaxcloudConfig::LOGGING_BASIC, true, false,
+                'a corrupted row must never silently enable payload logging'],
+        ];
+    }
+
     public function testGuestCustomerIdDefaultsToMinusOne()
     {
         $config = $this->config([]); // getValue returns null

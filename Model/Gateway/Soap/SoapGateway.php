@@ -78,6 +78,9 @@ class SoapGateway implements SoapClientProviderInterface
      *   doesn't hang the checkout thread for default_socket_timeout (~60s).
      * - cache_wsdl => WSDL_CACHE_BOTH: cache the WSDL in memory and on disk so
      *   we don't refetch api.taxcloud.net's WSDL on every client construction.
+     * - trace (Advanced logging only): buffer the raw request/response XML so
+     *   call sites can log the actual wire traffic via __getLastRequest()/
+     *   __getLastResponse(). Off otherwise — the buffers cost memory per call.
      *
      * @return array
      */
@@ -85,7 +88,7 @@ class SoapGateway implements SoapClientProviderInterface
     {
         $timeout = $this->config->getSoapTimeout();
 
-        return [
+        $options = [
             'connection_timeout' => $timeout,
             'cache_wsdl'         => WSDL_CACHE_BOTH,
             'keep_alive'         => true,
@@ -94,6 +97,12 @@ class SoapGateway implements SoapClientProviderInterface
                 'ssl'  => ['timeout' => $timeout],
             ]),
         ];
+
+        if ($this->config->isAdvancedLoggingEnabled()) {
+            $options['trace'] = true;
+        }
+
+        return $options;
     }
 
     /**
@@ -107,9 +116,13 @@ class SoapGateway implements SoapClientProviderInterface
                     $this->config->getWsdlUrl(),
                     $this->buildSoapOptions()
                 );
+                $this->logger->debug(
+                    'SoapClient created: endpoint=' . $this->config->getWsdlUrl()
+                    . ', timeout=' . $this->config->getSoapTimeout() . 's'
+                    . ', trace=' . ($this->config->isAdvancedLoggingEnabled() ? 'on' : 'off')
+                );
             } catch (Throwable $e) {
-                $this->logger->info('Cannot get SoapClient:');
-                $this->logger->info($e->getMessage());
+                $this->logger->error('Cannot get SoapClient: ' . $e->getMessage());
             }
         }
         return $this->client;

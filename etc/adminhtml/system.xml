@@ -52,10 +52,10 @@
         </field>
 
         <field id="logging" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-          <label>Logging Enabled</label>
-          <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+          <label>Logging</label>
+          <source_model>Taxcloud\Magento2\Model\Config\Source\LoggingMode</source_model>
           <config_path>tax/taxcloud_settings/logging</config_path>
-          <tooltip>Enable TaxCloud API logging at /var/log/taxcloud.log (Ensure logrotation is enabled)</tooltip>
+          <comment><![CDATA[<strong>Enable - Basic</strong>: basic information about the module's behavior, useful for day to day usage with logrotate on.<br/><strong>Enable - Advanced</strong>: logs more data, including full requests and responses. Useful for debugging, not suitable for day to day usage due to large volumes of data.<br/><strong>Disable</strong>: no logs.]]></comment>
           <depends>
             <field id="enabled">1</field>
           </depends>

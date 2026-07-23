@@ -89,7 +89,7 @@ class Address implements ObserverInterface
             $result = $this->tcapi->verifyAddress($params['destination']);
         } catch (\Throwable $e) {
             // Never block checkout on an address-verification failure.
-            $this->tclogger->info('verifyAddress threw exception, leaving address unchanged: ' . $e->getMessage());
+            $this->tclogger->warning('verifyAddress threw exception, leaving address unchanged: ' . $e->getMessage());
             return;
         }
 

@@ -18,15 +18,20 @@
 namespace Taxcloud\Magento2\Model\Logging;
 
 use Psr\Log\AbstractLogger;
+use Psr\Log\LogLevel;
 use Taxcloud\Magento2\Logger\Logger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 
 /**
- * A logger that forwards to the TaxCloud channel only when logging is enabled.
+ * A logger that forwards to the TaxCloud channel according to the logging mode.
  *
  * Centralizes the "log to taxcloud.log iff the store setting is on" rule that
  * every gateway class previously reimplemented with an inline null-object,
  * so collaborators can just depend on a logger and call it unconditionally.
+ *
+ * The Basic/Advanced split rides on PSR log levels: call sites emit payload
+ * dumps and wire traces at debug, everything else at info and above. Basic
+ * mode forwards info+ only; Advanced forwards debug too.
  */
 class GatewayLogger extends AbstractLogger
 {
@@ -55,8 +60,13 @@ class GatewayLogger extends AbstractLogger
      */
     public function log($level, string|\Stringable $message, array $context = []): void
     {
-        if ($this->config->isLoggingEnabled()) {
-            $this->inner->log($level, $message, $context);
+        $mode = $this->config->getLoggingMode();
+        if ($mode === TaxcloudConfig::LOGGING_DISABLED) {
+            return;
         }
+        if ($level === LogLevel::DEBUG && $mode !== TaxcloudConfig::LOGGING_ADVANCED) {
+            return;
+        }
+        $this->inner->log($level, $message, $context);
     }
 }

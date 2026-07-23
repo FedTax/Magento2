@@ -105,9 +105,9 @@ class RetryPolicy
                     throw $e;
                 }
                 $attempt++;
-                $this->logger->info(
+                $this->logger->warning(
                     'SOAP call failed, retrying (' . $attempt . '/' . $maxRetries
-                    . ') after backoff: ' . $e->getMessage()
+                    . ') after backoff: ' . get_class($e) . ': ' . $e->getMessage()
                 );
                 if ($this->backoffUs > 0) {
                     usleep($this->backoffUs);

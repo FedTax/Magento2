@@ -99,16 +99,18 @@ class HandlerTest extends TestCase
     }
 
     /**
-     * The handler logs at INFO rather than the framework default of DEBUG; the
-     * constructor change must not disturb that. getLevel() returns an int on
-     * Monolog 2 (Magento 2.4.7) and a Level enum on Monolog 3 (2.4.9).
+     * The handler accepts DEBUG so Advanced-mode records (payload dumps, wire
+     * traces) reach the file; whether debug records are emitted at all is
+     * GatewayLogger's decision, from the store's logging mode. getLevel()
+     * returns an int on Monolog 2 (Magento 2.4.7) and a Level enum on
+     * Monolog 3 (2.4.9).
      */
-    public function testLogLevelRemainsInfo()
+    public function testLogLevelIsDebugSoAdvancedRecordsAreNotDropped()
     {
         $level = $this->handler()->getLevel();
 
         $this->assertSame(
-            \Monolog\Logger::INFO,
+            \Monolog\Logger::DEBUG,
             $level instanceof \Monolog\Level ? $level->value : $level
         );
     }

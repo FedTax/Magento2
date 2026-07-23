@@ -150,7 +150,7 @@ class Complete implements ObserverInterface
         } catch (\Throwable $e) {
             // Non-fatal: capture already succeeded in TaxCloud. Cancel can still fall
             // back to OrderDetails if the flag was not persisted.
-            $this->tclogger->info(
+            $this->tclogger->warning(
                 'TaxCloud: could not persist taxcloud_captured for order '
                 . $order->getIncrementId() . ': ' . $e->getMessage()
             );

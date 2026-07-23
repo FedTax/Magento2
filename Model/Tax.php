@@ -128,7 +128,6 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
         // Fetch tax amount from TaxCloud
         $taxAmounts = $this->tcapi->lookupTaxes($itemsByType, $shippingAssignment, $quote);
-        // $this->tclogger->info(json_encode($taxAmounts, JSON_PRETTY_PRINT));
 
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
