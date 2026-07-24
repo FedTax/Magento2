@@ -29,7 +29,8 @@ interface AddressGatewayInterface
      * Verify and normalize a destination address.
      *
      * @param array $address Address parts (Address1, Address2, City, State, Zip5, Zip4)
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose TaxCloud config applies
      * @return array|bool Normalized address on success, false on failure
      */
-    public function verifyAddress($address);
+    public function verifyAddress($address, $store = null);
 }

@@ -15,9 +15,16 @@ export class ProductPage {
     this.successMessage = page.locator('.message-success').first();
   }
 
-  /** Open a PDP by url key (Magento appends the `.html` suffix). */
-  async open(urlKey: string): Promise<void> {
-    await this.page.goto(`/${urlKey}.html`);
+  /**
+   * Open a PDP by url key (Magento appends the `.html` suffix).
+   *
+   * With `web/url/use_store` enabled (the seeded default), pass a storeCode to
+   * open the PDP on a specific store view, e.g. 'second' -> /second/....
+   * Without one, the default store serves the bare path.
+   */
+  async open(urlKey: string, storeCode?: string): Promise<void> {
+    const prefix = storeCode ? `/${storeCode}` : '';
+    await this.page.goto(`${prefix}/${urlKey}.html`);
   }
 
   /** Click "Add to Cart" and wait for the confirmation message. */

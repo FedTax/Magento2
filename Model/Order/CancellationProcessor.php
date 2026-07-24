@@ -81,7 +81,13 @@ class CancellationProcessor
      */
     public function process(Order $order)
     {
-        if (!$this->config->isEnabled()) {
+        // Cancellations run in admin/cron contexts — gate on the ORDER's
+        // store, not the ambient (default) store view.
+        if ($this->logger instanceof \Taxcloud\Magento2\Model\Logging\GatewayLogger) {
+            $this->logger->setStore($order->getStoreId());
+        }
+
+        if (!$this->config->isEnabled($order->getStoreId())) {
             return;
         }
 

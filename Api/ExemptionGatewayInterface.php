@@ -33,7 +33,8 @@ interface ExemptionGatewayInterface
      * @param string $certificateID
      * @param string $customerID
      * @param string $destinationState Two-letter state abbreviation
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose TaxCloud account applies
      * @return string|null The certificate ID if it covers the state, null otherwise
      */
-    public function getValidatedCertificateID($certificateID, $customerID, $destinationState);
+    public function getValidatedCertificateID($certificateID, $customerID, $destinationState, $store = null);
 }

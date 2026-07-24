@@ -49,11 +49,14 @@ class SoapGateway implements SoapClientProviderInterface
     private $logger;
 
     /**
-     * Lazily-built SoapClient, cached for the lifetime of this instance.
+     * Lazily-built SoapClients, cached per store key for the lifetime of this
+     * instance. Different stores can point at different WSDL endpoints or
+     * timeouts, so a single shared client would leak one store's transport
+     * configuration into another's calls.
      *
-     * @var \SoapClient|null
+     * @var array<string, \SoapClient|null>
      */
-    private $client = null;
+    private $clients = [];
 
     /**
      * @param ClientFactory        $soapClientFactory
@@ -82,11 +85,12 @@ class SoapGateway implements SoapClientProviderInterface
      *   call sites can log the actual wire traffic via __getLastRequest()/
      *   __getLastResponse(). Off otherwise — the buffers cost memory per call.
      *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return array
      */
-    public function buildSoapOptions()
+    public function buildSoapOptions($store = null)
     {
-        $timeout = $this->config->getSoapTimeout();
+        $timeout = $this->config->getSoapTimeout($store);
 
         $options = [
             'connection_timeout' => $timeout,
@@ -98,7 +102,7 @@ class SoapGateway implements SoapClientProviderInterface
             ]),
         ];
 
-        if ($this->config->isAdvancedLoggingEnabled()) {
+        if ($this->config->isAdvancedLoggingEnabled($store)) {
             $options['trace'] = true;
         }
 
@@ -108,23 +112,45 @@ class SoapGateway implements SoapClientProviderInterface
     /**
      * @inheritDoc
      */
-    public function getClient()
+    public function getClient($store = null)
     {
-        if ($this->client === null) {
+        $storeKey = $this->storeKey($store);
+        // Only successful constructions are cached: a failed WSDL fetch is
+        // retried on the next call, matching the previous single-client behavior.
+        if (!isset($this->clients[$storeKey])) {
             try {
-                $this->client = $this->soapClientFactory->create(
-                    $this->config->getWsdlUrl(),
-                    $this->buildSoapOptions()
+                $this->clients[$storeKey] = $this->soapClientFactory->create(
+                    $this->config->getWsdlUrl($store),
+                    $this->buildSoapOptions($store)
                 );
                 $this->logger->debug(
-                    'SoapClient created: endpoint=' . $this->config->getWsdlUrl()
-                    . ', timeout=' . $this->config->getSoapTimeout() . 's'
-                    . ', trace=' . ($this->config->isAdvancedLoggingEnabled() ? 'on' : 'off')
+                    'SoapClient created: endpoint=' . $this->config->getWsdlUrl($store)
+                    . ', timeout=' . $this->config->getSoapTimeout($store) . 's'
+                    . ', trace=' . ($this->config->isAdvancedLoggingEnabled($store) ? 'on' : 'off')
+                    . ', store=' . ($storeKey === '' ? '(ambient)' : $storeKey)
                 );
             } catch (Throwable $e) {
                 $this->logger->error('Cannot get SoapClient: ' . $e->getMessage());
+                return null;
             }
         }
-        return $this->client;
+        return $this->clients[$storeKey];
+    }
+
+    /**
+     * Normalize a store argument to a cache-array key.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    private function storeKey($store)
+    {
+        if ($store === null) {
+            return '';
+        }
+        if ($store instanceof \Magento\Store\Api\Data\StoreInterface) {
+            return (string) $store->getId();
+        }
+        return (string) $store;
     }
 }

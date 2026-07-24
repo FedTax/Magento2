@@ -99,13 +99,14 @@ class RequestBuilder
      * Build the store's shipping origin address, or null when the origin ZIP
      * is missing/invalid (a lookup cannot proceed without a valid origin).
      *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose origin applies
      * @return array|null
      */
-    public function buildOrigin()
+    public function buildOrigin($store = null)
     {
         $scope = ScopeInterface::SCOPE_STORE;
 
-        $originPostcode = $this->scopeConfig->getValue('shipping/origin/postcode', $scope);
+        $originPostcode = $this->scopeConfig->getValue('shipping/origin/postcode', $scope, $store);
         $parsedZip = PostalCodeParser::parse($originPostcode);
 
         // Validate the parsed ZIP code
@@ -116,13 +117,13 @@ class RequestBuilder
         }
 
         return [
-            'Address1' => $this->scopeConfig->getValue('shipping/origin/street_line1', $scope),
-            'Address2' => $this->scopeConfig->getValue('shipping/origin/street_line2', $scope),
-            'City' => $this->scopeConfig->getValue('shipping/origin/city', $scope),
+            'Address1' => $this->scopeConfig->getValue('shipping/origin/street_line1', $scope, $store),
+            'Address2' => $this->scopeConfig->getValue('shipping/origin/street_line2', $scope, $store),
+            'City' => $this->scopeConfig->getValue('shipping/origin/city', $scope, $store),
             // Origin is configured as a bare region ID, with no address object
             // to read a code from.
             'State' => $this->regionCodeById(
-                $this->scopeConfig->getValue('shipping/origin/region_id', $scope)
+                $this->scopeConfig->getValue('shipping/origin/region_id', $scope, $store)
             ),
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
@@ -198,9 +199,10 @@ class RequestBuilder
      * @param array $itemsByType
      * @param array $keyedAddressItems Quote items keyed by tax-calculation id
      * @param \Magento\Quote\Model\Quote\Address $address
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose TIC config applies
      * @return array{cartItems: array, indexedItems: array}
      */
-    public function buildLookupCartItems($itemsByType, array $keyedAddressItems, $address)
+    public function buildLookupCartItems($itemsByType, array $keyedAddressItems, $address, $store = null)
     {
         $index = 0;
         $indexedItems = [];
@@ -216,7 +218,7 @@ class RequestBuilder
                 $cartItems[] = [
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes'),
+                    'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes', $store),
                     'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
                     'Qty' => $item->getQty(),
                 ];
@@ -232,7 +234,7 @@ class RequestBuilder
                 $cartItems[] = [
                     'ItemID' => 'shipping',
                     'Index' => $index++,
-                    'TIC' => $this->productTicService->getShippingTic(),
+                    'TIC' => $this->productTicService->getShippingTic($store),
                     'Price' => ($shippingRowTotal ?: $addressShippingAmount),
                     'Qty' => 1,
                 ];
@@ -261,10 +263,12 @@ class RequestBuilder
         array $destination,
         $certificateID
     ) {
+        $store = $quote->getStoreId();
+
         return [
-            'apiLoginID' => $this->config->getApiId(),
-            'apiKey' => $this->config->getApiKey(),
-            'customerID' => $customer->getId() ?? $this->config->getGuestCustomerId(),
+            'apiLoginID' => $this->config->getApiId($store),
+            'apiKey' => $this->config->getApiKey($store),
+            'customerID' => $customer->getId() ?? $this->config->getGuestCustomerId($store),
             'cartID' => $quote->getId(),
             'cartItems' => $cartItems,
             'origin' => $origin,
@@ -290,6 +294,7 @@ class RequestBuilder
     public function buildReturnCartItems($creditmemo)
     {
         $order = $creditmemo->getOrder();
+        $store = $order->getStoreId();
         $items = $creditmemo->getAllItems();
 
         $index = 0;
@@ -307,7 +312,7 @@ class RequestBuilder
                 $cartItems[] = [
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
+                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder', $store),
                     'Price' => $price - $discountPerUnit,
                     'Qty' => $qty,
                 ];
@@ -321,7 +326,7 @@ class RequestBuilder
             $cartItems[] = [
                 'ItemID' => 'shipping',
                 'Index' => $index,
-                'TIC' => $this->productTicService->getShippingTic(),
+                'TIC' => $this->productTicService->getShippingTic($store),
                 'Price' => $shippingAmount,
                 'Qty' => 1,
             ];
@@ -370,6 +375,7 @@ class RequestBuilder
      */
     public function buildCartItemsFromOrder($order)
     {
+        $store = $order->getStoreId();
         $cartItems = [];
         $index = 0;
         $orderItems = $order->getAllVisibleItems();
@@ -385,7 +391,7 @@ class RequestBuilder
                 $cartItems[] = [
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
+                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder', $store),
                     'Price' => $price - $discountPerUnit,
                     'Qty' => $qty,
                 ];
@@ -397,7 +403,7 @@ class RequestBuilder
             $cartItems[] = [
                 'ItemID' => 'shipping',
                 'Index' => $index,
-                'TIC' => $this->productTicService->getShippingTic(),
+                'TIC' => $this->productTicService->getShippingTic($store),
                 'Price' => $shippingAmount,
                 'Qty' => 1,
             ];
@@ -444,9 +450,11 @@ class RequestBuilder
      */
     public function buildOrderDetailsParams($order)
     {
+        $store = $order->getStoreId();
+
         return [
-            'apiLoginID' => $this->config->getApiId(),
-            'apiKey' => $this->config->getApiKey(),
+            'apiLoginID' => $this->config->getApiId($store),
+            'apiKey' => $this->config->getApiKey($store),
             'orderID' => $order->getIncrementId(),
         ];
     }
@@ -455,13 +463,14 @@ class RequestBuilder
      * Build the VerifyAddress request params from a destination address array.
      *
      * @param array $address
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose credentials apply
      * @return array
      */
-    public function buildVerifyAddressParams(array $address)
+    public function buildVerifyAddressParams(array $address, $store = null)
     {
         return [
-            'apiLoginID' => $this->config->getApiId(),
-            'apiKey' => $this->config->getApiKey(),
+            'apiLoginID' => $this->config->getApiId($store),
+            'apiKey' => $this->config->getApiKey($store),
             'address1' => $address['Address1'],
             'address2' => $address['Address2'],
             'city' => $address['City'],
@@ -480,10 +489,12 @@ class RequestBuilder
      */
     public function buildAuthorizeCaptureParams($order, $cartId = null)
     {
+        $store = $order->getStoreId();
+
         return [
-            'apiLoginID' => $this->config->getApiId(),
-            'apiKey' => $this->config->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId(),
+            'apiLoginID' => $this->config->getApiId($store),
+            'apiKey' => $this->config->getApiKey($store),
+            'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId($store),
             'cartID' => $cartId ?? $order->getQuoteId(),
             'orderID' => $order->getIncrementId(),
             'dateAuthorized' => date('c'), // date('Y-m-d') . 'T00:00:00'
@@ -500,9 +511,11 @@ class RequestBuilder
      */
     public function buildReturnParams($order, array $cartItems)
     {
+        $store = $order->getStoreId();
+
         return [
-            'apiLoginID' => $this->config->getApiId(),
-            'apiKey' => $this->config->getApiKey(),
+            'apiLoginID' => $this->config->getApiId($store),
+            'apiKey' => $this->config->getApiKey($store),
             'orderID' => $order->getIncrementId(),
             'cartItems' => $cartItems,
             'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00'
@@ -522,10 +535,12 @@ class RequestBuilder
      */
     public function buildExemptLookupParams($order, array $cartItems, array $destination, array $origin)
     {
+        $store = $order->getStoreId();
+
         return [
-            'apiLoginID' => $this->config->getApiId(),
-            'apiKey' => $this->config->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId(),
+            'apiLoginID' => $this->config->getApiId($store),
+            'apiKey' => $this->config->getApiKey($store),
+            'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId($store),
             'cartID' => $order->getIncrementId() . '-exempt',
             'cartItems' => $cartItems,
             'origin' => $origin,

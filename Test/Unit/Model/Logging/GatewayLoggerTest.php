@@ -119,4 +119,39 @@ class GatewayLoggerTest extends TestCase
             'only messages logged while the mode allowed them may reach the channel'
         );
     }
+
+    /**
+     * The mode resolves against the store bound via setStore(): an operation
+     * for a store with logging on must log even when the ambient (null-store)
+     * scope has logging off, and vice versa. This is what lets admin-context
+     * operations honor the ORDER's store logging setting.
+     */
+    public function testModeResolvesAgainstTheStoreSetViaSetStore()
+    {
+        $inner = $this->createMock(Logger::class);
+
+        $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            [TaxcloudConfig::XML_PATH_LOGGING, \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+            [TaxcloudConfig::XML_PATH_LOGGING, \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 2, '1'],
+        ]);
+        $config = new TaxcloudConfig($scopeConfig);
+
+        $forwarded = [];
+        $inner->method('log')->willReturnCallback(function ($level, $message) use (&$forwarded) {
+            $forwarded[] = $message;
+        });
+
+        $logger = new GatewayLogger($inner, $config);
+
+        $logger->info('ambient store, logging off');
+
+        $logger->setStore(2);
+        $logger->info('store 2, logging on');
+
+        $logger->setStore(null);
+        $logger->info('back to ambient, logging off again');
+
+        $this->assertSame(['store 2, logging on'], $forwarded);
+    }
 }

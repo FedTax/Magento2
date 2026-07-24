@@ -19,16 +19,18 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 
 class Address implements ObserverInterface
 {
 
     /**
-     * Core store config
+     * TaxCloud store-scoped configuration reader
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
+     * @var TaxcloudConfig
      */
-    protected $scopeConfig = null;
+    protected $config;
 
     /**
      * TaxCloud address-verification gateway
@@ -45,16 +47,16 @@ class Address implements ObserverInterface
     protected $tclogger;
 
     /**
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
+     * @param TaxcloudConfig $config
      * @param \Taxcloud\Magento2\Api\AddressGatewayInterface $tcapi
      * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      */
     public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
+        TaxcloudConfig $config,
         \Taxcloud\Magento2\Api\AddressGatewayInterface $tcapi,
         \Psr\Log\LoggerInterface $tclogger
     ) {
-        $this->scopeConfig = $scopeConfig;
+        $this->config = $config;
         $this->tcapi = $tcapi;
 
         $this->tclogger = $tclogger;
@@ -66,17 +68,22 @@ class Address implements ObserverInterface
     public function execute(
         Observer $observer
     ) {
-        if (!$this->scopeConfig->getValue(
-            'tax/taxcloud_settings/enabled',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        )) {
+        // The taxcloud_lookup_before payload carries the quote (see
+        // Model/Api.php lookupTaxes); enabled/verify_address must be read
+        // against ITS store — admin order creation runs with the default
+        // store view as the ambient store.
+        $quote = $observer->getEvent()->getQuote();
+        $storeId = $quote ? $quote->getStoreId() : null;
+
+        if ($this->tclogger instanceof GatewayLogger) {
+            $this->tclogger->setStore($storeId);
+        }
+
+        if (!$this->config->isEnabled($storeId)) {
             return;
         }
 
-        if (!$this->scopeConfig->getValue(
-            'tax/taxcloud_settings/verify_address',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        )) {
+        if (!$this->config->isVerifyAddressEnabled($storeId)) {
             return;
         }
 
@@ -86,7 +93,7 @@ class Address implements ObserverInterface
         $params = $obj->getParams();
 
         try {
-            $result = $this->tcapi->verifyAddress($params['destination']);
+            $result = $this->tcapi->verifyAddress($params['destination'], $storeId);
         } catch (\Throwable $e) {
             // Never block checkout on an address-verification failure.
             $this->tclogger->warning('verifyAddress threw exception, leaving address unchanged: ' . $e->getMessage());

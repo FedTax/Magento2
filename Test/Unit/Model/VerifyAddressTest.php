@@ -209,7 +209,7 @@ class VerifyAddressTest extends TestCase
         // touching the network. Mirrors what production sees when the
         // TaxCloud WSDL fetch in getClient() fails.
         $api = new class (...$this->gatewayApiCollaborators($this->leafMocks())) extends Api {
-            public function getClient()
+            public function getClient($store = null)
             {
                 return null;
             }

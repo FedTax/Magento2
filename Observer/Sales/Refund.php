@@ -19,16 +19,18 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 
 class Refund implements ObserverInterface
 {
 
     /**
-     * Core store config
+     * TaxCloud store-scoped configuration reader
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
+     * @var TaxcloudConfig
      */
-    protected $scopeConfig = null;
+    protected $config;
 
     /**
      * TaxCloud order-lifecycle gateway
@@ -45,16 +47,16 @@ class Refund implements ObserverInterface
     protected $tclogger;
 
     /**
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
+     * @param TaxcloudConfig $config
      * @param \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi
      * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      */
     public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
+        TaxcloudConfig $config,
         \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi,
         \Psr\Log\LoggerInterface $tclogger
     ) {
-        $this->scopeConfig = $scopeConfig;
+        $this->config = $config;
         $this->tcapi = $tcapi;
 
         $this->tclogger = $tclogger;
@@ -66,16 +68,20 @@ class Refund implements ObserverInterface
     public function execute(
         Observer $observer
     ) {
-        if (!$this->scopeConfig->getValue(
-            'tax/taxcloud_settings/enabled',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        )) {
+        // Credit memos are issued from the admin, where the ambient store is
+        // the default store view — gate on the ORDER's store instead.
+        $creditmemo = $observer->getEvent()->getCreditmemo();
+        $storeId = $creditmemo->getOrder()->getStoreId();
+
+        if ($this->tclogger instanceof GatewayLogger) {
+            $this->tclogger->setStore($storeId);
+        }
+
+        if (!$this->config->isEnabled($storeId)) {
             return;
         }
 
         $this->tclogger->info('Running Observer sales_order_creditmemo_refund');
-
-        $creditmemo = $observer->getEvent()->getCreditmemo();
 
         try {
             $this->tcapi->returnOrder($creditmemo);

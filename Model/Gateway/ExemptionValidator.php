@@ -102,9 +102,10 @@ class ExemptionValidator
      * @param string $certificateID
      * @param string $customerID
      * @param string $destinationState Two-letter state abbreviation
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose TaxCloud account applies
      * @return string|null
      */
-    public function validate($certificateID, $customerID, $destinationState)
+    public function validate($certificateID, $customerID, $destinationState, $store = null)
     {
         if (empty($certificateID) || empty($customerID) || empty($destinationState)) {
             return null;
@@ -112,8 +113,13 @@ class ExemptionValidator
 
         // Keyed per (customer, certificate) so a customer who pastes another
         // customer's certificate UUID into their own profile cannot reuse the
-        // other customer's cached state list.
-        $cacheKey = $this->cacheKeyBuilder->forExemptCertStates($customerID, $certificateID);
+        // other customer's cached state list — and per TaxCloud account, so
+        // stores configured with different accounts never share entries.
+        $cacheKey = $this->cacheKeyBuilder->forExemptCertStates(
+            $customerID,
+            $certificateID,
+            (string) $this->config->getApiId($store)
+        );
         $cached = $this->cacheType->load($cacheKey);
         if ($cached) {
             $exemptStates = json_decode($cached, true);
@@ -128,7 +134,7 @@ class ExemptionValidator
         }
 
         // Fetch certificate details from TaxCloud
-        $client = $this->soapClientProvider->getClient();
+        $client = $this->soapClientProvider->getClient($store);
         if (!$client) {
             $this->logger->error('Cannot validate exemption cert: no SOAP client');
             return null;
@@ -138,18 +144,18 @@ class ExemptionValidator
 
         try {
             $response = $client->GetExemptCertificates([
-                'apiLoginID' => $this->config->getApiId(),
-                'apiKey'     => $this->config->getApiKey(),
+                'apiLoginID' => $this->config->getApiId($store),
+                'apiKey'     => $this->config->getApiKey($store),
                 'customerID' => $customerID,
             ]);
         } catch (Throwable $e) {
             // Fail closed — don't apply an unverified exemption
             $this->logger->error('GetExemptCertificates SOAP error: ' . $e->getMessage());
-            $this->logSoapTrace($client);
+            $this->logSoapTrace($client, $store);
             return null;
         }
 
-        $this->logSoapTrace($client);
+        $this->logSoapTrace($client, $store);
 
         $exemptStates = $this->responseMapper->extractExemptStates($response, $certificateID);
 
@@ -176,11 +182,12 @@ class ExemptionValidator
      * under the same Advanced setting.
      *
      * @param \SoapClient|object $client
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return void
      */
-    private function logSoapTrace($client)
+    private function logSoapTrace($client, $store = null)
     {
-        if (!$this->config->isAdvancedLoggingEnabled()) {
+        if (!$this->config->isAdvancedLoggingEnabled($store)) {
             return;
         }
         if (!$client instanceof \SoapClient) {

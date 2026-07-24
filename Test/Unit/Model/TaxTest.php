@@ -106,7 +106,7 @@ class TaxTest extends TestCase
                 $this->customerAddressFactory,
                 $this->customerAddressRegionFactory,
                 $this->taxData,
-                $this->scopeConfig,
+                new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($this->scopeConfig),
                 $this->tcapi,
                 $this->tclogger,
                 $this->serializer,
@@ -130,10 +130,14 @@ class TaxTest extends TestCase
      */
     private function configureTaxCloudEnabled($logging = false)
     {
+        // The enabled flag is read against the QUOTE's store (id 1 in
+        // createMockQuote), not the ambient store — the null-scope entry stays
+        // so a regression back to ambient resolution reads enabled=0 and fails.
         $this->scopeConfig->method('getValue')
             ->willReturnMap([
-                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
-                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, $logging ? '1' : '0']
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, $logging ? '1' : '0']
             ]);
 
         $this->createTaxInstance();
@@ -993,8 +997,8 @@ class TaxTest extends TestCase
     {
         $this->scopeConfig->method('getValue')
             ->willReturnMap([
-                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
-                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
             ]);
         // scopeConfig is configured directly here (module disabled), so build Tax now.
         $this->createTaxInstance();

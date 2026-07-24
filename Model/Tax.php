@@ -25,11 +25,11 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 {
 
     /**
-     * Magento Config Object
+     * TaxCloud store-scoped configuration reader
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
+     * @var \Taxcloud\Magento2\Model\Config\TaxcloudConfig
      */
-    protected $scopeConfig = null;
+    protected $taxcloudConfig;
 
     /**
      * TaxCloud tax-lookup gateway
@@ -56,7 +56,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
      * @param \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory
      * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
      * @param \Magento\Tax\Helper\Data $taxData
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
+     * @param \Taxcloud\Magento2\Model\Config\TaxcloudConfig $taxcloudConfig
      * @param \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi
      * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      * @param \Magento\Framework\Serialize\Serializer\Json $serializer
@@ -70,12 +70,12 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
         \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
         \Magento\Tax\Helper\Data $taxData,
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
+        \Taxcloud\Magento2\Model\Config\TaxcloudConfig $taxcloudConfig,
         \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi,
         \Psr\Log\LoggerInterface $tclogger,
         ?\Magento\Framework\Serialize\Serializer\Json $serializer = null
     ) {
-        $this->scopeConfig = $scopeConfig;
+        $this->taxcloudConfig = $taxcloudConfig;
         $this->tcapi = $tcapi;
 
         $this->tclogger = $tclogger;
@@ -108,10 +108,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Quote\Model\Quote\Address\Total $total
     ) {
 
-        if (!$this->scopeConfig->getValue(
-            'tax/taxcloud_settings/enabled',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        )) {
+        // Resolve against the QUOTE's store, not the ambient request store:
+        // in admin/API contexts (admin order creation, webhooks) the ambient
+        // store is the default store view, not the store this cart belongs to.
+        if (!$this->taxcloudConfig->isEnabled($quote->getStoreId())) {
             return parent::collect($quote, $shippingAssignment, $total);
         }
 

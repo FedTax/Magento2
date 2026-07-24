@@ -19,7 +19,9 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
+use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 
 class Complete implements ObserverInterface
 {
@@ -33,11 +35,11 @@ class Complete implements ObserverInterface
     public const EVENT_SHIPMENT_SAVE_AFTER = 'sales_order_shipment_save_after';
 
     /**
-     * Core store config
+     * TaxCloud store-scoped configuration reader
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
+     * @var TaxcloudConfig
      */
-    protected $scopeConfig = null;
+    protected $config;
 
     /**
      * TaxCloud order-lifecycle gateway
@@ -62,18 +64,18 @@ class Complete implements ObserverInterface
     protected $orderResource;
 
     /**
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
+     * @param TaxcloudConfig $config
      * @param \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi
      * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      * @param \Magento\Sales\Model\ResourceModel\Order $orderResource
      */
     public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
+        TaxcloudConfig $config,
         \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi,
         \Psr\Log\LoggerInterface $tclogger,
         \Magento\Sales\Model\ResourceModel\Order $orderResource
     ) {
-        $this->scopeConfig = $scopeConfig;
+        $this->config = $config;
         $this->tcapi = $tcapi;
         $this->orderResource = $orderResource;
 
@@ -99,21 +101,28 @@ class Complete implements ObserverInterface
     public function execute(
         Observer $observer
     ) {
-        if (!$this->scopeConfig->getValue(
-            'tax/taxcloud_settings/enabled',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        )) {
+        // Resolve the order FIRST: enabled and capture_trigger must be read
+        // against the ORDER's store, not the ambient request store. This
+        // observer runs in admin/cron/webhook contexts where the ambient store
+        // is the default store view — for a store that disables TaxCloud (or
+        // configures a different trigger) at store scope, the default's values
+        // would otherwise silently apply.
+        $eventName = $observer->getEvent()->getName();
+        $order = $this->getOrderFromObserver($observer, $eventName);
+        if (!$order) {
             return;
         }
 
-        $eventName = $observer->getEvent()->getName();
-        $configuredTrigger = $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/capture_trigger',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-        if ($configuredTrigger === null || $configuredTrigger === '') {
-            $configuredTrigger = CaptureTrigger::ORDER_CREATION;
+        $storeId = $order->getStoreId();
+        if ($this->tclogger instanceof GatewayLogger) {
+            $this->tclogger->setStore($storeId);
         }
+
+        if (!$this->config->isEnabled($storeId)) {
+            return;
+        }
+
+        $configuredTrigger = $this->config->getCaptureTrigger($storeId);
 
         $expectedEvent = isset(self::$triggerToEvent[$configuredTrigger])
             ? self::$triggerToEvent[$configuredTrigger]
@@ -124,11 +133,6 @@ class Complete implements ObserverInterface
         }
 
         $this->tclogger->info('Running Observer ' . $eventName . ' (capture trigger: ' . $configuredTrigger . ')');
-
-        $order = $this->getOrderFromObserver($observer, $eventName);
-        if (!$order) {
-            return;
-        }
 
         if ($this->tcapi->authorizeCapture($order)) {
             $this->markCapturedInTaxcloud($order);

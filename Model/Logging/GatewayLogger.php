@@ -32,6 +32,13 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
  * The Basic/Advanced split rides on PSR log levels: call sites emit payload
  * dumps and wire traces at debug, everything else at info and above. Basic
  * mode forwards info+ only; Advanced forwards debug too.
+ *
+ * The logging mode is re-read on every call, against the store set via
+ * setStore(). Operation entry points (the tax collector, the sales observers,
+ * the gateway's public methods) set the current order's/quote's store there;
+ * with no store set, the mode falls back to the ambient request store —
+ * which in admin/cron contexts is the default store view, not the store of
+ * the entity being processed.
  */
 class GatewayLogger extends AbstractLogger
 {
@@ -46,6 +53,13 @@ class GatewayLogger extends AbstractLogger
     private $config;
 
     /**
+     * Store the logging mode is resolved against (id, code, or store object).
+     *
+     * @var int|string|\Magento\Store\Api\Data\StoreInterface|null
+     */
+    private $store = null;
+
+    /**
      * @param Logger         $inner
      * @param TaxcloudConfig $config
      */
@@ -56,11 +70,26 @@ class GatewayLogger extends AbstractLogger
     }
 
     /**
+     * Bind subsequent log calls to a store's logging configuration.
+     *
+     * This instance is shared (DI singleton), so setting the store at an
+     * operation's entry point scopes every downstream collaborator's log call
+     * to the same store without threading it through each logging statement.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Null resets to the ambient store
+     * @return void
+     */
+    public function setStore($store): void
+    {
+        $this->store = $store;
+    }
+
+    /**
      * @inheritDoc
      */
     public function log($level, string|\Stringable $message, array $context = []): void
     {
-        $mode = $this->config->getLoggingMode();
+        $mode = $this->config->getLoggingMode($this->store);
         if ($mode === TaxcloudConfig::LOGGING_DISABLED) {
             return;
         }

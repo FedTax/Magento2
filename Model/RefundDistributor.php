@@ -168,6 +168,7 @@ class RefundDistributor
      */
     private function buildRemainingItems($order)
     {
+        $store = $order->getStoreId();
         $remaining = [];
 
         foreach ($order->getAllItems() as $item) {
@@ -195,7 +196,7 @@ class RefundDistributor
 
             $remaining[] = [
                 'ItemID' => $item->getSku(),
-                'TIC'    => $this->productTicService->getProductTic($item, 'returnOrderDistribute'),
+                'TIC'    => $this->productTicService->getProductTic($item, 'returnOrderDistribute', $store),
                 'price'  => $effectivePrice,
                 'qty'    => $remainingQty,
             ];
@@ -207,7 +208,7 @@ class RefundDistributor
         if ($remainingShipping > 0) {
             $remaining[] = [
                 'ItemID' => 'shipping',
-                'TIC'    => $this->productTicService->getShippingTic(),
+                'TIC'    => $this->productTicService->getShippingTic($store),
                 'price'  => $remainingShipping,
                 'qty'    => 1.0,
             ];

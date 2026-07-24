@@ -30,17 +30,25 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 class CompleteTest extends TestCase
 {
     /**
-     * Build a scopeConfig mock honoring the given enabled flag and capture_trigger.
+     * Store id carried by every order built in this test. The config map is
+     * keyed on it, so a regression back to ambient-store (null-scope) config
+     * reads resolves enabled to null and the tests fail.
      */
-    private function buildScopeConfig($enabled, $captureTrigger): ScopeConfigInterface
+    private const ORDER_STORE_ID = 2;
+
+    /**
+     * Build a TaxcloudConfig whose store-2-scoped values honor the given
+     * enabled flag and capture_trigger.
+     */
+    private function buildScopeConfig($enabled, $captureTrigger): \Taxcloud\Magento2\Model\Config\TaxcloudConfig
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap([
-            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, $enabled],
-            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
-            ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, $captureTrigger],
+            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, $enabled],
+            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
+            ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, $captureTrigger],
         ]);
-        return $scopeConfig;
+        return new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($scopeConfig);
     }
 
     /**
@@ -79,6 +87,7 @@ class CompleteTest extends TestCase
     private function buildOrder(int $invoiceCollectionSize = 0, int $shipmentCollectionSize = 0): Order
     {
         $order = $this->createMock(Order::class);
+        $order->method('getStoreId')->willReturn(self::ORDER_STORE_ID);
         $invoiceCollection = $this->createMock(\Magento\Sales\Model\ResourceModel\Order\Invoice\Collection::class);
         $invoiceCollection->method('getSize')->willReturn($invoiceCollectionSize);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
@@ -307,10 +316,11 @@ class CompleteTest extends TestCase
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap([
-            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
-            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
-            ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, CaptureTrigger::ORDER_CREATION],
+            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '1'],
+            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
+            ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, CaptureTrigger::ORDER_CREATION],
         ]);
+        $config = new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($scopeConfig);
 
         $order = $this->buildOrder();
         $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
@@ -322,12 +332,9 @@ class CompleteTest extends TestCase
         $channel->expects($this->never())->method('log');
         $channel->expects($this->never())->method('info');
 
-        $gatedLogger = new \Taxcloud\Magento2\Model\Logging\GatewayLogger(
-            $channel,
-            new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($scopeConfig)
-        );
+        $gatedLogger = new \Taxcloud\Magento2\Model\Logging\GatewayLogger($channel, $config);
 
-        (new Complete($scopeConfig, $tcapi, $gatedLogger, $this->makeOrderResource()))->execute($observer);
+        (new Complete($config, $tcapi, $gatedLogger, $this->makeOrderResource()))->execute($observer);
     }
 
     /**

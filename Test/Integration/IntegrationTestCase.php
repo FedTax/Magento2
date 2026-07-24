@@ -82,12 +82,30 @@ abstract class IntegrationTestCase extends TestCase
         \Taxcloud\Magento2\Model\Api::class,
         \Taxcloud\Magento2\Model\Tax::class,
         \Taxcloud\Magento2\Observer\Sales\Complete::class,
-        \Taxcloud\Magento2\Observer\Sales\Cancel::class,
         \Taxcloud\Magento2\Observer\Sales\Refund::class,
         \Taxcloud\Magento2\Observer\Sales\Address::class,
+        // Cancellation runs through a plugin, not an observer: the plugin holds
+        // the processor, the processor holds the gateway (Api). Both cached
+        // singletons must be evicted or a cancel reversal talks to a client
+        // from an earlier test's mock.
+        \Taxcloud\Magento2\Model\Order\CancellationProcessor::class,
+        \Taxcloud\Magento2\Plugin\Sales\OrderCancellation::class,
     ];
 
+    /** Store view code created by scripts/seed-test-data.php (TaxCloud disabled there). */
+    protected const SECOND_STORE_CODE = 'second';
+
     private ?RecordingSoapClient $soapClient = null;
+
+    /**
+     * Prior core_config_data state for every row written via
+     * {@see setScopedConfig()}, keyed "scope|scopeId|path". Restored (or
+     * deleted, when the row didn't exist) in tearDown so config changes never
+     * leak across tests.
+     *
+     * @var array<string, array{scope: string, scopeId: int, path: string, value: string|null}>
+     */
+    private array $configSnapshots = [];
 
     protected function setUp(): void
     {
@@ -101,6 +119,12 @@ abstract class IntegrationTestCase extends TestCase
         } catch (\Magento\Framework\Exception\LocalizedException $e) {
             // Area code already set by an earlier test — fine.
         }
+    }
+
+    protected function tearDown(): void
+    {
+        $this->restoreScopedConfig();
+        parent::tearDown();
     }
 
     // -- ObjectManager access --------------------------------------------------
@@ -168,6 +192,13 @@ abstract class IntegrationTestCase extends TestCase
         // (its freshly-evicted Api) instead of the first test's client.
         $this->resetTotalsCollector();
 
+        // Plugin instances are ALSO cached inside the shared PluginList
+        // (Interception\PluginList::$_pluginInstances), independently of the
+        // ObjectManager's shared-instance array. Without clearing it, the
+        // OrderCancellation plugin (and its processor -> gateway chain) built
+        // around the FIRST test's mock keeps serving every later cancel.
+        $this->resetPluginInstances();
+
         // lookup/verifyAddress results are cached (cache_lifetime defaults to
         // 86400s, in Redis) keyed by request hash — and an unsaved quote has a
         // null cartID, so the key collides across tests. Flush the TaxCloud cache
@@ -177,6 +208,25 @@ abstract class IntegrationTestCase extends TestCase
         $this->get(\Taxcloud\Magento2\Model\Cache\Type\Taxcloud::class)->clean();
 
         return $client;
+    }
+
+    /**
+     * Clear the interception layer's cached plugin instances so plugins are
+     * re-resolved from the (freshly mutated) ObjectManager on next use.
+     */
+    private function resetPluginInstances(): void
+    {
+        $pluginList = $this->get(\Magento\Framework\Interception\PluginListInterface::class);
+        if (!$pluginList instanceof \Magento\Framework\Interception\PluginList\PluginList) {
+            return;
+        }
+        \Closure::bind(
+            function () {
+                $this->_pluginInstances = [];
+            },
+            $pluginList,
+            \Magento\Framework\Interception\PluginList\PluginList::class
+        )();
     }
 
     /**
@@ -281,6 +331,101 @@ abstract class IntegrationTestCase extends TestCase
         $this->writeConfig('tax/taxcloud_settings/capture_trigger', $value);
     }
 
+    /**
+     * Write (or delete, with $value = null) a core_config_data row at an
+     * arbitrary scope, snapshotting the prior state so tearDown restores it
+     * exactly — including deleting rows that didn't exist before. This is what
+     * multi-store tests use to flip per-store values without leaking config
+     * into later tests.
+     *
+     * @param string      $path      e.g. 'tax/taxcloud_settings/enabled'
+     * @param string|null $value     null deletes the row
+     * @param string      $scopeType 'default', 'websites' or 'stores'
+     * @param int         $scopeId   0 for default scope
+     */
+    protected function setScopedConfig(
+        string $path,
+        ?string $value,
+        string $scopeType = 'default',
+        int $scopeId = 0
+    ): void {
+        $key = $scopeType . '|' . $scopeId . '|' . $path;
+        if (!array_key_exists($key, $this->configSnapshots)) {
+            $this->configSnapshots[$key] = [
+                'scope'   => $scopeType,
+                'scopeId' => $scopeId,
+                'path'    => $path,
+                'value'   => $this->readConfigRow($path, $scopeType, $scopeId),
+            ];
+        }
+
+        $this->applyConfigRow($path, $value, $scopeType, $scopeId);
+        $this->get(ReinitableConfigInterface::class)->reinit();
+    }
+
+    /**
+     * Convenience: store-scope write for the seeded second store view.
+     */
+    protected function setSecondStoreConfig(string $path, ?string $value): void
+    {
+        $this->setScopedConfig($path, $value, 'stores', $this->secondStoreId());
+    }
+
+    /**
+     * The seeded second store view's id (resolved, not hard-coded).
+     */
+    protected function secondStoreId(): int
+    {
+        return (int) $this->get(StoreManagerInterface::class)
+            ->getStore(self::SECOND_STORE_CODE)
+            ->getId();
+    }
+
+    /**
+     * The raw core_config_data value at exactly this scope row, or null when
+     * absent. Reads the DB directly — scopeConfig would apply fallback.
+     */
+    private function readConfigRow(string $path, string $scopeType, int $scopeId): ?string
+    {
+        $connection = $this->get(\Magento\Framework\App\ResourceConnection::class)->getConnection();
+        $select = $connection->select()
+            ->from($connection->getTableName('core_config_data'), ['value'])
+            ->where('scope = ?', $scopeType)
+            ->where('scope_id = ?', $scopeId)
+            ->where('path = ?', $path);
+        $value = $connection->fetchOne($select);
+
+        return $value === false ? null : (string) $value;
+    }
+
+    private function applyConfigRow(string $path, ?string $value, string $scopeType, int $scopeId): void
+    {
+        /** @var \Magento\Framework\App\Config\Storage\WriterInterface $writer */
+        $writer = $this->get(\Magento\Framework\App\Config\Storage\WriterInterface::class);
+        if ($value === null) {
+            $writer->delete($path, $scopeType, $scopeId);
+        } else {
+            $writer->save($path, $value, $scopeType, $scopeId);
+        }
+    }
+
+    private function restoreScopedConfig(): void
+    {
+        if (!$this->configSnapshots) {
+            return;
+        }
+        foreach ($this->configSnapshots as $snapshot) {
+            $this->applyConfigRow(
+                $snapshot['path'],
+                $snapshot['value'],
+                $snapshot['scope'],
+                $snapshot['scopeId']
+            );
+        }
+        $this->configSnapshots = [];
+        $this->get(ReinitableConfigInterface::class)->reinit();
+    }
+
     // -- Sales-flow helpers ----------------------------------------------------
 
     /**
@@ -296,14 +441,16 @@ abstract class IntegrationTestCase extends TestCase
      *        ship-to/bill-to address (e.g. region_id/region/postcode) — used by
      *        the native-tax test to ship to a state no other test touches, so it
      *        doesn't collide on Magento's region|postcode-keyed tax-rate cache.
+     * @param string $storeCode store view the quote belongs to — multi-store
+     *        tests pass SECOND_STORE_CODE to build a second-store cart.
      */
-    protected function newGuestQuote(array $addressOverride = []): Quote
+    protected function newGuestQuote(array $addressOverride = [], string $storeCode = 'default'): Quote
     {
         $om = $this->objectManager();
 
         /** @var StoreManagerInterface $storeManager */
         $storeManager = $this->get(StoreManagerInterface::class);
-        $store = $storeManager->getStore('default');
+        $store = $storeManager->getStore($storeCode);
 
         // Ship-to in Austin TX (region 57), matching the seeded origin. SOAP is
         // mocked, so the actual tax/destination is immaterial to most assertions
@@ -364,19 +511,23 @@ abstract class IntegrationTestCase extends TestCase
      * Build, collect and save a guest quote containing the seeded test product.
      *
      * @param array<string, mixed> $addressOverride see {@see newGuestQuote()}
+     * @param string $storeCode see {@see newGuestQuote()}
      */
-    protected function buildQuoteWithTestProduct(int $qty = 1, array $addressOverride = []): Quote
-    {
-        $quote = $this->newGuestQuote($addressOverride);
+    protected function buildQuoteWithTestProduct(
+        int $qty = 1,
+        array $addressOverride = [],
+        string $storeCode = 'default'
+    ): Quote {
+        $quote = $this->newGuestQuote($addressOverride, $storeCode);
         $product = $this->get(ProductRepositoryInterface::class)->get(self::TEST_PRODUCT_SKU);
         $quote->addProduct($product, $qty);
 
         return $this->collectAndSaveQuote($quote);
     }
 
-    protected function placeOrder(): Order
+    protected function placeOrder(string $storeCode = 'default'): Order
     {
-        $quote = $this->buildQuoteWithTestProduct(1);
+        $quote = $this->buildQuoteWithTestProduct(1, [], $storeCode);
 
         $orderId = $this->get(CartManagementInterface::class)->placeOrder((int) $quote->getId());
 

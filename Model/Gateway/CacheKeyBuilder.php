@@ -69,14 +69,20 @@ class CacheKeyBuilder
      *
      * Keyed per (customer, certificate) so a customer who pastes another
      * customer's certificate UUID into their own profile cannot reuse the
-     * other customer's cached state list.
+     * other customer's cached state list — and per TaxCloud account (API ID),
+     * so under multi-store setups with different TaxCloud accounts a state
+     * list fetched under one account is never served to a lookup running
+     * under another. The API ID is hashed so the key stays cache-id-safe and
+     * the credential does not appear in cache storage keys.
      *
      * @param string $customerId
      * @param string $certificateId
+     * @param string $apiId TaxCloud API login ID the states were fetched under
      * @return string
      */
-    public function forExemptCertStates($customerId, $certificateId)
+    public function forExemptCertStates($customerId, $certificateId, $apiId = '')
     {
-        return self::PREFIX_EXEMPT_CERT_STATES . $customerId . '_' . $certificateId;
+        return self::PREFIX_EXEMPT_CERT_STATES . $customerId . '_' . $certificateId
+            . '_' . hash('sha256', (string) $apiId);
     }
 }

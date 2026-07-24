@@ -184,6 +184,117 @@ class TaxcloudConfigTest extends TestCase
     }
 
     /**
+     * Multi-store acceptance criterion: EVERY accessor must forward its $store
+     * argument as the scope code. Each case stores a different value at store 7
+     * than at the ambient (null) scope; the accessor called with store 7 must
+     * return the store-7 value — an accessor that drops the store argument
+     * resolves the ambient value instead and fails.
+     *
+     * @dataProvider storeForwardingProvider
+     */
+    #[DataProvider('storeForwardingProvider')]
+    public function testAccessorForwardsStoreAsScopeCode(string $path, $storeValue, $ambientValue, \Closure $call, $expected)
+    {
+        $config = $this->config([
+            [$path, ScopeInterface::SCOPE_STORE, 7, $storeValue],
+            [$path, ScopeInterface::SCOPE_STORE, null, $ambientValue],
+        ]);
+
+        $this->assertSame($expected, $call($config));
+    }
+
+    public static function storeForwardingProvider(): array
+    {
+        return [
+            'isEnabled' => [
+                TaxcloudConfig::XML_PATH_ENABLED, '1', '0',
+                static fn (TaxcloudConfig $c) => $c->isEnabled(7), true,
+            ],
+            'getLoggingMode' => [
+                TaxcloudConfig::XML_PATH_LOGGING, '2', '0',
+                static fn (TaxcloudConfig $c) => $c->getLoggingMode(7), TaxcloudConfig::LOGGING_ADVANCED,
+            ],
+            'isLoggingEnabled' => [
+                TaxcloudConfig::XML_PATH_LOGGING, '1', '0',
+                static fn (TaxcloudConfig $c) => $c->isLoggingEnabled(7), true,
+            ],
+            'isAdvancedLoggingEnabled' => [
+                TaxcloudConfig::XML_PATH_LOGGING, '2', '1',
+                static fn (TaxcloudConfig $c) => $c->isAdvancedLoggingEnabled(7), true,
+            ],
+            'getApiId' => [
+                TaxcloudConfig::XML_PATH_API_ID, 'store-api-id', 'ambient-api-id',
+                static fn (TaxcloudConfig $c) => $c->getApiId(7), 'store-api-id',
+            ],
+            'getApiKey' => [
+                TaxcloudConfig::XML_PATH_API_KEY, 'store-api-key', 'ambient-api-key',
+                static fn (TaxcloudConfig $c) => $c->getApiKey(7), 'store-api-key',
+            ],
+            'getGuestCustomerId' => [
+                TaxcloudConfig::XML_PATH_GUEST_CUSTOMER_ID, '42', '-1',
+                static fn (TaxcloudConfig $c) => $c->getGuestCustomerId(7), '42',
+            ],
+            'getCacheLifetime' => [
+                TaxcloudConfig::XML_PATH_CACHE_LIFETIME, '3600', '0',
+                static fn (TaxcloudConfig $c) => $c->getCacheLifetime(7), 3600,
+            ],
+            'isFallbackToMagentoEnabled' => [
+                TaxcloudConfig::XML_PATH_FALLBACK_TO_MAGENTO, '1', '0',
+                static fn (TaxcloudConfig $c) => $c->isFallbackToMagentoEnabled(7), true,
+            ],
+            'getSoapTimeout' => [
+                TaxcloudConfig::XML_PATH_API_TIMEOUT, '30', '5',
+                static fn (TaxcloudConfig $c) => $c->getSoapTimeout(7), 30,
+            ],
+            'getWsdlUrl' => [
+                TaxcloudConfig::XML_PATH_WSDL_URL, 'https://store.example/wsdl', 'https://ambient.example/wsdl',
+                static fn (TaxcloudConfig $c) => $c->getWsdlUrl(7), 'https://store.example/wsdl',
+            ],
+            'isVerifyAddressEnabled' => [
+                TaxcloudConfig::XML_PATH_VERIFY_ADDRESS, '1', '0',
+                static fn (TaxcloudConfig $c) => $c->isVerifyAddressEnabled(7), true,
+            ],
+            'getCaptureTrigger' => [
+                TaxcloudConfig::XML_PATH_CAPTURE_TRIGGER, 'shipment', 'order_creation',
+                static fn (TaxcloudConfig $c) => $c->getCaptureTrigger(7), 'shipment',
+            ],
+            'getDefaultTic' => [
+                TaxcloudConfig::XML_PATH_DEFAULT_TIC, '20010', '00000',
+                static fn (TaxcloudConfig $c) => $c->getDefaultTic(7), '20010',
+            ],
+            'getShippingTic' => [
+                TaxcloudConfig::XML_PATH_SHIPPING_TIC, '11000', '11010',
+                static fn (TaxcloudConfig $c) => $c->getShippingTic(7), '11000',
+            ],
+        ];
+    }
+
+    public function testCaptureTriggerDefaultsToOrderCreationWhenUnset()
+    {
+        $config = $this->config([]);
+
+        $this->assertSame(
+            \Taxcloud\Magento2\Model\Config\Source\CaptureTrigger::ORDER_CREATION,
+            $config->getCaptureTrigger()
+        );
+    }
+
+    public function testTicAccessorsFallBackToDefaultsWhenUnset()
+    {
+        $config = $this->config([
+            self::value(TaxcloudConfig::XML_PATH_DEFAULT_TIC, ''),
+        ]);
+
+        $this->assertSame(TaxcloudConfig::DEFAULT_TIC, $config->getDefaultTic());
+        $this->assertSame(TaxcloudConfig::DEFAULT_SHIPPING_TIC, $config->getShippingTic());
+    }
+
+    public function testVerifyAddressIsFalseWhenUnset()
+    {
+        $this->assertFalse($this->config([])->isVerifyAddressEnabled());
+    }
+
+    /**
      * The etc/config.xml default is what a fresh install actually gets; it must
      * agree with the constant the code falls back to.
      */

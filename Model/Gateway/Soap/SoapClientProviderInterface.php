@@ -28,11 +28,16 @@ namespace Taxcloud\Magento2\Model\Gateway\Soap;
 interface SoapClientProviderInterface
 {
     /**
-     * Return the shared SOAP client, or null when one cannot be constructed
+     * Return the shared SOAP client for a store's configuration (WSDL,
+     * timeout, credentials scope), or null when one cannot be constructed
      * (e.g. the WSDL fetch failed). Callers must treat null as "transport
      * unavailable" and fall back accordingly.
      *
+     * Pass the store of the order/quote being processed; with $store omitted
+     * the ambient request store's configuration applies.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return \SoapClient|null
      */
-    public function getClient();
+    public function getClient($store = null);
 }

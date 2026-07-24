@@ -75,11 +75,12 @@ class ResultCache
      * Cached Lookup (tax rate) response for a request payload, or null.
      *
      * @param array $params Lookup request params (post-observer)
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose cache lifetime applies
      * @return mixed|null
      */
-    public function getLookup(array $params)
+    public function getLookup(array $params, $store = null)
     {
-        return $this->get($this->cacheKeyBuilder->forLookup($params));
+        return $this->get($this->cacheKeyBuilder->forLookup($params), $store);
     }
 
     /**
@@ -87,22 +88,24 @@ class ResultCache
      *
      * @param array $params
      * @param mixed $data
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return void
      */
-    public function saveLookup(array $params, $data)
+    public function saveLookup(array $params, $data, $store = null)
     {
-        $this->save($this->cacheKeyBuilder->forLookup($params), $data, ['taxcloud_rates']);
+        $this->save($this->cacheKeyBuilder->forLookup($params), $data, ['taxcloud_rates'], $store);
     }
 
     /**
      * Cached VerifyAddress response for a request payload, or null.
      *
      * @param array $params
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return mixed|null
      */
-    public function getAddress(array $params)
+    public function getAddress(array $params, $store = null)
     {
-        return $this->get($this->cacheKeyBuilder->forAddress($params));
+        return $this->get($this->cacheKeyBuilder->forAddress($params), $store);
     }
 
     /**
@@ -110,11 +113,12 @@ class ResultCache
      *
      * @param array $params
      * @param mixed $data
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return void
      */
-    public function saveAddress(array $params, $data)
+    public function saveAddress(array $params, $data, $store = null)
     {
-        $this->save($this->cacheKeyBuilder->forAddress($params), $data, ['taxcloud_address']);
+        $this->save($this->cacheKeyBuilder->forAddress($params), $data, ['taxcloud_address'], $store);
     }
 
     /**
@@ -122,16 +126,17 @@ class ResultCache
      * is empty or caching is disabled (lifetime <= 0).
      *
      * @param string $cacheKey
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return mixed|null
      */
-    public function get($cacheKey)
+    public function get($cacheKey, $store = null)
     {
         $raw = $this->cacheType->load($cacheKey);
         if (!$raw) {
             return null;
         }
         $value = $this->serializer->unserialize($raw);
-        if ($this->config->getCacheLifetime() && $value) {
+        if ($this->config->getCacheLifetime($store) && $value) {
             return $value;
         }
         return null;
@@ -144,15 +149,16 @@ class ResultCache
      * @param string $cacheKey
      * @param mixed  $data
      * @param array  $tags
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return void
      */
-    public function save($cacheKey, $data, array $tags)
+    public function save($cacheKey, $data, array $tags, $store = null)
     {
         $this->cacheType->save(
             $this->serializer->serialize($data),
             $cacheKey,
             $tags,
-            $this->config->getCacheLifetime()
+            $this->config->getCacheLifetime($store)
         );
     }
 }

@@ -1213,9 +1213,9 @@ class ApiTest extends TestCase
             $this->setUpLookupWithCert($certID, $destinationState);
         $lookupParams = &$this->capturedLookupParams;
 
-        // Cache key is scoped per (customer, certificate); customer ID is 42
-        // in setUpLookupWithCert().
-        $certCacheKey = 'taxcloud_cert_states_42_' . $certID;
+        // Cache key is scoped per (customer, certificate, TaxCloud account);
+        // customer ID is 42 in setUpLookupWithCert(), api_id is test_api_id.
+        $certCacheKey = 'taxcloud_cert_states_42_' . $certID . '_' . hash('sha256', 'test_api_id');
         $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedStates) {
             if ($key === $certCacheKey) {
                 return json_encode($cachedStates);
@@ -2101,7 +2101,10 @@ class ApiTest extends TestCase
         $this->soapClientFactory->method('create')->willThrowException(new \Exception('WSDL unavailable'));
         $this->constructApi();
 
+        // returnOrder resolves the order's store before touching the client.
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
 
         $this->assertFalse($this->api->returnOrder($creditmemo));
     }
@@ -3264,7 +3267,21 @@ class ApiTest extends TestCase
             }
         }
 
-        $this->scopeConfig->method('getValue')->willReturnMap($merged);
+        // Config reads are now store-scoped: quotes built by
+        // buildBasicSingleItemLookupContext() live on store 1, while older
+        // contexts leave getStoreId() unstubbed (null). Serve both scope codes
+        // the same values so every context resolves the same configuration.
+        $expanded = [];
+        foreach ($merged as $entry) {
+            $expanded[] = $entry;
+            if ($entry[2] === null) {
+                $withStore = $entry;
+                $withStore[2] = 1;
+                $expanded[] = $withStore;
+            }
+        }
+
+        $this->scopeConfig->method('getValue')->willReturnMap($expanded);
     }
 
     /**

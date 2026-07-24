@@ -46,11 +46,21 @@ class CacheKeyBuilderTest extends TestCase
         );
     }
 
-    public function testForExemptCertStatesMatchesLegacyFormat()
+    public function testForExemptCertStatesScopesByCustomerCertificateAndAccount()
     {
         $this->assertSame(
-            'taxcloud_cert_states_42_aaaa-bbbb',
-            $this->builder->forExemptCertStates('42', 'aaaa-bbbb')
+            'taxcloud_cert_states_42_aaaa-bbbb_' . hash('sha256', 'api-1'),
+            $this->builder->forExemptCertStates('42', 'aaaa-bbbb', 'api-1')
+        );
+    }
+
+    public function testForExemptCertStatesDiffersAcrossTaxcloudAccounts()
+    {
+        // Two stores configured with different TaxCloud accounts must never
+        // share a cached exempt-state list for the same customer+certificate.
+        $this->assertNotSame(
+            $this->builder->forExemptCertStates('42', 'aaaa-bbbb', 'api-1'),
+            $this->builder->forExemptCertStates('42', 'aaaa-bbbb', 'api-2')
         );
     }
 

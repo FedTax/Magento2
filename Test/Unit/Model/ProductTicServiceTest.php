@@ -46,7 +46,7 @@ class ProductTicServiceTest extends TestCase
         $this->logger = $this->createMock(Logger::class);
 
         $this->productTicService = new ProductTicService(
-            $this->scopeConfig,
+            new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($this->scopeConfig),
             $this->productRepository,
             $this->logger
         );
