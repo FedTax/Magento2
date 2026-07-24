@@ -82,6 +82,10 @@ class EnabledStoreViewLifecycleTest extends IntegrationTestCase
             'With capture_trigger=payment, placing the order must not capture yet.'
         );
 
+        // Ambient store = default (TaxCloud DISABLED there). The capture below
+        // may only fire because the observer reads the ORDER's store.
+        $this->pinAmbientStoreToDefault();
+
         $this->payInvoice($order);
 
         $this->assertSame(
@@ -128,6 +132,10 @@ class EnabledStoreViewLifecycleTest extends IntegrationTestCase
             $soap->callCount('authorizedWithCapture'),
             'With capture_trigger=order_creation, placing the second-store order must capture.'
         );
+
+        // Ambient store = default (TaxCloud DISABLED there). The reversal below
+        // may only fire because the processor reads the ORDER's store.
+        $this->pinAmbientStoreToDefault();
 
         $this->cancelOrder($order);
 

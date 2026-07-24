@@ -19,7 +19,6 @@ declare(strict_types=1);
 
 namespace Taxcloud\Magento2\Test\Integration\MultiStore;
 
-use Magento\Store\Model\StoreManagerInterface;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
 
 /**
@@ -33,8 +32,8 @@ use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
  *
  * The seeded baseline is already this exact configuration: enabled=1 at
  * default scope, enabled=0 at stores/second. These tests also serve as the
- * TC-10 (CLI/cron context) proof: PHPUnit runs from the CLI where the ambient
- * store is NOT the second store, yet the order's store wins.
+ * TC-10 (CLI/cron context) proof: the ambient store is pinned to the default
+ * store view before each admin-side action, yet the order's store wins.
  */
 class DisabledStoreViewAdminLifecycleTest extends IntegrationTestCase
 {
@@ -64,10 +63,10 @@ class DisabledStoreViewAdminLifecycleTest extends IntegrationTestCase
             'Placing a second-store order must not capture — TaxCloud is off for that store.'
         );
 
-        // TC-10: the cancel below runs in the CLI with no second-store ambient
-        // context — the observers can only skip correctly by reading the
-        // ORDER's store.
-        $this->assertAmbientStoreIsNotSecondStore();
+        // TC-10: pin the ambient store to the default store view (where
+        // TaxCloud is ENABLED) — the observers can only skip correctly by
+        // reading the ORDER's store.
+        $this->pinAmbientStoreToDefault();
 
         $this->cancelOrder($order);
 
@@ -102,7 +101,7 @@ class DisabledStoreViewAdminLifecycleTest extends IntegrationTestCase
             'Neither placing nor invoicing a disabled-store order may capture in TaxCloud.'
         );
 
-        $this->assertAmbientStoreIsNotSecondStore();
+        $this->pinAmbientStoreToDefault();
 
         $this->refundOrder($order);
 
@@ -113,24 +112,4 @@ class DisabledStoreViewAdminLifecycleTest extends IntegrationTestCase
         );
     }
 
-    /**
-     * TC-10 guard: whatever store the CLI ambient context resolves to, it is
-     * not the second store — so a correct outcome for a second-store order
-     * can only come from order-store resolution, not ambient luck.
-     */
-    private function assertAmbientStoreIsNotSecondStore(): void
-    {
-        try {
-            $ambientCode = (string) $this->get(StoreManagerInterface::class)->getStore()->getCode();
-        } catch (\Throwable $e) {
-            // No resolvable ambient store at all — even stronger isolation.
-            return;
-        }
-        $this->assertNotSame(
-            self::SECOND_STORE_CODE,
-            $ambientCode,
-            'Test precondition: the ambient CLI store must differ from the order store, '
-            . 'otherwise these tests cannot distinguish order-store from ambient-store resolution.'
-        );
-    }
 }

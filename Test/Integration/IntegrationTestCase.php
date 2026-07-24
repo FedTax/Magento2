@@ -382,6 +382,31 @@ abstract class IntegrationTestCase extends TestCase
     }
 
     /**
+     * Pin the ambient (current) store to the default store view.
+     *
+     * Multi-store tests use this before an admin-side action on a second-store
+     * order, so the ambient store provably differs from the order's store —
+     * a correct outcome can then only come from order-store config resolution.
+     *
+     * The ambient store cannot merely be *asserted*: on Magento 2.4.7,
+     * Order\Address\Renderer::format() calls setCurrentStore() during order
+     * placement and never restores it, so after placing a second-store order
+     * the ambient store IS the second store. (2.4.8+ restores it.) Pinning
+     * makes the tests deterministic across versions.
+     */
+    protected function pinAmbientStoreToDefault(): void
+    {
+        $storeManager = $this->get(StoreManagerInterface::class);
+        $storeManager->setCurrentStore('default');
+
+        $this->assertNotSame(
+            self::SECOND_STORE_CODE,
+            (string) $storeManager->getStore()->getCode(),
+            'Test precondition: the ambient store must differ from the second store after pinning.'
+        );
+    }
+
+    /**
      * The raw core_config_data value at exactly this scope row, or null when
      * absent. Reads the DB directly — scopeConfig would apply fallback.
      */
