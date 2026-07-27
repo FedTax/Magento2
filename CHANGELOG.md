@@ -6,6 +6,20 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Added
 
+- **Multi-store and multi-website support.** Every TaxCloud setting is now
+  resolved against the store the order or cart belongs to, so store views can
+  run their own TaxCloud account, or turn the extension off entirely, without
+  affecting the others. Previously admin-side work (capture, refund,
+  cancellation) read the default store's configuration, so a store view with
+  its own credentials reported sales to the wrong TaxCloud account, and one
+  enabled only at store scope collected tax from shoppers that was never
+  reported at all.
+- **New "Only do tax calculations without further Taxcloud integration"
+  setting.** Keeps tax calculation and address verification running while
+  suppressing everything that records or reverses a sale in TaxCloud. For
+  merchants who push orders to another system (QuickBooks, for example) that
+  is itself connected to TaxCloud, where a second push from Magento would
+  report the same sale twice. Store-scoped and off by default.
 - **Reliable tax reversal on order cancellation.** Canceling an unpaid order
   now reverses the sale in TaxCloud: the reversal hooks `Order::cancel`
   directly (instead of a broad order-save fallback), and the module tracks its
