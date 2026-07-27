@@ -168,4 +168,60 @@ class CancellationProcessorTest extends TestCase
         $processor->process($this->order(42));
         $processor->process($this->order(43));
     }
+
+    /**
+     * Calculations-only mode: neither the reversal nor the OrderDetails probe
+     * that decides on it may reach TaxCloud.
+     */
+    public function testDoesNothingInCalculationsOnlyMode()
+    {
+        $this->config = $this->createMock(TaxcloudConfig::class);
+        $this->config->method('isEnabled')->willReturn(true);
+        $this->config->method('isCalculationsOnly')->willReturn(true);
+
+        $this->gateway->expects($this->never())->method('getOrderDetails');
+        $this->gateway->expects($this->never())->method('returnOrderCancellation');
+
+        $this->processor()->process($this->order());
+    }
+
+    /**
+     * An order captured before the setting was switched on still must not be
+     * reversed: the gate sits ahead of the taxcloud_captured check, so a stale
+     * flag cannot arm a Returned call while the store is calculation-only.
+     */
+    public function testDoesNothingInCalculationsOnlyModeEvenWhenCapturedFlagIsSet()
+    {
+        $this->config = $this->createMock(TaxcloudConfig::class);
+        $this->config->method('isEnabled')->willReturn(true);
+        $this->config->method('isCalculationsOnly')->willReturn(true);
+
+        $this->gateway->expects($this->never())->method('returnOrderCancellation');
+
+        $order = $this->order();
+        $order->method('getData')->with('taxcloud_captured')->willReturn(1);
+
+        $this->processor()->process($order);
+    }
+
+    /**
+     * The setting is read against the ORDER's store — cancellations run in
+     * admin/cron contexts where the ambient store is the default view.
+     */
+    public function testCalculationsOnlyIsReadAgainstTheOrderStore()
+    {
+        $order = $this->order();
+        $order->method('getStoreId')->willReturn(2);
+
+        $this->config = $this->createMock(TaxcloudConfig::class);
+        $this->config->method('isEnabled')->willReturn(true);
+        $this->config->expects($this->once())
+            ->method('isCalculationsOnly')
+            ->with(2)
+            ->willReturn(true);
+
+        $this->gateway->expects($this->never())->method('returnOrderCancellation');
+
+        $this->processor()->process($order);
+    }
 }

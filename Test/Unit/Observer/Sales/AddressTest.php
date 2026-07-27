@@ -231,4 +231,44 @@ class AddressTest extends TestCase
         // params must be left untouched when verification errors out.
         $this->assertSame(['destination' => $originalDestination], $obj->getParams());
     }
+
+    /**
+     * Address verification is a calculation-side call, so calculations-only mode
+     * must leave it running.
+     *
+     * This is the assertion that gives the setting its meaning: gating the whole
+     * module on it — rather than only the order-lifecycle writes — would still
+     * pass every "does not call" test elsewhere, and fail here.
+     */
+    public function testExecuteStillVerifiesAddressInCalculationsOnlyMode()
+    {
+        $destination = [
+            'Address1' => '5th Ave',
+            'Address2' => 'Suite 200',
+            'City' => 'Duluth',
+            'State' => 'GA',
+            'Zip5' => '30097',
+        ];
+
+        $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::QUOTE_STORE_ID, '1'],
+                ['tax/taxcloud_settings/verify_address', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::QUOTE_STORE_ID, '1'],
+                ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::QUOTE_STORE_ID, '1'],
+            ]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('verifyAddress')
+            ->with($destination, self::QUOTE_STORE_ID)
+            ->willReturn($destination);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $obj = new \Magento\Framework\DataObject(['params' => ['destination' => $destination]]);
+
+        $observer = new Address(new TaxcloudConfig($scopeConfig), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+    }
 }

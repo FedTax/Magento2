@@ -11,6 +11,7 @@ namespace Taxcloud\Magento2\Test\Unit\Observer\Sales;
 
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Observer\Sales\Complete;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 use Magento\Sales\Model\Order;
@@ -38,15 +39,19 @@ class CompleteTest extends TestCase
 
     /**
      * Build a TaxcloudConfig whose store-2-scoped values honor the given
-     * enabled flag and capture_trigger.
+     * enabled flag, capture_trigger and calculations_only flag.
      */
-    private function buildScopeConfig($enabled, $captureTrigger): \Taxcloud\Magento2\Model\Config\TaxcloudConfig
-    {
+    private function buildScopeConfig(
+        $enabled,
+        $captureTrigger,
+        $calculationsOnly = '0'
+    ): \Taxcloud\Magento2\Model\Config\TaxcloudConfig {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap([
             ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, $enabled],
             ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
             ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, $captureTrigger],
+            ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, $calculationsOnly],
         ]);
         return new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($scopeConfig);
     }
@@ -354,5 +359,133 @@ class CompleteTest extends TestCase
         // capture_trigger is null — must default to order_creation
         $complete = new Complete($this->buildScopeConfig('1', null), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
+    }
+
+    /**
+     * Calculations-only mode suppresses the capture on every trigger.
+     *
+     * The setting is checked after the trigger routing, so this has to hold for
+     * whichever event the store is configured to capture on — a gate that only
+     * covered order_creation would still push the sale for a store configured
+     * to capture on payment or shipment.
+     *
+     * @dataProvider calculationsOnlyTriggerProvider
+     */
+    #[DataProvider('calculationsOnlyTriggerProvider')]
+    public function testExecuteSkipsCaptureInCalculationsOnlyMode(string $trigger, string $eventName)
+    {
+        $observer = $this->buildObserverForTrigger($eventName);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('authorizeCapture');
+
+        // No capture means no capture flag: the cancel flow reads taxcloud_captured
+        // to decide whether to reverse, so writing it here would arm a Returned
+        // call for a sale TaxCloud never received.
+        $orderResource = $this->createMock(\Magento\Sales\Model\ResourceModel\Order::class);
+        $orderResource->expects($this->never())->method('saveAttribute');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', $trigger, '1'),
+            $tcapi,
+            $logger,
+            $orderResource
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * @return array
+     */
+    public static function calculationsOnlyTriggerProvider(): array
+    {
+        return [
+            'order creation' => [CaptureTrigger::ORDER_CREATION, 'sales_order_place_after'],
+            'payment' => [CaptureTrigger::PAYMENT, 'sales_order_invoice_pay'],
+            'shipment' => [CaptureTrigger::SHIPMENT, 'sales_order_shipment_save_after'],
+        ];
+    }
+
+    /**
+     * With the setting off, the same store still captures — this is what pins
+     * the gate to the setting rather than to some unrelated early return.
+     */
+    public function testExecuteStillCapturesWhenCalculationsOnlyIsDisabled()
+    {
+        $order = $this->buildOrder();
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())->method('authorizeCapture')->with($order);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION, '0'),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * The setting is read against the ORDER's store, not the ambient one.
+     *
+     * Only store 2 (the order's) is mapped to calculations-only; the default
+     * scope says otherwise. An implementation that dropped the $store argument
+     * would read the unmapped default and go on to capture.
+     */
+    public function testCalculationsOnlyIsReadAgainstTheOrderStore()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '1'],
+            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
+            ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, CaptureTrigger::ORDER_CREATION],
+            ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '1'],
+            ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+        ]);
+
+        $order = $this->buildOrder();
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('authorizeCapture');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($scopeConfig),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * Build the observer each capture trigger listens on, with the order shaped
+     * so the observer's first-invoice / first-shipment dedupe lets it through.
+     */
+    private function buildObserverForTrigger(string $eventName): \Magento\Framework\Event\Observer
+    {
+        if ($eventName === 'sales_order_invoice_pay') {
+            $order = $this->buildOrder(invoiceCollectionSize: 1);
+            $invoice = $this->createMock(Invoice::class);
+            $invoice->method('getOrder')->willReturn($order);
+            return $this->buildObserver($eventName, ['invoice' => $invoice]);
+        }
+
+        if ($eventName === 'sales_order_shipment_save_after') {
+            $order = $this->buildOrder(shipmentCollectionSize: 1);
+            $shipment = $this->createMock(Shipment::class);
+            $shipment->method('getOrder')->willReturn($order);
+            return $this->buildObserver($eventName, ['shipment' => $shipment]);
+        }
+
+        return $this->buildObserver($eventName, ['order' => $this->buildOrder()]);
     }
 }

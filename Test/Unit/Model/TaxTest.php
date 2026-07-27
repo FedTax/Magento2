@@ -1029,6 +1029,39 @@ class TaxTest extends TestCase
     }
 
     /**
+     * calculations_only=1 must NOT touch the tax collector — Lookup is the whole
+     * point of the mode.
+     *
+     * Paired with the "does not capture/return" tests on the observers, this is
+     * what separates calculation-only from disabled: a gate accidentally applied
+     * to Tax::collect would leave the storefront charging no TaxCloud tax at all.
+     */
+    public function testCollectStillLooksUpTaxesInCalculationsOnlyMode()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+                ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+            ]);
+        $this->createTaxInstance();
+
+        $quote = $this->createMockQuote();
+        $quoteItem = $this->createMockQuoteItem();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+        $total = $this->createMock(Total::class);
+
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
+        $this->tax->method('organizeItemTaxDetailsByType')->willReturn([]);
+
+        $this->tcapi->expects($this->once())->method('lookupTaxes')->willReturn([]);
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
      * Section 1.5: Zero rowTotal must not divide-by-zero — setTaxPercent gets 0.
      *
      * The ternary at Tax.php:170 is the protected branch.

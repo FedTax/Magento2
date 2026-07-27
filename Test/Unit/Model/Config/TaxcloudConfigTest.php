@@ -63,6 +63,56 @@ class TaxcloudConfigTest extends TestCase
     }
 
     /**
+     * calculations_only is opt-in: an install that has never seen the field
+     * keeps the full integration.
+     */
+    public function testCalculationsOnlyDefaultsToFalse()
+    {
+        $this->assertFalse($this->config([])->isCalculationsOnly());
+    }
+
+    /**
+     * @dataProvider calculationsOnlyProvider
+     */
+    #[DataProvider('calculationsOnlyProvider')]
+    public function testCalculationsOnlyCoercesStoredValue($stored, bool $expected)
+    {
+        $config = $this->config([self::value(TaxcloudConfig::XML_PATH_CALCULATIONS_ONLY, $stored)]);
+
+        $this->assertSame($expected, $config->isCalculationsOnly());
+    }
+
+    /**
+     * @return array
+     */
+    public static function calculationsOnlyProvider(): array
+    {
+        return [
+            'stored "1"' => ['1', true],
+            'stored "0"' => ['0', false],
+            'stored null' => [null, false],
+            'stored empty' => ['', false],
+        ];
+    }
+
+    /**
+     * The store argument is forwarded as the scope code, so a store view can
+     * run calculation-only while the default scope keeps the full integration.
+     */
+    public function testCalculationsOnlyIsResolvedPerStore()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            [TaxcloudConfig::XML_PATH_CALCULATIONS_ONLY, ScopeInterface::SCOPE_STORE, null, '0'],
+            [TaxcloudConfig::XML_PATH_CALCULATIONS_ONLY, ScopeInterface::SCOPE_STORE, 7, '1'],
+        ]);
+        $config = new TaxcloudConfig($scopeConfig);
+
+        $this->assertFalse($config->isCalculationsOnly());
+        $this->assertTrue($config->isCalculationsOnly(7));
+    }
+
+    /**
      * @dataProvider loggingModeProvider
      */
     #[DataProvider('loggingModeProvider')]

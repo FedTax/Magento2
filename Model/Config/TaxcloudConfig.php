@@ -84,6 +84,7 @@ class TaxcloudConfig
     public const XML_PATH_GUEST_CUSTOMER_ID = 'tax/taxcloud_settings/guest_customer_id';
     public const XML_PATH_CACHE_LIFETIME = 'tax/taxcloud_settings/cache_lifetime';
     public const XML_PATH_FALLBACK_TO_MAGENTO = 'tax/taxcloud_settings/fallback_to_magento';
+    public const XML_PATH_CALCULATIONS_ONLY = 'tax/taxcloud_settings/calculations_only';
     public const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
     public const XML_PATH_WSDL_URL = 'tax/taxcloud_settings/wsdl_url';
     public const XML_PATH_VERIFY_ADDRESS = 'tax/taxcloud_settings/verify_address';
@@ -214,6 +215,29 @@ class TaxcloudConfig
     {
         return (bool) $this->scopeConfig->getValue(
             self::XML_PATH_FALLBACK_TO_MAGENTO,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+    }
+
+    /**
+     * Whether the module is restricted to tax calculation only.
+     *
+     * When on, the calculation calls still run (Lookup, VerifyAddress, and the
+     * exempt-certificate validation nested inside Lookup), but nothing that
+     * mutates order state in TaxCloud is sent: AuthorizedWithCapture, Returned
+     * for credit memos, and Returned/OrderDetails for cancellations are all
+     * skipped. It is for merchants whose orders reach TaxCloud through another
+     * system (QuickBooks and the like), where a second push from Magento would
+     * double-report the sale.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function isCalculationsOnly($store = null): bool
+    {
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_CALCULATIONS_ONLY,
             ScopeInterface::SCOPE_STORE,
             $store
         );

@@ -81,6 +81,16 @@ class Refund implements ObserverInterface
             return;
         }
 
+        // Calculation-only stores never sent the sale to TaxCloud in the first
+        // place, so there is nothing to reverse — a Returned call here would
+        // reference an order TaxCloud has no record of.
+        if ($this->config->isCalculationsOnly($storeId)) {
+            $this->tclogger->info(
+                'Skipping returnOrder for creditmemo ' . $creditmemo->getIncrementId() . ' (calculations-only mode)'
+            );
+            return;
+        }
+
         $this->tclogger->info('Running Observer sales_order_creditmemo_refund');
 
         try {

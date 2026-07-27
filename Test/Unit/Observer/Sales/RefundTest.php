@@ -51,15 +51,17 @@ class RefundTest extends TestCase
     }
 
     /**
-     * A TaxcloudConfig whose store-2-scoped enabled flag is $enabled.
+     * A TaxcloudConfig whose store-2-scoped enabled and calculations_only flags
+     * are $enabled / $calculationsOnly.
      */
-    private function buildConfig(string $enabled): TaxcloudConfig
+    private function buildConfig(string $enabled, string $calculationsOnly = '0'): TaxcloudConfig
     {
         $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
         $scopeConfig->method('getValue')
             ->willReturnMap([
                 ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, $enabled],
                 ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
+                ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, $calculationsOnly],
             ]);
         return new TaxcloudConfig($scopeConfig);
     }
@@ -121,5 +123,51 @@ class RefundTest extends TestCase
         $refund = new Refund($this->buildConfig('1'), $tcapi, $logger);
         $refund->execute($observer);
         $this->assertTrue(true, 'Refund observer must not propagate Api::returnOrder exceptions');
+    }
+
+    /**
+     * Calculations-only mode: the sale was never sent to TaxCloud, so there is
+     * nothing to reverse and Returned must not be called.
+     */
+    public function testExecuteSkipsReturnOrderInCalculationsOnlyMode()
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('returnOrder');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $observer = $this->buildObserver($this->buildCreditmemo());
+
+        $refund = new Refund($this->buildConfig('1', '1'), $tcapi, $logger);
+        $refund->execute($observer);
+    }
+
+    /**
+     * The setting is read against the ORDER's store, not the ambient one.
+     *
+     * Credit memos are issued from the admin, where the ambient store is the
+     * default view — only store 2 is mapped to calculations-only here, so an
+     * implementation that dropped the $store argument would call Returned.
+     */
+    public function testCalculationsOnlyIsReadAgainstTheOrderStore()
+    {
+        $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
+                ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '1'],
+                ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+            ]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('returnOrder');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $observer = $this->buildObserver($this->buildCreditmemo());
+
+        $refund = new Refund(new TaxcloudConfig($scopeConfig), $tcapi, $logger);
+        $refund->execute($observer);
     }
 }

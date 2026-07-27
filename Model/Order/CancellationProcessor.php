@@ -91,6 +91,18 @@ class CancellationProcessor
             return;
         }
 
+        // Calculation-only stores never captured the sale, so there is nothing
+        // to reverse. Gated before wasCapturedInTaxcloud() so a legacy order
+        // carrying taxcloud_captured from before the setting was turned on
+        // cannot leak a Returned call, and so the OrderDetails fallback is
+        // never reached either.
+        if ($this->config->isCalculationsOnly($order->getStoreId())) {
+            $this->logger->info(
+                'TaxCloud Cancel: skipping order ' . $order->getIncrementId() . ' (calculations-only mode)'
+            );
+            return;
+        }
+
         if (!$order->getId()) {
             return;
         }

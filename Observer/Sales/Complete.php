@@ -132,6 +132,18 @@ class Complete implements ObserverInterface
             return;
         }
 
+        // Calculation-only stores never push the sale to TaxCloud — another
+        // system owns that side of the integration. Skipping here also leaves
+        // taxcloud_captured unset, which keeps the cancel flow a no-op for
+        // these orders. Gated after the trigger check so this logs once per
+        // order rather than once per lifecycle event.
+        if ($this->config->isCalculationsOnly($storeId)) {
+            $this->tclogger->info(
+                'Skipping authorizeCapture for order ' . $order->getIncrementId() . ' (calculations-only mode)'
+            );
+            return;
+        }
+
         $this->tclogger->info('Running Observer ' . $eventName . ' (capture trigger: ' . $configuredTrigger . ')');
 
         if ($this->tcapi->authorizeCapture($order)) {

@@ -159,13 +159,28 @@
           </depends>
         </field>
 
+        <field id="calculations_only" translate="label comment" type="select" sortOrder="105" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Only do tax calculations without further Taxcloud integration</label>
+          <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+          <config_path>tax/taxcloud_settings/calculations_only</config_path>
+          <comment>Useful for merchants that push orders to other systems (i.e. Quickbooks) that are themselves connected to Taxcloud.</comment>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
         <field id="capture_trigger" translate="label" type="select" sortOrder="110" showInDefault="1" showInWebsite="1" showInStore="1">
           <label>Capture in TaxCloud</label>
           <source_model>Taxcloud\Magento2\Model\Config\Source\CaptureTrigger</source_model>
           <config_path>tax/taxcloud_settings/capture_trigger</config_path>
           <tooltip>On order creation: at checkout (default; canceled orders may reach TaxCloud). On payment: when invoice is paid (recommended to avoid canceled orders). On shipment: when shipment is created.</tooltip>
+          <!--
+            Hidden when calculations_only is on: with orders never sent to
+            TaxCloud, there is no capture for this setting to schedule.
+          -->
           <depends>
             <field id="enabled">1</field>
+            <field id="calculations_only">0</field>
           </depends>
         </field>
 
