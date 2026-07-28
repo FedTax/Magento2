@@ -38,6 +38,17 @@ class CompleteTest extends TestCase
     private const ORDER_STORE_ID = 2;
 
     /**
+     * Every event Complete is registered on in etc/events.xml. The routing
+     * contract tests sweep all three per trigger, so a trigger that captures on
+     * none of them (or on more than one) is caught.
+     */
+    private const ALL_LIFECYCLE_EVENTS = [
+        'sales_order_place_after',
+        'sales_order_invoice_pay',
+        'sales_order_shipment_save_after',
+    ];
+
+    /**
      * Build a TaxcloudConfig whose store-2-scoped values honor the given
      * enabled flag, capture_trigger and calculations_only flag.
      */
@@ -236,6 +247,12 @@ class CompleteTest extends TestCase
 
     /**
      * Section 4.5: trigger=payment + subsequent invoice (collection size > 1) => skip.
+     *
+     * Note this shape does not occur for invoice #2 in the real flow:
+     * sales_order_invoice_pay is dispatched from Invoice::register(), before the
+     * invoice is persisted, so the collection is one short and reports 1. See
+     * Test/Integration/Observer/Sales/CaptureOnInvoiceShapesTest — the guard
+     * this test pins only engages from the third invoice on.
      */
     public function testExecuteSkipsSubsequentInvoicePayEvents()
     {
@@ -271,6 +288,95 @@ class CompleteTest extends TestCase
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
         $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::SHIPMENT), $tcapi, $logger, $this->makeOrderResource());
+        $complete->execute($observer);
+    }
+
+    /**
+     * A second qualifying event on an already-captured order must not capture
+     * the sale again.
+     *
+     * The observer's only dedupe is a count of invoices / shipments on the
+     * order, and there are real journeys where that count does not distinguish
+     * the second visit from the first. Two are proven at the integration level
+     * (see CaptureOnInvoiceShapesTest and CaptureTriggerChangedMidLifecycleTest):
+     *
+     *   - a second invoice, because sales_order_invoice_pay is dispatched from
+     *     Invoice::register() BEFORE the invoice is persisted, so the collection
+     *     the guard counts is always one short;
+     *   - an order captured at placement whose store then switches to capturing
+     *     on shipment, which makes the shipment event newly eligible.
+     *
+     * The signal that survives all of them is the taxcloud_captured flag the
+     * observer itself writes. Capturing twice files the same sale twice on the
+     * merchant's TaxCloud account.
+     */
+    public function testExecuteDoesNotCaptureAgainWhenTheSameEventArrivesTwice()
+    {
+        $order = $this->buildOrder(shipmentCollectionSize: 1);
+        $captured = 0;
+        $order->method('getData')->willReturnCallback(
+            static function ($key) use (&$captured) {
+                return $key === 'taxcloud_captured' ? $captured : null;
+            }
+        );
+        $order->method('setData')->willReturnCallback(
+            static function ($key, $value = null) use (&$captured) {
+                if ($key === 'taxcloud_captured') {
+                    $captured = $value;
+                }
+            }
+        );
+
+        $shipment = $this->createMock(Shipment::class);
+        $shipment->method('getOrder')->willReturn($order);
+        $observer = $this->buildObserver('sales_order_shipment_save_after', ['shipment' => $shipment]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('authorizeCapture')
+            ->with($order)
+            ->willReturn(true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::SHIPMENT),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
+
+        $complete->execute($observer);
+        $complete->execute($observer);
+    }
+
+    /**
+     * The same guard from the other side: an order already flagged as captured
+     * must not be captured again on a later lifecycle event, whatever put the
+     * flag there.
+     */
+    public function testExecuteSkipsCaptureWhenTheOrderIsAlreadyFlaggedAsCaptured()
+    {
+        $order = $this->buildOrder(shipmentCollectionSize: 1);
+        $order->method('getData')->willReturnCallback(
+            static fn ($key) => $key === 'taxcloud_captured' ? 1 : null
+        );
+
+        $shipment = $this->createMock(Shipment::class);
+        $shipment->method('getOrder')->willReturn($order);
+        $observer = $this->buildObserver('sales_order_shipment_save_after', ['shipment' => $shipment]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('authorizeCapture');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::SHIPMENT),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
         $complete->execute($observer);
     }
 
@@ -358,6 +464,204 @@ class CompleteTest extends TestCase
 
         // capture_trigger is null — must default to order_creation
         $complete = new Complete($this->buildScopeConfig('1', null), $tcapi, $logger, $this->makeOrderResource());
+        $complete->execute($observer);
+    }
+
+    /**
+     * A stored value that is not one of the three declared options must land on
+     * the order-creation default rather than disabling capture outright.
+     *
+     * Two different fallbacks are in play and both have to hold: TaxcloudConfig
+     * substitutes the default for null/'', and the observer's isset() on the
+     * trigger-to-event map catches anything else — a hand-edited core_config_data
+     * row, or a value left behind by an older release. Losing capture entirely
+     * means the sale is never reported, which is the expensive direction to fail
+     * in.
+     *
+     * @dataProvider unrecognizedTriggerProvider
+     */
+    #[DataProvider('unrecognizedTriggerProvider')]
+    public function testExecuteFallsBackToOrderCreationForUnrecognizedTriggerValues($stored)
+    {
+        $order = $this->buildOrder();
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())->method('authorizeCapture')->with($order);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', $stored),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * @return array
+     */
+    public static function unrecognizedTriggerProvider(): array
+    {
+        return [
+            'empty string' => [''],
+            'unknown keyword' => ['bogus'],
+            // The field was a select before it grew a third option; a boolean-ish
+            // leftover must not silently stop capture.
+            'legacy boolean' => ['1'],
+            'wrong case' => ['ORDER_CREATION'],
+        ];
+    }
+
+    /**
+     * Every option the admin dropdown offers must actually be routable.
+     *
+     * The source model and the observer's trigger-to-event map are two separate
+     * lists that have to agree. Adding a fourth option to the dropdown without
+     * teaching the observer about it would not fail any existing test — the
+     * unknown value would quietly fall back to capturing on order creation,
+     * which is precisely the behavior the merchant chose against.
+     *
+     * @dataProvider declaredTriggerProvider
+     */
+    #[DataProvider('declaredTriggerProvider')]
+    public function testEveryDeclaredTriggerCapturesOnAnEventOfItsOwn(string $trigger)
+    {
+        $eventsForTrigger = [];
+
+        foreach (self::ALL_LIFECYCLE_EVENTS as $eventName) {
+            if ($this->capturesOn($trigger, $eventName)) {
+                $eventsForTrigger[] = $eventName;
+            }
+        }
+
+        $this->assertNotEmpty(
+            $eventsForTrigger,
+            sprintf(
+                'The "%s" option is offered in the admin dropdown but no lifecycle event captures for it — '
+                . 'Complete::$triggerToEvent is missing an entry, so the setting silently degrades to '
+                . 'capturing on order creation.',
+                $trigger
+            )
+        );
+        $this->assertCount(
+            1,
+            $eventsForTrigger,
+            sprintf('The "%s" option must capture on exactly one event, got: %s', $trigger, implode(', ', $eventsForTrigger))
+        );
+    }
+
+    /**
+     * Distinct options must not collide on the same event, or one of them is
+     * unreachable in practice.
+     */
+    public function testTheThreeTriggersCaptureOnThreeDifferentEvents()
+    {
+        $captureEvents = [];
+
+        foreach (self::declaredTriggerProvider() as [$trigger]) {
+            foreach (self::ALL_LIFECYCLE_EVENTS as $eventName) {
+                if ($this->capturesOn($trigger, $eventName)) {
+                    $captureEvents[$trigger] = $eventName;
+                }
+            }
+        }
+
+        $this->assertCount(
+            3,
+            array_unique($captureEvents),
+            'Each capture trigger must own a distinct lifecycle event; got ' . json_encode($captureEvents)
+        );
+    }
+
+    /**
+     * @return array
+     */
+    public static function declaredTriggerProvider(): array
+    {
+        $cases = [];
+        foreach ((new CaptureTrigger())->toOptionArray() as $option) {
+            $cases[(string) $option['value']] = [(string) $option['value']];
+        }
+
+        return $cases;
+    }
+
+    /**
+     * capture_trigger itself is read against the ORDER's store.
+     *
+     * Same hazard as enabled and calculations_only: the invoice and shipment
+     * events run in admin, where the ambient store is the default view. Here the
+     * default scope says order_creation and the order's store says shipment — an
+     * implementation that dropped the $store argument would read order_creation,
+     * decide sales_order_shipment_save_after is the wrong event, and never
+     * capture the sale at all.
+     */
+    public function testCaptureTriggerIsReadAgainstTheOrderStore()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '1'],
+            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
+            ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, '0'],
+            ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, self::ORDER_STORE_ID, CaptureTrigger::SHIPMENT],
+            ['tax/taxcloud_settings/capture_trigger', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, CaptureTrigger::ORDER_CREATION],
+        ]);
+
+        $order = $this->buildOrder(shipmentCollectionSize: 1);
+        $shipment = $this->createMock(Shipment::class);
+        $shipment->method('getOrder')->willReturn($order);
+        $observer = $this->buildObserver('sales_order_shipment_save_after', ['shipment' => $shipment]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())->method('authorizeCapture')->with($order);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($scopeConfig),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * A failure to persist taxcloud_captured must not escape the observer.
+     *
+     * The capture already succeeded in TaxCloud by this point; letting the
+     * exception out would abort the order placement (or the invoice/shipment
+     * save) over a bookkeeping column, turning a reported sale into a failed
+     * checkout. The cancel flow degrades to the OrderDetails fallback instead.
+     */
+    public function testExecuteSwallowsAndLogsAFailureToPersistTheCapturedFlag()
+    {
+        $order = $this->buildOrder();
+        $order->method('getIncrementId')->willReturn('100000042');
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('authorizeCapture')->with($order)->willReturn(true);
+
+        $orderResource = $this->createMock(\Magento\Sales\Model\ResourceModel\Order::class);
+        $orderResource->method('saveAttribute')
+            ->willThrowException(new \RuntimeException('deadlock on sales_order'));
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $logger->expects($this->once())
+            ->method('warning')
+            ->with($this->stringContains('100000042'));
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION),
+            $tcapi,
+            $logger,
+            $orderResource
+        );
+
         $complete->execute($observer);
     }
 
@@ -464,6 +768,34 @@ class CompleteTest extends TestCase
             $this->makeOrderResource()
         );
         $complete->execute($observer);
+    }
+
+    /**
+     * Run the observer once for the given trigger/event pair and report whether
+     * it reached authorizeCapture. Used by the routing-contract tests to probe
+     * the whole trigger x event matrix without asserting inside the loop.
+     */
+    private function capturesOn(string $trigger, string $eventName): bool
+    {
+        $captured = false;
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('authorizeCapture')->willReturnCallback(
+            static function () use (&$captured) {
+                $captured = true;
+                return true;
+            }
+        );
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', $trigger),
+            $tcapi,
+            $this->createMock(\Taxcloud\Magento2\Logger\Logger::class),
+            $this->makeOrderResource()
+        );
+        $complete->execute($this->buildObserverForTrigger($eventName));
+
+        return $captured;
     }
 
     /**

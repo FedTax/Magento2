@@ -286,6 +286,31 @@ abstract class IntegrationTestCase extends TestCase
      *
      * @return array<string, mixed>
      */
+    /**
+     * The happy-path response set with individual operations swapped out. Use
+     * this rather than hand-building the array when a test only cares about one
+     * operation — installSoapMock() replaces the whole set when given a
+     * non-empty array, so a partial array would leave the other operations
+     * unstubbed.
+     *
+     * @param array<string, mixed> $overrides SOAP method => response
+     * @return array<string, mixed>
+     */
+    protected function soapResponsesWith(array $overrides): array
+    {
+        return array_merge($this->defaultSoapResponses(), $overrides);
+    }
+
+    /**
+     * Load a canned response from Test/Integration/_files/soap_responses/.
+     *
+     * @return mixed
+     */
+    protected function soapResponseFixture(string $name)
+    {
+        return require __DIR__ . '/_files/soap_responses/' . $name . '.php';
+    }
+
     private function defaultSoapResponses(): array
     {
         $dir = __DIR__ . '/_files/soap_responses/';
@@ -550,13 +575,115 @@ abstract class IntegrationTestCase extends TestCase
         return $this->collectAndSaveQuote($quote);
     }
 
-    protected function placeOrder(string $storeCode = 'default'): Order
+    protected function placeOrder(string $storeCode = 'default', int $qty = 1): Order
     {
-        $quote = $this->buildQuoteWithTestProduct(1, [], $storeCode);
+        $quote = $this->buildQuoteWithTestProduct($qty, [], $storeCode);
 
         $orderId = $this->get(CartManagementInterface::class)->placeOrder((int) $quote->getId());
 
         return $this->get(OrderRepositoryInterface::class)->get($orderId);
+    }
+
+    /**
+     * Re-read the order straight from the database, bypassing the repository's
+     * identity map.
+     *
+     * Observer\Sales\Complete writes taxcloud_captured with
+     * ResourceModel\Order::saveAttribute() on its own order instance, so a test
+     * holding an earlier instance can see a stale value either way. Loading a
+     * fresh model is what makes an assertion on that column mean "this is what
+     * the cancel flow will read".
+     */
+    protected function reloadOrder(Order $order): Order
+    {
+        /** @var Order $fresh */
+        $fresh = $this->objectManager()->create(Order::class);
+        $this->get(\Magento\Sales\Model\ResourceModel\Order::class)->load($fresh, (int) $order->getId());
+
+        return $fresh;
+    }
+
+    /**
+     * Assert whether the order carries the taxcloud_captured flag the cancel
+     * flow reads. Always reloads, so callers cannot accidentally assert against
+     * an in-memory instance the observer never touched.
+     */
+    protected function assertOrderCapturedFlag(Order $order, bool $expected, string $message = ''): void
+    {
+        $actual = (bool) $this->reloadOrder($order)->getData('taxcloud_captured');
+
+        $this->assertSame($expected, $actual, $message ?: sprintf(
+            'Expected taxcloud_captured to be %s on order %s.',
+            $expected ? 'set' : 'unset',
+            $order->getIncrementId()
+        ));
+    }
+
+    /**
+     * Invoice only part of the order and pay it. The first partial invoice still
+     * fires sales_order_invoice_pay with an invoice collection of exactly one,
+     * which is all the capture observer's dedupe looks at.
+     *
+     * @param array<int, float> $qtys order item id => qty to invoice
+     */
+    protected function payPartialInvoice(Order $order, array $qtys): InvoiceInterface
+    {
+        $om = $this->objectManager();
+
+        /** @var Invoice $invoice */
+        $invoice = $this->get(InvoiceService::class)->prepareInvoice($order, $qtys);
+        $invoice->setRequestedCaptureCase(Invoice::CAPTURE_OFFLINE);
+        $invoice->register();
+
+        $transaction = $om->create(\Magento\Framework\DB\Transaction::class);
+        $transaction->addObject($invoice)->addObject($invoice->getOrder())->save();
+
+        return $invoice;
+    }
+
+    /**
+     * Invoice the order asking for NO capture — the case an admin picks for a
+     * payment settled outside Magento.
+     *
+     * Note this does not guarantee the invoice goes unpaid: Invoice::register()
+     * only honors the requested capture case when canCapture() is true, and
+     * pays anyway for non-gateway (offline) methods. Named for what the caller
+     * requests, not for the outcome.
+     */
+    protected function createUnpaidInvoice(Order $order): InvoiceInterface
+    {
+        $om = $this->objectManager();
+
+        /** @var Invoice $invoice */
+        $invoice = $this->get(InvoiceService::class)->prepareInvoice($order);
+        $invoice->setRequestedCaptureCase(Invoice::NOT_CAPTURE);
+        $invoice->register();
+
+        $transaction = $om->create(\Magento\Framework\DB\Transaction::class);
+        $transaction->addObject($invoice)->addObject($invoice->getOrder())->save();
+
+        return $invoice;
+    }
+
+    /**
+     * Attach a tracking number to an existing shipment and save it, mirroring
+     * Magento\Shipping\Controller\Adminhtml\Order\Shipment\AddTrack.
+     *
+     * The track is what makes this reproduce the admin action: AbstractModel
+     * skips the save (and therefore the sales_order_shipment_save_after
+     * dispatch) when nothing on the model changed, so re-saving an untouched
+     * shipment would silently prove nothing.
+     */
+    protected function addTrackingToShipment(ShipmentInterface $shipment, string $number = '1Z-TEST-0001'): void
+    {
+        $track = $this->objectManager()->create(\Magento\Sales\Model\Order\Shipment\Track::class)
+            ->setNumber($number)
+            ->setCarrierCode('custom')
+            ->setTitle('Test carrier');
+
+        $shipment->addTrack($track);
+
+        $this->get(ShipmentRepositoryInterface::class)->save($shipment);
     }
 
     /**
