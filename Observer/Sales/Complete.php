@@ -144,6 +144,29 @@ class Complete implements ObserverInterface
             return;
         }
 
+        // Already reported — don't send the sale again.
+        //
+        // AuthorizedWithCapture carries no amounts or items: it just flips the
+        // whole cart recorded by the checkout Lookup to captured. So a repeat
+        // call cannot capture "the rest" of anything, and TaxCloud answers it
+        // with "This transaction has already been marked as authorized" (which
+        // Api::authorizeCapture maps back to success). Nothing is mis-filed, but
+        // the round-trip is pure waste and the warning it leaves in the log
+        // reads like a fault.
+        //
+        // The count-based dedupe above cannot cover this on its own:
+        // sales_order_invoice_pay is dispatched from Invoice::register() before
+        // the invoice is written, so the collection is always one short, and a
+        // store that changes capture_trigger mid-lifecycle can make a later
+        // event newly eligible for an order captured under the old setting.
+        if ($order->getData('taxcloud_captured')) {
+            $this->tclogger->info(
+                'Skipping authorizeCapture for order ' . $order->getIncrementId()
+                . ' (already captured in TaxCloud)'
+            );
+            return;
+        }
+
         $this->tclogger->info('Running Observer ' . $eventName . ' (capture trigger: ' . $configuredTrigger . ')');
 
         if ($this->tcapi->authorizeCapture($order)) {
