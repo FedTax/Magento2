@@ -69,16 +69,16 @@ bin/magento setup:di:compile
 
 ### Uninstalling the Module
 
-Installing the module adds two EAV attributes via the `InstallTaxcloudData`
-data patch:
+Installing the module adds three EAV attributes via two data patches:
 
-- `taxcloud_tic` on products (the TaxCloud TIC), and
-- `taxcloud_cert` on customers (the exemption certificate ID).
+- `taxcloud_tic` on products (the TaxCloud TIC) and `taxcloud_cert` on
+  customers (the exemption certificate ID), both from `InstallTaxcloudData`;
+- `taxcloud_tic` on categories (the inherited TIC), from
+  `AddCategoryTicAttribute`.
 
-The patch is revertable (`InstallTaxcloudData` implements
-`PatchRevertableInterface`), so these attributes are cleaned up automatically
-when the module is uninstalled. Magento invokes the patch's `revert()` from the
-uninstall-data flow:
+Both patches are revertable (they implement `PatchRevertableInterface`), so
+these attributes are cleaned up automatically when the module is uninstalled.
+Magento invokes each patch's `revert()` from the uninstall-data flow:
 
 ```
 bin/magento module:uninstall Taxcloud_Magento2
@@ -87,8 +87,9 @@ bin/magento module:uninstall Taxcloud_Magento2
 (`module:uninstall` applies to Composer-installed modules; it runs the data
 patch's `revert()` before removing the module's files.)
 
-Reverting drops both attributes (and, because EAV value storage cascades on the
-attribute, any TIC/certificate values stored against products and customers).
+Reverting drops all three attributes (and, because EAV value storage cascades on
+the attribute, any TIC/certificate values stored against products, categories
+and customers).
 Re-installing and running `bin/magento setup:upgrade` re-applies the patch and
 recreates the attribute definitions — but not the previously stored values — so
 revert is a destructive, one-way cleanup. It only runs on uninstall.
@@ -197,7 +198,7 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 * **API ID** - Enter your API ID from your TaxCloud account.
 * **API Key** - Enter your API Key from your TaxCloud account.
 * **Guest Customer ID** - Enter the customer ID to send to TaxCloud during a guest checkout. Unless there is a special reason to change this for your store, use the default value of `-1`.
-* **Default TIC** - Enter the Taxability Information Code you would like to use for products where an explicit TIC has not been specified.
+* **Default TIC** - Enter the Taxability Information Code you would like to use for products where no TIC has been specified on the product or on any of its categories. See [How a TIC is chosen](#how-a-tic-is-chosen).
 * **Shipping TIC** - Enter the Taxability Information Code you would like to use for shipping costs. Use `11010` if you charge only postage, and `11000` for shipping & handling.
 * **Cache Lifetime** - Enter the amount of time in seconds you would like to cache the sales tax lookup and verify address API calls. The default value is `86400` (24 hours), or enter `0` to disable caching for development purposes.
 * **WSDL Endpoint** - *Advanced.* The TaxCloud SOAP endpoint the module calls. Defaults to the production endpoint `https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl`; leave it alone unless TaxCloud support has directed you to a sandbox or staging endpoint. Clearing the field restores the production default. Because the setting is store-scoped, you can point a staging store at a sandbox endpoint while production keeps using the default. Note that tax lookups are cached by request payload, not by endpoint — if you switch endpoints while reusing the same API credentials, clear the TaxCloud cache type so results from the previous endpoint are not reused (see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache)).
@@ -230,6 +231,33 @@ Select the checkbox next to the items you want to update, then click *Actions �
 ![Bulk Product Edit](docs/images/configuration-admin-product-bulk-edit.png)
 
 Find the Taxcloud TIC textbox and click the *Change* checkbox below it. Enter a new TIC and click *Save*.
+
+#### Category Settings
+
+Rather than setting a TIC on every product, you can set one on a category and let the products inside it inherit it. Navigate to *Catalog → Categories*, select a category, and open the **TaxCloud** section.
+
+* **TaxCloud TIC** - The five digit Taxability Information Code applied to products in this category that have no TIC of their own.
+
+The field is store-view scoped, like most category attributes: switch the store view at the top left of the category page to give one store view a different TIC, and leave the *Use Default Value* checkbox ticked everywhere else.
+
+##### How a TIC is chosen
+
+For each line item, the first of these that is set wins:
+
+1. The **product's** own Taxcloud TIC.
+2. The TIC of the nearest **category** above it — see the rules below.
+3. The store's **Default TIC** setting.
+
+Category resolution looks at every category the product is assigned to *and all of their parents*, so a TIC set on `Grocery` applies to everything in `Grocery → Snacks → Chips` without tagging each sub-category. Two rules keep the outcome predictable when more than one of those categories carries a TIC:
+
+* The **deepest** (most specific) category wins, so `Grocery → Snacks` overrides `Grocery`.
+* If two categories at the same depth both carry a TIC, the one with the **lowest category ID** wins.
+
+A TIC set on a store's root category is ignored — use the **Default TIC** setting for a store-wide value.
+
+Configurable products take their TIC from the purchased variant. Variants are usually not assigned to categories themselves, so if the variant has neither its own TIC nor a category with one, the categories of the configurable parent are used before falling back to the Default TIC.
+
+Leaving every category TIC empty reproduces the previous behavior exactly: products fall straight from their own TIC to the Default TIC, and no category lookups are performed.
 
 #### Customer Settings
 

@@ -476,6 +476,38 @@ abstract class IntegrationTestCase extends TestCase
         $this->get(ReinitableConfigInterface::class)->reinit();
     }
 
+    // -- Catalog fixtures ------------------------------------------------------
+
+    /**
+     * Run $callback with Magento's `isSecureArea` flag set.
+     *
+     * Catalog deletes go through Magento\Framework\Validator\Model\ActionValidator,
+     * which forbids removing a product or category outside the admin area unless
+     * that flag is registered — so a fixture cleanup that skips it silently fails
+     * ("Delete operation is forbidden for current area") and leaks rows into the
+     * next test, where they resurface as url-key collisions.
+     *
+     * @param callable $callback
+     * @return mixed whatever $callback returns
+     */
+    protected function inSecureArea(callable $callback)
+    {
+        $registry = $this->get(\Magento\Framework\Registry::class);
+        $previous = $registry->registry('isSecureArea');
+
+        $registry->unregister('isSecureArea');
+        $registry->register('isSecureArea', true);
+
+        try {
+            return $callback();
+        } finally {
+            $registry->unregister('isSecureArea');
+            if ($previous !== null) {
+                $registry->register('isSecureArea', $previous);
+            }
+        }
+    }
+
     // -- Sales-flow helpers ----------------------------------------------------
 
     /**

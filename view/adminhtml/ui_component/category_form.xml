@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2025 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<!--
+  Surfaces the `taxcloud_tic` category attribute (Setup/Patch/Data/AddCategoryTicAttribute)
+  on the category edit form. Category EAV attributes are NOT auto-rendered:
+  Magento\Catalog\Model\Category\DataProvider only merges an attribute's meta
+  (scope label, "Use Default Value" checkbox, validation) onto a field that already
+  has a path in this form's metadata. Declaring the field here is what gives it one.
+-->
+<form xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <fieldset name="taxcloud" sortOrder="35">
+        <settings>
+            <collapsible>true</collapsible>
+            <opened>false</opened>
+            <label translate="true">TaxCloud</label>
+        </settings>
+        <field name="taxcloud_tic" sortOrder="10" formElement="input">
+            <argument name="data" xsi:type="array">
+                <item name="config" xsi:type="array">
+                    <item name="source" xsi:type="string">category</item>
+                </item>
+            </argument>
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">TaxCloud TIC</label>
+                <scopeLabel>[STORE VIEW]</scopeLabel>
+                <notice translate="true">Applied to products in this category that have no TIC of their own. Sub-categories inherit it; the deepest category with a TIC wins, and ties resolve to the lowest category ID. Leave empty to fall back to the store's Default TIC.</notice>
+            </settings>
+        </field>
+    </fieldset>
+</form>

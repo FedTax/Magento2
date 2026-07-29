@@ -124,6 +124,11 @@
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
     </arguments>
   </type>
+  <type name="Taxcloud\Magento2\Model\CategoryTicResolver">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
 
   <!--
     The tax collector and the observers take the same config-gated proxy. The

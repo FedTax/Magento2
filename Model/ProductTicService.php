@@ -24,6 +24,12 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 /**
  * Service for handling Product TIC (Taxability Information Code) logic
  * Handles cases where products have been deleted or don't have custom TIC attributes
+ *
+ * TIC resolution is three levels deep, first non-empty value wins:
+ *
+ *  1. the product's own `taxcloud_tic` attribute
+ *  2. the nearest category above it carrying a TIC — see {@see CategoryTicResolver}
+ *  3. the store's configured default TIC (`tax/taxcloud_settings/default_tic`)
  */
 class ProductTicService
 {
@@ -63,18 +69,26 @@ class ProductTicService
     private $logger;
 
     /**
+     * @var CategoryTicResolver
+     */
+    private $categoryTicResolver;
+
+    /**
      * @param TaxcloudConfig $config
      * @param ProductRepositoryInterface $productRepository
      * @param LoggerInterface $logger
+     * @param CategoryTicResolver $categoryTicResolver
      */
     public function __construct(
         TaxcloudConfig $config,
         ProductRepositoryInterface $productRepository,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        CategoryTicResolver $categoryTicResolver
     ) {
         $this->config = $config;
         $this->productRepository = $productRepository;
         $this->logger = $logger;
+        $this->categoryTicResolver = $categoryTicResolver;
     }
 
     /**
@@ -107,8 +121,49 @@ class ProductTicService
             return $this->getDefaultTic($store);
         }
         $tic = $productModel->getCustomAttribute('taxcloud_tic');
+        $value = $tic ? trim((string) $tic->getValue()) : '';
+        if ($value !== '') {
+            return $value;
+        }
 
-        return $tic ? $tic->getValue() : $this->getDefaultTic($store);
+        $categoryTic = $this->getCategoryTic($item, $productModel, $store);
+        if ($categoryTic !== null) {
+            return $categoryTic;
+        }
+
+        return $this->getDefaultTic($store);
+    }
+
+    /**
+     * The TIC inherited from the item's categories, or null when none applies.
+     *
+     * Two products are consulted, in order: the one whose TIC governs the line
+     * (for a configurable, the purchased child simple), then — only if that
+     * yielded nothing — the product the item itself carries. Child simples are
+     * usually assigned to no categories at all, so without the second hop a
+     * configurable would skip the category level entirely and drop straight to
+     * the store default.
+     *
+     * @param \Magento\Sales\Model\Order\Item|\Magento\Quote\Model\Quote\Item $item
+     * @param \Magento\Catalog\Api\Data\ProductInterface $productModel
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string|null
+     */
+    private function getCategoryTic($item, $productModel, $store)
+    {
+        $tic = $this->categoryTicResolver->resolve($productModel, $store);
+        if ($tic !== null) {
+            return $tic;
+        }
+
+        $lineProduct = $item->getProduct();
+        if (!$lineProduct || !$lineProduct->getId()
+            || (int) $lineProduct->getId() === (int) $productModel->getId()
+        ) {
+            return null;
+        }
+
+        return $this->categoryTicResolver->resolve($lineProduct, $store);
     }
 
     /**

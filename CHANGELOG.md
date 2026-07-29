@@ -2,6 +2,24 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## Unreleased
+
+### Added
+
+- **Category-level TICs.** Categories now carry their own `taxcloud_tic`
+  attribute (*Catalog → Categories → TaxCloud*), so a merchant can tag a
+  category once instead of every product in it. TIC resolution becomes three
+  levels: the product's own TIC, then the nearest category above it, then the
+  store's Default TIC. Categories inherit down the tree — a TIC on `Grocery`
+  covers everything beneath it — and when several categories qualify the
+  deepest one wins, with ties resolved by the lowest category ID. A TIC on a
+  store's root category is ignored; that is what the Default TIC setting is
+  for. The attribute is store-view scoped, so store views can differ.
+  Configurable products still take their TIC from the purchased variant, and
+  fall back to the parent's categories when the variant is in none. Stores that
+  set no category TIC behave exactly as before, and pay one cheap query per
+  request to establish that.
+
 ## 1.3.0
 
 ### Added

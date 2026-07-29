@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../../Model/ProductTicService.php';
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Taxcloud\Magento2\Model\CategoryTicResolver;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
@@ -38,17 +39,22 @@ class ProductTicServiceTest extends TestCase
     private $scopeConfig;
     private $productRepository;
     private $logger;
+    private $categoryTicResolver;
 
     protected function setUp(): void
     {
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $this->productRepository = $this->createMock(ProductRepositoryInterface::class);
         $this->logger = $this->createMock(Logger::class);
+        // Unstubbed, resolve() returns null — i.e. "no category carries a TIC",
+        // which is the state every pre-existing assertion here was written for.
+        $this->categoryTicResolver = $this->createMock(CategoryTicResolver::class);
 
         $this->productTicService = new ProductTicService(
             new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($this->scopeConfig),
             $this->productRepository,
-            $this->logger
+            $this->logger,
+            $this->categoryTicResolver
         );
     }
 
@@ -323,4 +329,162 @@ class ProductTicServiceTest extends TestCase
         $this->assertEquals('30000', $result, 'Configurable line must resolve the child variant TIC');
     }
 
+    /**
+     * R2, level 1: a TIC on the product itself wins outright — the category
+     * level is never consulted.
+     */
+    public function testProductTicWinsOverCategoryTic()
+    {
+        $item = $this->itemWithProduct(123);
+        $this->productRepository->method('getById')->with(123)
+            ->willReturn($this->productModelWithTic('20000'));
+
+        $this->categoryTicResolver->expects($this->never())->method('resolve');
+
+        $this->assertEquals('20000', $this->productTicService->getProductTic($item, 'lookupTaxes'));
+    }
+
+    /**
+     * R2, level 2: no product TIC, so the category level supplies one and the
+     * store default is never reached.
+     */
+    public function testCategoryTicUsedWhenProductHasNoTicOfItsOwn()
+    {
+        $item = $this->itemWithProduct(123);
+        $this->productRepository->method('getById')->with(123)
+            ->willReturn($this->productModelWithTic(null));
+
+        $this->categoryTicResolver->method('resolve')->willReturn('40030');
+
+        $this->assertEquals('40030', $this->productTicService->getProductTic($item, 'lookupTaxes'));
+    }
+
+    /**
+     * A product TIC set to blank means "not set" — it must fall through to the
+     * category level rather than shipping an empty TIC to TaxCloud.
+     */
+    public function testBlankProductTicFallsThroughToTheCategoryLevel()
+    {
+        $item = $this->itemWithProduct(123);
+        $this->productRepository->method('getById')->with(123)
+            ->willReturn($this->productModelWithTic('  '));
+
+        $this->categoryTicResolver->method('resolve')->willReturn('40030');
+
+        $this->assertEquals('40030', $this->productTicService->getProductTic($item, 'lookupTaxes'));
+    }
+
+    /**
+     * R2, level 3: nothing at the product or category level, so the store
+     * default applies.
+     */
+    public function testDefaultTicUsedWhenNeitherProductNorCategoryHasOne()
+    {
+        $item = $this->itemWithProduct(123);
+        $this->productRepository->method('getById')->with(123)
+            ->willReturn($this->productModelWithTic(null));
+
+        $this->categoryTicResolver->method('resolve')->willReturn(null);
+
+        $this->scopeConfig->method('getValue')
+            ->with('tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
+            ->willReturn('11111');
+
+        $this->assertEquals('11111', $this->productTicService->getProductTic($item, 'lookupTaxes'));
+    }
+
+    /**
+     * R5: a configurable's TIC comes from the purchased child simple, but child
+     * simples are typically assigned to no categories. When the child yields no
+     * category TIC, the parent the line carries is consulted before dropping to
+     * the store default.
+     */
+    public function testConfigurableFallsBackToTheParentsCategories()
+    {
+        $childProduct = $this->createMock(Product::class);
+        $childProduct->method('getId')->willReturn(555);
+
+        $child = $this->createMock(\Magento\Quote\Model\Quote\Item::class);
+        $child->method('getProduct')->willReturn($childProduct);
+
+        $parent = $this->createMock(Product::class);
+        $parent->method('getId')->willReturn(100);
+        $parent->method('getTypeId')->willReturn(ProductTicService::TYPE_CONFIGURABLE);
+
+        $item = $this->createMock(\Magento\Quote\Model\Quote\Item::class);
+        $item->method('getSku')->willReturn('CONFIG_SKU');
+        $item->method('getProduct')->willReturn($parent);
+        $item->method('getChildren')->willReturn([$child]);
+
+        $variantModel = $this->productModelWithTic(null);
+        $variantModel->method('getId')->willReturn(555);
+        $this->productRepository->method('getById')->with(555)->willReturn($variantModel);
+
+        // The variant is in no categories; the configurable parent is.
+        $this->categoryTicResolver->method('resolve')
+            ->willReturnCallback(static function ($product) use ($parent) {
+                return $product === $parent ? '20010' : null;
+            });
+
+        $this->assertEquals(
+            '20010',
+            $this->productTicService->getProductTic($item, 'lookupTaxes'),
+            'Configurable variant with no categories must inherit the parent line product\'s category TIC'
+        );
+    }
+
+    /**
+     * A deleted product has no categories to consult — resolution stops at the
+     * store default without touching the category level.
+     */
+    public function testDeletedProductSkipsTheCategoryLevel()
+    {
+        $item = $this->createMock(Item::class);
+        $item->method('getSku')->willReturn('DELETED_SKU');
+        $item->method('getProduct')->willReturn(null);
+
+        $this->categoryTicResolver->expects($this->never())->method('resolve');
+
+        $this->scopeConfig->method('getValue')
+            ->with('tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)
+            ->willReturn('00000');
+
+        $this->assertEquals('00000', $this->productTicService->getProductTic($item, 'lookupTaxes'));
+    }
+
+    /**
+     * An order/quote line carrying a simple product with the given id.
+     */
+    private function itemWithProduct($productId)
+    {
+        $product = $this->createMock(Product::class);
+        $product->method('getId')->willReturn($productId);
+
+        $item = $this->createMock(Item::class);
+        $item->method('getSku')->willReturn('TEST_SKU');
+        $item->method('getProduct')->willReturn($product);
+
+        return $item;
+    }
+
+    /**
+     * A product model whose taxcloud_tic custom attribute holds $tic, or has no
+     * such attribute at all when $tic is null.
+     */
+    private function productModelWithTic($tic)
+    {
+        $productModel = $this->createMock(Product::class);
+
+        if ($tic === null) {
+            $productModel->method('getCustomAttribute')->with('taxcloud_tic')->willReturn(null);
+
+            return $productModel;
+        }
+
+        $attribute = $this->createMock(AttributeValue::class);
+        $attribute->method('getValue')->willReturn($tic);
+        $productModel->method('getCustomAttribute')->with('taxcloud_tic')->willReturn($attribute);
+
+        return $productModel;
+    }
 }
