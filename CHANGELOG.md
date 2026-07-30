@@ -2,28 +2,20 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
-## Unreleased
-
-### Added
-
-- **Category-level TICs.** Categories now carry their own `taxcloud_tic`
-  attribute (*Catalog → Categories → TaxCloud*), so a merchant can tag a
-  category once instead of every product in it. TIC resolution becomes three
-  levels: the product's own TIC, then the nearest category above it, then the
-  store's Default TIC. Categories inherit down the tree — a TIC on `Grocery`
-  covers everything beneath it — and when several categories qualify the
-  deepest one wins, with ties resolved by the lowest category ID. A TIC on a
-  store's root category is ignored; that is what the Default TIC setting is
-  for. The attribute is store-view scoped, so store views can differ.
-  Configurable products still take their TIC from the purchased variant, and
-  fall back to the parent's categories when the variant is in none. Stores that
-  set no category TIC behave exactly as before, and pay one cheap query per
-  request to establish that.
-
 ## 1.3.0
 
+Run `bin/magento setup:upgrade` after updating: this release adds a category
+attribute, an order column and a new cache type.
+
 ### Added
 
+- **Category-level TICs.** Categories now carry their own TIC (*Catalog →
+  Categories → TaxCloud*), so a merchant can tag a category once instead of
+  every product in it. A product's TIC is taken from the product, then the
+  nearest category above it, then the store's Default TIC. TICs inherit down
+  the category tree and the most specific category wins. The attribute is
+  store-view scoped, and stores that set no category TIC behave exactly as
+  before.
 - **Multi-store and multi-website support.** Every TaxCloud setting is now
   resolved against the store the order or cart belongs to, so store views can
   run their own TaxCloud account, or turn the extension off entirely, without
@@ -70,6 +62,10 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Fixed
 
+- A single character that is not valid UTF-8 anywhere in a TaxCloud response —
+  an accented letter in a customer name or address, typically — used to discard
+  the entire response, so the call was treated as failed and checkout fell back
+  to Magento's own tax rates. Those responses are now read correctly.
 - "Using default TIC" messages were written to the log even with logging
   disabled; they now respect the logging setting.
 
