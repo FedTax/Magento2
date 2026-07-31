@@ -241,16 +241,25 @@ class Api implements GatewayInterface
      * final exception is rethrown so each call site's existing error handling
      * (Magento fallback / return false) still applies.
      *
-     * @param callable $call
-     * @param int      $maxRetries Retries after the initial attempt (default 1)
-     * @param string   $operation  Label for the Advanced-mode timing record
+     * Non-idempotent operations pass
+     * {@see \Taxcloud\Magento2\Model\Gateway\RetryPolicy::isRetryableForNonIdempotent()}
+     * as $isRetryable to narrow that to failures that never reached TaxCloud.
+     *
+     * @param callable      $call
+     * @param int           $maxRetries  Retries after the initial attempt (default 1)
+     * @param string        $operation   Label for the Advanced-mode timing record
+     * @param callable|null $isRetryable fn(Throwable): bool, overriding the default rule
      * @return mixed
      */
-    public function callSoapWithRetry(callable $call, $maxRetries = 1, $operation = 'SOAP')
-    {
+    public function callSoapWithRetry(
+        callable $call,
+        $maxRetries = 1,
+        $operation = 'SOAP',
+        ?callable $isRetryable = null
+    ) {
         $start = microtime(true);
         try {
-            return $this->retryPolicy->execute($call, $maxRetries);
+            return $this->retryPolicy->execute($call, $maxRetries, $isRetryable);
         } finally {
             $this->tclogger->debug(
                 sprintf('%s round-trip took %.0f ms (including retries)', $operation, (microtime(true) - $start) * 1000)
@@ -440,7 +449,10 @@ class Api implements GatewayInterface
                 $result
             );
 
-            $this->tclogger->info('Caching lookupTaxes result for ' . $this->config->getCacheLifetime($storeId));
+            $this->tclogger->info(
+                'Caching lookupTaxes result for ' . $this->resultCache->getLookupLifetime($storeId)
+                . 's (capped at the store\'s next local midnight)'
+            );
             $this->resultCache->saveLookup($params, $result, $storeId);
 
             return $result;
@@ -594,9 +606,11 @@ class Api implements GatewayInterface
         $this->tclogger->debug(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
+            // Returned is not idempotent in SOAP v1 — only retry a failure that
+            // never reached TaxCloud, or the refund gets booked twice.
             $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
                 return $client->Returned($soapParams);
-            }, 1, 'Returned');
+            }, 1, 'Returned', [$this->retryPolicy, 'isRetryableForNonIdempotent']);
         } catch (Throwable $e) {
             $this->tclogger->error('Error encountered during returnOrder: ' . $e->getMessage());
             $this->tclogger->debug(
@@ -765,9 +779,10 @@ class Api implements GatewayInterface
         $this->tclogger->debug(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
+            // Returned is not idempotent in SOAP v1 — see returnOrder().
             $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
                 return $client->Returned($soapParams);
-            }, 1, 'Returned');
+            }, 1, 'Returned', [$this->retryPolicy, 'isRetryableForNonIdempotent']);
         } catch (Throwable $e) {
             $this->tclogger->error('Error encountered during returnOrderCancellation: ' . $e->getMessage());
             $this->tclogger->debug(

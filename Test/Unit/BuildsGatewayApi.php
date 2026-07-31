@@ -58,7 +58,15 @@ trait BuildsGatewayApi
         );
         $responseMapper = new ResponseMapper($leaf['cartItemResponseHandler'], new NullLogger());
         $cacheKeyBuilder = new CacheKeyBuilder();
-        $resultCache = new ResultCache($leaf['cacheType'], $leaf['serializer'], $cacheKeyBuilder, $config);
+        $timezone = $this->createMock(\Magento\Framework\Stdlib\DateTime\TimezoneInterface::class);
+        $timezone->method('getConfigTimezone')->willReturn('America/New_York');
+        $resultCache = new ResultCache(
+            $leaf['cacheType'],
+            $leaf['serializer'],
+            $cacheKeyBuilder,
+            $config,
+            $timezone
+        );
         $exemptionValidator = new ExemptionValidator(
             $soapGateway,
             $config,

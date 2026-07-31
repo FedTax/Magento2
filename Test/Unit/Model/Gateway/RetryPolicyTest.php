@@ -286,4 +286,82 @@ class RetryPolicyTest extends TestCase
         $this->assertTrue($policy->isRetryableByDefault(new \RuntimeException('transient blip')));
         $this->assertFalse($policy->isRetryableByDefault(new \RuntimeException('Operation timed out')));
     }
+
+    /**
+     * SOAP v1 Returned is not deduplicated on TaxCloud's side, so only a failure
+     * that proves the request never left the client may be retried. Anything
+     * ambiguous could be a refund TaxCloud already booked.
+     *
+     * @param string $message
+     * @param bool   $expected
+     * @dataProvider nonIdempotentMessageProvider
+     */
+    #[DataProvider('nonIdempotentMessageProvider')]
+    public function testIsRetryableForNonIdempotentOnlyAcceptsUndeliveredRequests(string $message, bool $expected)
+    {
+        $this->assertSame(
+            $expected,
+            $this->policy()->isRetryableForNonIdempotent(new \RuntimeException($message)),
+            $message
+        );
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: bool}>
+     */
+    public static function nonIdempotentMessageProvider(): array
+    {
+        return [
+            // Never reached TaxCloud — nothing can have been booked.
+            'could not connect' => ['Could not connect to host', true],
+            'failed to open stream' => ['failed to open stream: Connection refused', true],
+            'connection refused' => ['Connection refused', true],
+            'dns failure' => ['php_network_getaddresses: getaddrinfo failed: Name or service not known', true],
+            'name resolution' => ['Temporary failure in name resolution', true],
+            // Sent, outcome unknown — retrying risks a second refund.
+            'read timeout' => ['Operation timed out', false],
+            'fetching headers' => ['Error Fetching http headers', false],
+            'malformed response' => ['looks like we got no XML document', false],
+            'application fault' => ['Server was unable to process request', false],
+        ];
+    }
+
+    public function testNonIdempotentPredicateDoesNotRetryAnAmbiguousFault()
+    {
+        $calls = 0;
+        try {
+            $this->policy()->execute(
+                function () use (&$calls) {
+                    $calls++;
+                    throw new \SoapFault('HTTP', 'Error Fetching http headers');
+                },
+                1,
+                [$this->policy(), 'isRetryableForNonIdempotent']
+            );
+            $this->fail('expected the ambiguous fault to surface without retry');
+        } catch (\SoapFault $e) {
+            $this->assertStringContainsString('Error Fetching http headers', $e->getMessage());
+        }
+
+        $this->assertSame(1, $calls, 'a request that may have been processed must not be repeated');
+    }
+
+    public function testNonIdempotentPredicateStillRetriesAConnectFailure()
+    {
+        $calls = 0;
+        $result = $this->policy()->execute(
+            function () use (&$calls) {
+                $calls++;
+                if ($calls === 1) {
+                    throw new \SoapFault('HTTP', 'Could not connect to host');
+                }
+                return 'recovered';
+            },
+            1,
+            [$this->policy(), 'isRetryableForNonIdempotent']
+        );
+
+        $this->assertSame('recovered', $result);
+        $this->assertSame(2, $calls, 'a request that never left the client is safe to repeat');
+    }
 }

@@ -33,7 +33,9 @@ use Psr\Log\NullLogger;
  * Returns the same shape the live lookup does — per-item product tax keyed by
  * item code plus a single shipping total — so the collector consumes it
  * identically. Fails soft: any error yields a zeroed result rather than
- * breaking totals collection.
+ * breaking totals collection — which means the quote goes out untaxed, so
+ * every path to that outcome is logged at critical. A single unpriceable line
+ * is skipped instead, so one bad item cannot zero out the whole quote.
  */
 class MagentoTaxFallback
 {
@@ -111,6 +113,10 @@ class MagentoTaxFallback
 
         $address = $shippingAssignment->getShipping()->getAddress();
         if (!$address) {
+            $this->logger->critical(
+                'Magento tax fallback has no shipping address to calculate against; '
+                . 'this quote will be taxed at 0.00'
+            );
             return $result;
         }
 
@@ -140,6 +146,16 @@ class MagentoTaxFallback
             $items = [];
             if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
                 foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
+                    // A product line with no matching address item cannot be
+                    // priced here. Skip it rather than fataling on a null item
+                    // and dropping the whole quote to 0.00.
+                    if (!isset($keyedAddressItems[$code])) {
+                        $this->logger->warning(
+                            'Magento tax fallback: no address item for tax calculation id "' . $code
+                            . '"; that line will be untaxed'
+                        );
+                        continue;
+                    }
                     $item = $keyedAddressItems[$code];
                     if ($item->getProduct()->getTaxClassId() === '0') {
                         continue;
@@ -200,8 +216,14 @@ class MagentoTaxFallback
             $this->logger->debug('Magento fallback tax rates: ' . json_encode($result));
             return $result;
         } catch (\Throwable $e) {
-            $this->logger->error('Error calculating Magento tax rates: ' . $e->getMessage());
-            return $result;
+            // Last line of defense: TaxCloud already failed, so there is nothing
+            // left to fall back to and the quote goes out untaxed. Log it at
+            // critical — an under-collecting quote must not be a quiet one.
+            $this->logger->critical(
+                'Magento tax fallback failed after a TaxCloud failure; this quote will be taxed at 0.00: '
+                . $e->getMessage()
+            );
+            return [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
         }
     }
 

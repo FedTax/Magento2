@@ -129,6 +129,47 @@ class RetryPolicy
     }
 
     /**
+     * Retryability rule for operations TaxCloud does not deduplicate — SOAP v1
+     * Returned above all, where a repeated call books a second refund rather
+     * than being recognized as the same one. (AuthorizedWithCapture is safe
+     * without this: TaxCloud answers a repeat with "already been marked as
+     * authorized", which the caller treats as success.)
+     *
+     * Only a failure that proves the request never left the client is retried.
+     * Anything that happened after it was sent — an application fault, an
+     * HTTP-level fault, a truncated or unparseable response — may correspond to
+     * a return TaxCloud has already recorded, and retrying would double it.
+     *
+     * @param Throwable $e
+     * @return bool
+     */
+    public function isRetryableForNonIdempotent(Throwable $e)
+    {
+        return $this->isConnectionFailure($e);
+    }
+
+    /**
+     * Return whether a failure happened before the request reached TaxCloud —
+     * no socket, no name resolution, no TLS — so nothing can have been
+     * processed on the other end.
+     *
+     * Deliberately narrow: an ambiguous failure (a read timeout, "Error
+     * Fetching http headers") means the request may well have been processed,
+     * and must not be reported as undelivered.
+     *
+     * @param Throwable $e
+     * @return bool
+     */
+    public function isConnectionFailure(Throwable $e)
+    {
+        return (bool) preg_match(
+            '/Could not connect to host|failed to open|Connection refused'
+            . '|Name or service not known|Temporary failure in name resolution/i',
+            $e->getMessage()
+        );
+    }
+
+    /**
      * Return whether a failure represents a connection or read timeout, based
      * on its fault code and message.
      *

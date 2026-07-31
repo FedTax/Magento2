@@ -44,7 +44,10 @@ attribute, an order column and a new cache type.
   installs keep their behavior: the old *Enabled* becomes Basic.
 - **Dedicated TaxCloud cache type.** API responses are cached under their own
   entry in System → Cache Management, so they can be flushed without touching
-  the rest of Magento's caches.
+  the rest of Magento's caches. A cached rate never outlives the store's
+  current day, so a rate change or a sales-tax holiday that starts at midnight
+  is picked up on the day it takes effect, and setting the cache lifetime to 0
+  stops the extension writing to the cache at all.
 - **Configurable endpoint and log location.** The TaxCloud WSDL endpoint is
   now a store setting (point staging at a sandbox without a code change), and
   the log file path can be overridden via DI.
@@ -68,6 +71,13 @@ attribute, an order column and a new cache type.
   to Magento's own tax rates. Those responses are now read correctly.
 - "Using default TIC" messages were written to the log even with logging
   disabled; they now respect the logging setting.
+- A refund that failed after the request reached TaxCloud is no longer retried
+  automatically. TaxCloud's SOAP API does not deduplicate returns, so a retry
+  could book the refund twice; only a failure that never left the store — no
+  connection, no DNS — is repeated now.
+- A single cart line the tax fallback could not price used to zero out tax for
+  the whole cart. That line is skipped instead, and every path that leaves a
+  cart untaxed is now logged at critical.
 
 ## 1.2.0
 

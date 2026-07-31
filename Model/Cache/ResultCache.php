@@ -19,6 +19,8 @@ namespace Taxcloud\Magento2\Model\Cache;
 
 use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Serialize\SerializerInterface;
+use Magento\Framework\Stdlib\DateTime\TimezoneInterface;
+use Magento\Store\Model\ScopeInterface;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
 
@@ -26,9 +28,18 @@ use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
  * Serialize-and-store cache for TaxCloud response payloads (Lookup rates and
  * VerifyAddress results).
  *
- * A read only returns a hit when caching is actually enabled
- * (cache lifetime > 0); writes always persist with the configured lifetime as
- * the TTL. Callers supply the cache key (see
+ * Caching is off entirely when the configured lifetime is <= 0: reads never
+ * serve a hit and writes are skipped, so a disabled cache leaves nothing behind
+ * for a later lifetime change to start serving.
+ *
+ * Rate lifetimes are additionally capped at the store's next local midnight.
+ * The Lookup key is a hash of the request payload, so payload-driven changes
+ * (TIC, exemption, address) invalidate on their own, but a rate change or a
+ * sales-tax-holiday boundary does not — both take effect on a calendar-day
+ * boundary in the jurisdiction, so a cached rate must never outlive one.
+ * Address results carry no such boundary and keep the configured lifetime.
+ *
+ * Callers supply the cache key (see
  * {@see \Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder}) and the tags.
  */
 class ResultCache
@@ -54,21 +65,29 @@ class ResultCache
     private $config;
 
     /**
+     * @var TimezoneInterface
+     */
+    private $timezone;
+
+    /**
      * @param FrontendInterface   $cacheType Bound to the TaxCloud cache type in di.xml
      * @param SerializerInterface $serializer
      * @param CacheKeyBuilder     $cacheKeyBuilder
      * @param TaxcloudConfig      $config
+     * @param TimezoneInterface   $timezone  Resolves the store's local day boundary
      */
     public function __construct(
         FrontendInterface $cacheType,
         SerializerInterface $serializer,
         CacheKeyBuilder $cacheKeyBuilder,
-        TaxcloudConfig $config
+        TaxcloudConfig $config,
+        TimezoneInterface $timezone
     ) {
         $this->cacheType = $cacheType;
         $this->serializer = $serializer;
         $this->cacheKeyBuilder = $cacheKeyBuilder;
         $this->config = $config;
+        $this->timezone = $timezone;
     }
 
     /**
@@ -93,7 +112,13 @@ class ResultCache
      */
     public function saveLookup(array $params, $data, $store = null)
     {
-        $this->save($this->cacheKeyBuilder->forLookup($params), $data, ['taxcloud_rates'], $store);
+        $this->save(
+            $this->cacheKeyBuilder->forLookup($params),
+            $data,
+            ['taxcloud_rates'],
+            $store,
+            $this->getLookupLifetime($store)
+        );
     }
 
     /**
@@ -131,34 +156,85 @@ class ResultCache
      */
     public function get($cacheKey, $store = null)
     {
+        if ($this->config->getCacheLifetime($store) <= 0) {
+            return null;
+        }
         $raw = $this->cacheType->load($cacheKey);
         if (!$raw) {
             return null;
         }
         $value = $this->serializer->unserialize($raw);
-        if ($this->config->getCacheLifetime($store) && $value) {
-            return $value;
-        }
-        return null;
+
+        return $value ?: null;
     }
 
     /**
      * Persist a value under a key, serialized, with the configured cache
      * lifetime as the TTL.
      *
-     * @param string $cacheKey
-     * @param mixed  $data
-     * @param array  $tags
+     * Nothing is written when the effective lifetime is <= 0. A 0 TTL means
+     * "never expire" on the cache frontend rather than "do not cache", so
+     * writing with caching disabled would leave entries that never age out and
+     * that a later lifetime change would start serving.
+     *
+     * @param string   $cacheKey
+     * @param mixed    $data
+     * @param array    $tags
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @param int|null $lifetime TTL override; defaults to the configured lifetime
      * @return void
      */
-    public function save($cacheKey, $data, array $tags, $store = null)
+    public function save($cacheKey, $data, array $tags, $store = null, $lifetime = null)
     {
+        $lifetime = $lifetime === null ? $this->config->getCacheLifetime($store) : (int) $lifetime;
+        if ($lifetime <= 0) {
+            return;
+        }
+
         $this->cacheType->save(
             $this->serializer->serialize($data),
             $cacheKey,
             $tags,
-            $this->config->getCacheLifetime($store)
+            $lifetime
         );
+    }
+
+    /**
+     * TTL for a cached Lookup result: the configured lifetime, shortened so the
+     * entry cannot survive past the store's next local midnight.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return int
+     */
+    public function getLookupLifetime($store = null)
+    {
+        $lifetime = $this->config->getCacheLifetime($store);
+        if ($lifetime <= 0) {
+            return 0;
+        }
+
+        return min($lifetime, $this->getSecondsUntilNextLocalMidnight($store));
+    }
+
+    /**
+     * Seconds remaining until midnight in the store's configured timezone.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return int
+     */
+    private function getSecondsUntilNextLocalMidnight($store = null)
+    {
+        try {
+            $timezone = new \DateTimeZone(
+                (string) $this->timezone->getConfigTimezone(ScopeInterface::SCOPE_STORE, $store)
+            );
+        } catch (\Throwable $e) {
+            $timezone = new \DateTimeZone('UTC');
+        }
+
+        $now = new \DateTime('now', $timezone);
+        $midnight = (clone $now)->modify('tomorrow midnight');
+
+        return max(1, $midnight->getTimestamp() - $now->getTimestamp());
     }
 }

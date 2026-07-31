@@ -119,6 +119,58 @@ class MagentoTaxFallbackTest extends TestCase
         $this->assertSame(['product' => [], 'shipping' => 0], $result);
     }
 
+    /**
+     * A product line with no matching address item used to fatal on a null item
+     * and drop the whole quote — including every priceable line — to 0.00. The
+     * unmatched line is skipped instead.
+     */
+    public function testSkipsProductLineWithNoMatchingAddressItemInsteadOfZeroingTheQuote()
+    {
+        $this->customerAddressFactory->method('create')->willReturn($this->createMock(AddressInterface::class));
+        $this->quoteDetailsFactory->method('create')->willReturn($this->createMock(QuoteDetailsInterface::class));
+        $this->quoteDetailsItemFactory->method('create')
+            ->willReturnCallback(fn () => $this->createMock(QuoteDetailsItemInterface::class));
+        $this->taxClassKeyFactory->method('create')
+            ->willReturnCallback(fn () => $this->createMock(TaxClassKeyInterface::class));
+
+        $product = $this->getMockBuilder(ProductDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getTaxClassId'])->getMock();
+        $product->method('getTaxClassId')->willReturn('2');
+
+        $quoteItem = $this->getMockBuilder(QuoteItemDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getTaxCalculationItemId', 'getProduct', 'getPrice', 'getQty', 'getDiscountAmount'])
+            ->getMock();
+        $quoteItem->method('getTaxCalculationItemId')->willReturn('p1');
+        $quoteItem->method('getProduct')->willReturn($product);
+        $quoteItem->method('getPrice')->willReturn(10.0);
+        $quoteItem->method('getQty')->willReturn(1);
+        $quoteItem->method('getDiscountAmount')->willReturn(0);
+
+        // 'orphan' has no address item behind it.
+        $itemsByType = [
+            'product' => ['p1' => ['item' => 'ignored'], 'orphan' => ['item' => 'ignored']],
+        ];
+
+        $productTax = $this->createMock(TaxDetailsItemInterface::class);
+        $productTax->method('getCode')->willReturn('p1');
+        $productTax->method('getRowTax')->willReturn(0.83);
+        $productTax->method('getType')->willReturn('product');
+
+        $taxDetails = $this->createMock(TaxDetailsInterface::class);
+        $taxDetails->method('getItems')->willReturn([$productTax]);
+        $this->taxCalculationService->method('calculateTax')->willReturn($taxDetails);
+
+        $assignment = $this->shippingAssignmentWithAddress($this->quoteAddress(), [$quoteItem]);
+        $quote = $this->createMock(Quote::class);
+        $quote->method('getStoreId')->willReturn(1);
+
+        $result = $this->fallback()->calculate($itemsByType, $assignment, $quote);
+
+        $this->assertSame(0.83, $result['product']['p1'], 'the priceable line still gets its tax');
+        $this->assertArrayNotHasKey('orphan', $result['product']);
+    }
+
     public function testMapsMagentoTaxDetailsToProductAndShippingResult()
     {
         $this->customerAddressFactory->method('create')->willReturn($this->createMock(AddressInterface::class));
