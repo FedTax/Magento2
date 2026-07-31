@@ -8,4 +8,14 @@ Makefile export-ignore
 run-test.sh export-ignore
 scripts/ export-ignore
 docs/images/ export-ignore
+docs/E2E_TESTS.md export-ignore
+docs/INTEGRATION_TESTS.md export-ignore
+.env.example export-ignore
+docker-compose.yml export-ignore
+docker-compose.e2e.yml export-ignore
 phpunit.xml.dist export-ignore
+phpunit.integration.xml.dist export-ignore
+phpcs.xml.dist export-ignore
+phpstan.neon export-ignore
+phpstan-baseline.neon export-ignore
+phpstan-bootstrap.php export-ignore

@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Api;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Event\ManagerInterface;
 use Magento\Framework\Webapi\Soap\ClientFactory;
 use Magento\Framework\DataObjectFactory;
@@ -49,6 +49,8 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 #[AllowMockObjectsWithoutExpectations]
 class ApiRedactionTest extends TestCase
 {
+    use \Taxcloud\Magento2\Test\Unit\BuildsGatewayApi;
+
     private const SENTINEL_API_ID  = 'SENTINEL_LOGIN_ID_DO_NOT_LEAK';
     private const SENTINEL_API_KEY = 'SENTINEL_KEY_DO_NOT_LEAK';
 
@@ -118,7 +120,9 @@ class ApiRedactionTest extends TestCase
         $scopeConfig->method('getValue')
             ->willReturnMap([
                 ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
-                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                // Advanced: the credential-bearing PARAMS dumps are debug-level
+                // records now, and this test exists to prove they are redacted.
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '2'],
                 ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, self::SENTINEL_API_ID],
                 ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, self::SENTINEL_API_KEY],
                 ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
@@ -190,6 +194,78 @@ class ApiRedactionTest extends TestCase
     }
 
     /**
+     * Advanced mode logs the raw SOAP wire XML captured by the client's trace
+     * buffers — that XML carries the credentials in element form, so it must
+     * arrive at the logger redacted.
+     */
+    public function testSoapWireTraceIsLoggedRedactedInAdvancedMode()
+    {
+        $logger = new CapturingLogger();
+
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '2'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, self::SENTINEL_API_ID],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, self::SENTINEL_API_KEY],
+                ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
+            ]);
+
+        $objectFactory = $this->createMock(DataObjectFactory::class);
+        $objectFactory->method('create')->willReturn(new \Magento\Framework\DataObject());
+
+        $requestXml = '<Lookup><apiLoginID>' . self::SENTINEL_API_ID . '</apiLoginID>'
+            . '<apiKey>' . self::SENTINEL_API_KEY . '</apiKey></Lookup>';
+
+        $mockSoapClient = $this->getMockBuilder(SoapClientDouble::class)
+            ->onlyMethods([
+                'authorizedWithCapture',
+                '__getLastRequest',
+                '__getLastRequestHeaders',
+                '__getLastResponse',
+                '__getLastResponseHeaders',
+            ])
+            ->getMock();
+        $mockSoapClient->method('authorizedWithCapture')
+            ->willThrowException(new \RuntimeException('forced soap failure'));
+        $mockSoapClient->method('__getLastRequest')->willReturn($requestXml);
+        $mockSoapClient->method('__getLastRequestHeaders')->willReturn("POST /TaxCloud.asmx HTTP/1.1\r\n");
+        $mockSoapClient->method('__getLastResponse')->willReturn('<Fault>server error</Fault>');
+        $mockSoapClient->method('__getLastResponseHeaders')->willReturn("HTTP/1.1 500 Internal Server Error\r\n");
+
+        $soapClientFactory = $this->createMock(ClientFactory::class);
+        $soapClientFactory->method('create')->willReturn($mockSoapClient);
+
+        $api = $this->newApi($logger, $scopeConfig, null, $objectFactory, $soapClientFactory);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getCustomerId')->willReturn(null);
+        $order->method('getQuoteId')->willReturn(1);
+        $order->method('getIncrementId')->willReturn('TEST_ORDER_TRACE');
+
+        $this->assertFalse($api->authorizeCapture($order));
+
+        $haystack = implode("\n", array_map(
+            static fn ($m) => is_string($m) ? $m : print_r($m, true),
+            $logger->messages
+        ));
+
+        // The wire trace made it to the log...
+        $this->assertStringContainsString('SOAP request XML', $haystack);
+        $this->assertStringContainsString('SOAP response XML', $haystack);
+        $this->assertStringContainsString('HTTP/1.1 500 Internal Server Error', $haystack);
+
+        // ...with the credentials masked.
+        $this->assertStringNotContainsString(self::SENTINEL_API_ID, $haystack);
+        $this->assertStringNotContainsString(self::SENTINEL_API_KEY, $haystack);
+        $this->assertStringContainsString(
+            '<apiLoginID>' . Api::REDACTED_PLACEHOLDER . '</apiLoginID>',
+            $haystack
+        );
+    }
+
+    /**
      * Build an Api instance wired with mocks. Only scopeConfig, eventManager
      * and objectFactory are exposed for overriding; everything else is a
      * harmless stub for these tests.
@@ -201,26 +277,24 @@ class ApiRedactionTest extends TestCase
         $objectFactory = null,
         $soapClientFactory = null
     ): Api {
-        return new Api(
-            $scopeConfig   ?: $this->createMock(ScopeConfigInterface::class),
-            $this->createMock(CacheInterface::class),
-            $eventManager  ?: $this->createMock(ManagerInterface::class),
-            $soapClientFactory ?: $this->createMock(ClientFactory::class),
-            $objectFactory ?: $this->createMock(DataObjectFactory::class),
-            $this->createMock(ProductFactory::class),
-            $this->createMock(RegionFactory::class),
-            $logger,
-            $this->createMock(SerializerInterface::class),
-            $this->createMock(CartItemResponseHandler::class),
-            $this->createMock(ProductTicService::class),
-            $this->createMock(TaxCalculationInterface::class),
-            $this->createMock(QuoteDetailsInterfaceFactory::class),
-            $this->createMock(QuoteDetailsItemInterfaceFactory::class),
-            $this->createMock(TaxClassKeyInterfaceFactory::class),
-            $this->createMock(AddressInterfaceFactory::class),
-            $this->createMock(RegionInterfaceFactory::class),
-            $this->createMock(RefundDistributor::class)
-        );
+        return $this->buildGatewayApi([
+            'scopeConfig' => $scopeConfig ?: $this->createMock(ScopeConfigInterface::class),
+            'cacheType' => $this->createMock(FrontendInterface::class),
+            'eventManager' => $eventManager ?: $this->createMock(ManagerInterface::class),
+            'soapClientFactory' => $soapClientFactory ?: $this->createMock(ClientFactory::class),
+            'objectFactory' => $objectFactory ?: $this->createMock(DataObjectFactory::class),
+            'regionFactory' => $this->createMock(RegionFactory::class),
+            'logger' => $logger,
+            'serializer' => $this->createMock(SerializerInterface::class),
+            'cartItemResponseHandler' => $this->createMock(CartItemResponseHandler::class),
+            'productTicService' => $this->createMock(ProductTicService::class),
+            'taxCalculationService' => $this->createMock(TaxCalculationInterface::class),
+            'quoteDetailsFactory' => $this->createMock(QuoteDetailsInterfaceFactory::class),
+            'quoteDetailsItemFactory' => $this->createMock(QuoteDetailsItemInterfaceFactory::class),
+            'taxClassKeyFactory' => $this->createMock(TaxClassKeyInterfaceFactory::class),
+            'customerAddressFactory' => $this->createMock(AddressInterfaceFactory::class),
+            'refundDistributor' => $this->createMock(RefundDistributor::class),
+        ]);
     }
 }
 
@@ -258,6 +332,16 @@ class CapturingLogger extends Logger
     }
 
     public function debug($message, array $context = []): void
+    {
+        $this->messages[] = $message;
+    }
+
+    /**
+     * The gateway now logs through the config-gated GatewayLogger, which routes
+     * every level through log(); capture here so the credential-leak assertions
+     * still see exactly what would reach disk.
+     */
+    public function log($level, $message, array $context = []): void
     {
         $this->messages[] = $message;
     }

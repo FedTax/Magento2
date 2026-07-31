@@ -17,290 +17,161 @@
 
 namespace Taxcloud\Magento2\Model;
 
-use Magento\Framework\Serialize\SerializerInterface;
-use Magento\Directory\Model\RegionFactory;
+use Taxcloud\Magento2\Api\GatewayInterface;
+use Taxcloud\Magento2\Model\Cache\ResultCache;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Event\GatewayEventDispatcher;
+use Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback;
+use Taxcloud\Magento2\Model\Gateway\ExemptionValidator;
+use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
+use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
+use Taxcloud\Magento2\Model\Gateway\RetryPolicy;
+use Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway;
+use Taxcloud\Magento2\Model\Logging\GatewayLogger;
+use Taxcloud\Magento2\Model\Logging\LogRedactor;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Throwable;
 
 /**
- * Tax Calculation Model
- * @SuppressWarnings(PHPMD.TooManyFields)
- * @SuppressWarnings(PHPMD.CouplingBetweenObjects)
+ * Tax calculation gateway — thin orchestrator over focused collaborators.
+ *
+ * SOAP implementation of the TaxCloud gateway contract. Consumers depend on the
+ * finer-grained interfaces under {@see \Taxcloud\Magento2\Api}; this concrete
+ * class is what di.xml binds them to. Each responsibility (transport, request
+ * building, response mapping, caching, exemption validation, native-tax
+ * fallback, event dispatch, retry) lives in its own collaborator; this class
+ * wires them together and owns the per-operation flow.
  */
-class Api
+class Api implements GatewayInterface
 {
 
     /**#@+
      * Constants defined for type of items
      */
-    const ITEM_TYPE_SHIPPING = 'shipping';
-    const ITEM_TYPE_PRODUCT = 'product';
-    const ITEM_CODE_SHIPPING = 'shipping';
+    public const ITEM_TYPE_SHIPPING = 'shipping';
+    public const ITEM_TYPE_PRODUCT = 'product';
+    public const ITEM_CODE_SHIPPING = 'shipping';
     /**#@+
      * Constants for array keys
      */
-    const KEY_ITEM = 'item';
-    const KEY_BASE_ITEM = 'base_item';
+    public const KEY_ITEM = 'item';
+    public const KEY_BASE_ITEM = 'base_item';
 
     /**
      * Default SOAP connection/read timeout in seconds.
      */
-    const DEFAULT_SOAP_TIMEOUT = 10;
+    public const DEFAULT_SOAP_TIMEOUT = 10;
 
     /**
      * Backoff between SOAP retry attempts, in microseconds.
      */
-    const SOAP_RETRY_BACKOFF_US = 250000;
+    public const SOAP_RETRY_BACKOFF_US = 250000;
 
     /**
-     * Magento Config Object
+     * TaxCloud logger (gated by the logging setting, store-scoped per
+     * operation via setStore()).
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
-     */
-    protected $scopeConfig = null;
-
-    /**
-     * Magento Cache Object
-     *
-     * @var \Vendor\Cachetype\Model\Cache\Type
-     */
-    protected $cacheType;
-
-    /**
-     * Magento Event Manager
-     *
-     * @var \Magento\Framework\Event\ManagerInterface
-     */
-    protected $eventManager;
-
-    /**
-     * Soap client
-     *
-     * @var \SoapClient
-     */
-    protected $client = null;
-
-    /**
-     * Soap loader
-     *
-     * @var \Magento\Framework\Webapi\Soap\ClientFactory
-     */
-    protected $soapClientFactory;
-
-    /**
-     * Object Factory
-     *
-     * @var \Magento\Framework\DataObjectFactory
-     */
-    protected $objectFactory;
-
-    /**
-     * Product Factory
-     *
-     * @var \Magento\Catalog\Model\ProductFactory
-     */
-    protected $productFactory;
-
-    /**
-     * Region Factory
-     *
-     * @var \Magento\Directory\Model\RegionFactory
-     */
-    protected $regionFactory;
-
-    /**
-     * TaxCloud Logger
-     *
-     * @var \Taxcloud\Magento2\Logger\Logger
+     * @var \Taxcloud\Magento2\Model\Logging\GatewayLogger
      */
     protected $tclogger;
 
     /**
-     * TaxCloud Logger
+     * Store-scoped configuration reader.
      *
-     * @var \Magento\Framework\Serialize\SerializerInterface
+     * @var \Taxcloud\Magento2\Model\Config\TaxcloudConfig
      */
-    private $serializer;
+    private $config;
 
     /**
-     * Cart Item Response Handler
+     * SOAP transport (client provisioning).
      *
-     * @var \Taxcloud\Magento2\Model\CartItemResponseHandler
+     * @var \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway
      */
-    private $cartItemResponseHandler;
+    private $soapGateway;
 
     /**
-     * Product TIC Service
+     * Request payload construction.
      *
-     * @var \Taxcloud\Magento2\Model\ProductTicService
+     * @var \Taxcloud\Magento2\Model\Gateway\RequestBuilder
      */
-    private $productTicService;
+    private $requestBuilder;
 
     /**
-     * @var \Magento\Tax\Api\TaxCalculationInterface
-     */
-    private $taxCalculationService;
-
-    /**
-     * @var \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory
-     */
-    private $quoteDetailsFactory;
-
-    /**
-     * @var \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory
-     */
-    private $quoteDetailsItemFactory;
-
-    /**
-     * @var \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory
-     */
-    private $taxClassKeyFactory;
-
-    /**
-     * @var \Magento\Customer\Api\Data\AddressInterfaceFactory
-     */
-    private $customerAddressFactory;
-
-    /**
-     * @var \Magento\Customer\Api\Data\RegionInterfaceFactory
-     */
-    private $customerAddressRegionFactory;
-
-    /**
-     * Refund Distributor
+     * Wire-format normalization and extraction.
      *
-     * @var \Taxcloud\Magento2\Model\RefundDistributor
+     * @var \Taxcloud\Magento2\Model\Gateway\ResponseMapper
      */
-    private $refundDistributor;
+    private $responseMapper;
 
     /**
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
-     * @param \Magento\Framework\App\CacheInterface $cacheType
-     * @param \Magento\Framework\Event\ManagerInterface $eventManager
-     * @param \Magento\Framework\Webapi\Soap\ClientFactory $soapClientFactory
-     * @param \Magento\Framework\DataObjectFactory $objectFactory
-     * @param \Magento\Catalog\Model\ProductFactory $productFactory
-     * @param \Magento\Directory\Model\RegionFactory $regionFactory
-     * @param \Taxcloud\Magento2\Logger\Logger $tclogger
-     * @param SerializerInterface $serializer
-     * @param \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler
-     * @param \Taxcloud\Magento2\Model\ProductTicService $productTicService
-     * @param \Magento\Tax\Api\TaxCalculationInterface $taxCalculationService
-     * @param \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory $quoteDetailsFactory
-     * @param \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory $quoteDetailsItemFactory
-     * @param \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory
-     * @param \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory
-     * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
-     * @param \Taxcloud\Magento2\Model\RefundDistributor $refundDistributor
-     * @SuppressWarnings(PHPMD.ExcessiveParameterList)
+     * Serialize-and-store response cache.
+     *
+     * @var \Taxcloud\Magento2\Model\Cache\ResultCache
+     */
+    private $resultCache;
+
+    /**
+     * Exemption-certificate validation.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\ExemptionValidator
+     */
+    private $exemptionValidator;
+
+    /**
+     * Magento-native tax fallback.
+     *
+     * @var \Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback
+     */
+    private $magentoTaxFallback;
+
+    /**
+     * Before/after gateway event dispatch.
+     *
+     * @var \Taxcloud\Magento2\Model\Event\GatewayEventDispatcher
+     */
+    private $eventDispatcher;
+
+    /**
+     * Retry discipline for SOAP calls.
+     *
+     * @var \Taxcloud\Magento2\Model\Gateway\RetryPolicy
+     */
+    private $retryPolicy;
+
+    /**
+     * @param \Taxcloud\Magento2\Model\Config\TaxcloudConfig $config
+     * @param \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway $soapGateway
+     * @param \Taxcloud\Magento2\Model\Gateway\RequestBuilder $requestBuilder
+     * @param \Taxcloud\Magento2\Model\Gateway\ResponseMapper $responseMapper
+     * @param \Taxcloud\Magento2\Model\Cache\ResultCache $resultCache
+     * @param \Taxcloud\Magento2\Model\Gateway\ExemptionValidator $exemptionValidator
+     * @param \Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback $magentoTaxFallback
+     * @param \Taxcloud\Magento2\Model\Event\GatewayEventDispatcher $eventDispatcher
+     * @param \Taxcloud\Magento2\Model\Gateway\RetryPolicy $retryPolicy
+     * @param \Taxcloud\Magento2\Model\Logging\GatewayLogger $logger
      */
     public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Magento\Framework\App\CacheInterface $cacheType,
-        \Magento\Framework\Event\ManagerInterface $eventManager,
-        \Magento\Framework\Webapi\Soap\ClientFactory $soapClientFactory,
-        \Magento\Framework\DataObjectFactory $objectFactory,
-        \Magento\Catalog\Model\ProductFactory $productFactory,
-        \Magento\Directory\Model\RegionFactory $regionFactory,
-        \Taxcloud\Magento2\Logger\Logger $tclogger,
-        SerializerInterface $serializer,
-        \Taxcloud\Magento2\Model\CartItemResponseHandler $cartItemResponseHandler,
-        \Taxcloud\Magento2\Model\ProductTicService $productTicService,
-        \Magento\Tax\Api\TaxCalculationInterface $taxCalculationService,
-        \Magento\Tax\Api\Data\QuoteDetailsInterfaceFactory $quoteDetailsFactory,
-        \Magento\Tax\Api\Data\QuoteDetailsItemInterfaceFactory $quoteDetailsItemFactory,
-        \Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory $taxClassKeyFactory,
-        \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
-        \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
-        \Taxcloud\Magento2\Model\RefundDistributor $refundDistributor
+        TaxcloudConfig $config,
+        SoapGateway $soapGateway,
+        RequestBuilder $requestBuilder,
+        ResponseMapper $responseMapper,
+        ResultCache $resultCache,
+        ExemptionValidator $exemptionValidator,
+        MagentoTaxFallback $magentoTaxFallback,
+        GatewayEventDispatcher $eventDispatcher,
+        RetryPolicy $retryPolicy,
+        GatewayLogger $logger
     ) {
-        $this->scopeConfig = $scopeConfig;
-        $this->cacheType = $cacheType;
-        $this->eventManager = $eventManager;
-        $this->soapClientFactory = $soapClientFactory;
-        $this->objectFactory = $objectFactory;
-        $this->productFactory = $productFactory;
-        $this->regionFactory = $regionFactory;
-        $this->serializer = $serializer;
-        $this->cartItemResponseHandler = $cartItemResponseHandler;
-        $this->productTicService = $productTicService;
-        $this->taxCalculationService = $taxCalculationService;
-        $this->quoteDetailsFactory = $quoteDetailsFactory;
-        $this->quoteDetailsItemFactory = $quoteDetailsItemFactory;
-        $this->taxClassKeyFactory = $taxClassKeyFactory;
-        $this->customerAddressFactory = $customerAddressFactory;
-        $this->customerAddressRegionFactory = $customerAddressRegionFactory;
-        $this->refundDistributor = $refundDistributor;
-        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->tclogger = $tclogger;
-        } else {
-            $this->tclogger = new class {
-                public function info()
-                {
-                }
-            };
-        }
-    }
-
-    /**
-     * Get TaxCloud API ID
-     * @return string
-     */
-    protected function getApiId()
-    {
-        return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/api_id',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-    }
-
-    /**
-     * Get TaxCloud API Key
-     * @return string
-     */
-    protected function getApiKey()
-    {
-        return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/api_key',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-    }
-
-    /**
-     * Get TaxCloud Guest Customer Id
-     * @return string
-     */
-    protected function getGuestCustomerId()
-    {
-        return $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/guest_customer_id',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        ) ?? '-1';
-    }
-
-
-    /**
-     * Get TaxCloud Cache Lifetime
-     * @return string
-     */
-    protected function getCacheLifetime()
-    {
-        return intval($this->scopeConfig->getValue(
-            'tax/taxcloud_settings/cache_lifetime',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        ));
-    }
-
-    /**
-     * Check if fallback to Magento tax rates is enabled
-     * @return bool
-     */
-    private function isFallbackToMagentoEnabled()
-    {
-        return (bool) $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/fallback_to_magento',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
+        $this->config = $config;
+        $this->soapGateway = $soapGateway;
+        $this->requestBuilder = $requestBuilder;
+        $this->responseMapper = $responseMapper;
+        $this->resultCache = $resultCache;
+        $this->exemptionValidator = $exemptionValidator;
+        $this->magentoTaxFallback = $magentoTaxFallback;
+        $this->eventDispatcher = $eventDispatcher;
+        $this->retryPolicy = $retryPolicy;
+        $this->tclogger = $logger;
     }
 
     /**
@@ -314,170 +185,12 @@ class Api
      * @param string $certificateID
      * @param string $customerID
      * @param string $destinationState  Two-letter state abbreviation
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose TaxCloud account applies
      * @return string|null  The certificate ID if it covers the state, null otherwise
      */
-    public function getValidatedCertificateID($certificateID, $customerID, $destinationState)
+    public function getValidatedCertificateID($certificateID, $customerID, $destinationState, $store = null)
     {
-        if (empty($certificateID) || empty($customerID) || empty($destinationState)) {
-            return null;
-        }
-
-        // Keyed per (customer, certificate) so a customer who pastes another
-        // customer's certificate UUID into their own profile cannot reuse the
-        // other customer's cached state list.
-        $cacheKey = 'taxcloud_cert_states_' . $customerID . '_' . $certificateID;
-        $cached = $this->cacheType->load($cacheKey);
-        if ($cached) {
-            $exemptStates = json_decode($cached, true);
-            if (is_array($exemptStates)) {
-                $match = in_array($destinationState, $exemptStates, true);
-                $this->tclogger->info(
-                    'Exemption cert ' . $certificateID . ' covers [' . implode(', ', $exemptStates) . ']'
-                    . ' — destination ' . $destinationState . ($match ? ' MATCHES' : ' does NOT match')
-                );
-                return $match ? $certificateID : null;
-            }
-        }
-
-        // Fetch certificate details from TaxCloud
-        $client = $this->getClient();
-        if (!$client) {
-            $this->tclogger->info('Cannot validate exemption cert: no SOAP client');
-            return null;
-        }
-
-        try {
-            $response = $client->GetExemptCertificates(array(
-                'apiLoginID' => $this->getApiId(),
-                'apiKey'     => $this->getApiKey(),
-                'customerID' => $customerID,
-            ));
-        } catch (Throwable $e) {
-            // Fail closed — don't apply an unverified exemption
-            $this->tclogger->info('GetExemptCertificates SOAP error: ' . $e->getMessage());
-            return null;
-        }
-
-        $exemptStates = $this->extractExemptStatesFromResponse($response, $certificateID);
-
-        // Cache for 1 hour so we don't hammer the SOAP endpoint on every page load
-        $this->cacheType->save(
-            json_encode($exemptStates),
-            $cacheKey,
-            [],
-            3600
-        );
-
-        $match = in_array($destinationState, $exemptStates, true);
-        $this->tclogger->info(
-            'Exemption cert ' . $certificateID . ' covers [' . implode(', ', $exemptStates) . ']'
-            . ' — destination ' . $destinationState . ($match ? ' MATCHES' : ' does NOT match')
-        );
-        return $match ? $certificateID : null;
-    }
-
-    /**
-     * Extract the list of exempt state abbreviations for a specific certificate
-     * from a GetExemptCertificates SOAP response.
-     *
-     * @param object $response  Raw SOAP response
-     * @param string $certificateID
-     * @return string[]  State abbreviations (e.g. ['NY', 'NJ'])
-     */
-    private function extractExemptStatesFromResponse($response, $certificateID)
-    {
-        $result = $response->GetExemptCertificatesResult ?? null;
-        if (!$result || ($result->ResponseType ?? '') !== 'OK') {
-            $this->tclogger->info('GetExemptCertificates returned non-OK response');
-            return [];
-        }
-
-        $certs = $result->ExemptCertificates->ExemptionCertificate ?? [];
-        // SOAP may return a single object instead of an array when there is only one cert
-        if (!is_array($certs)) {
-            $certs = [$certs];
-        }
-
-        foreach ($certs as $cert) {
-            if (($cert->CertificateID ?? '') !== $certificateID) {
-                continue;
-            }
-
-            $states = [];
-            $exemptStates = $cert->Detail->ExemptStates->ExemptState ?? [];
-            if (!is_array($exemptStates)) {
-                $exemptStates = [$exemptStates];
-            }
-            foreach ($exemptStates as $es) {
-                // The SOAP response uses StateAbbr or StateAbbreviation
-                $abbr = $es->StateAbbr ?? $es->StateAbbreviation ?? null;
-                if ($abbr) {
-                    $states[] = $abbr;
-                }
-            }
-            return $states;
-        }
-
-        $this->tclogger->info('Certificate ' . $certificateID . ' not found in GetExemptCertificates response');
-        return [];
-    }
-
-    /**
-     * Set customer address data from quote address
-     * @param \Magento\Customer\Api\Data\AddressInterface $customerAddress
-     * @param \Magento\Quote\Model\Quote\Address $quoteAddress
-     * @return void
-     */
-    private function setFromAddress($customerAddress, $quoteAddress)
-    {
-        $customerAddress->setCountryId($quoteAddress->getCountryId());
-        $customerAddress->setRegionId($quoteAddress->getRegionId());
-        $customerAddress->setPostcode($quoteAddress->getPostcode());
-        $customerAddress->setCity($quoteAddress->getCity());
-        $customerAddress->setStreet($quoteAddress->getStreet());
-    }
-
-    /**
-     * Get TaxCloud Shipping Origin
-     * @return array
-     */
-    protected function getOrigin()
-    {
-        $scope = \Magento\Store\Model\ScopeInterface::SCOPE_STORE;
-
-        $originPostcode = $this->scopeConfig->getValue('shipping/origin/postcode', $scope);
-        $parsedZip = PostalCodeParser::parse($originPostcode);
-        
-        // Validate the parsed ZIP code
-        if (!PostalCodeParser::isValid($parsedZip)) {
-            $this->tclogger->info('Invalid origin ZIP code format: ' . $originPostcode);
-            // For origin address, we need a valid ZIP code - return null to indicate invalid origin
-            return null;
-        }
-        
-        return array(
-            'Address1' => $this->scopeConfig->getValue('shipping/origin/street_line1', $scope),
-            'Address2' => $this->scopeConfig->getValue('shipping/origin/street_line2', $scope),
-            'City' => $this->scopeConfig->getValue('shipping/origin/city', $scope),
-            'State' => $this->regionFactory->create()->load(
-                $this->scopeConfig->getValue('shipping/origin/region_id', $scope)
-            )->getCode(),
-            'Zip5' => $parsedZip['Zip5'],
-            'Zip4' => $parsedZip['Zip4'],
-        );
-    }
-
-    /**
-     * Get the configured SOAP timeout (seconds), falling back to the default.
-     * @return int
-     */
-    public function getSoapTimeout()
-    {
-        $configured = (int) $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/api_timeout',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-        return $configured > 0 ? $configured : self::DEFAULT_SOAP_TIMEOUT;
+        return $this->exemptionValidator->validate($certificateID, $customerID, $destinationState, $store);
     }
 
     /**
@@ -489,39 +202,23 @@ class Api
      * - cache_wsdl => WSDL_CACHE_BOTH: cache the WSDL in memory and on disk so
      *   we don't refetch api.taxcloud.net's WSDL on every client construction.
      *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return array
      */
-    public function buildSoapOptions()
+    public function buildSoapOptions($store = null)
     {
-        $timeout = $this->getSoapTimeout();
-
-        return array(
-            'connection_timeout' => $timeout,
-            'cache_wsdl'         => WSDL_CACHE_BOTH,
-            'keep_alive'         => true,
-            'stream_context'     => stream_context_create(array(
-                'http' => array('timeout' => $timeout),
-                'ssl'  => array('timeout' => $timeout),
-            )),
-        );
+        return $this->soapGateway->buildSoapOptions($store);
     }
 
     /**
-     * Get SoapClient
+     * Get SoapClient for a store's transport configuration
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return \SoapClient
      */
-    public function getClient()
+    public function getClient($store = null)
     {
-        if ($this->client === null) {
-            try {
-                $wsdl = 'https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl';
-                $this->client = $this->soapClientFactory->create($wsdl, $this->buildSoapOptions());
-            } catch (Throwable $e) {
-                $this->tclogger->info('Cannot get SoapClient:');
-                $this->tclogger->info($e->getMessage());
-            }
-        }
-        return $this->client;
+        return $this->soapGateway->getClient($store);
     }
 
     /**
@@ -533,14 +230,7 @@ class Api
      */
     public function isTimeoutError(Throwable $e)
     {
-        if ($e instanceof \SoapFault && isset($e->faultcode)
-            && stripos((string) $e->faultcode, 'HTTP') !== false) {
-            return true;
-        }
-        return (bool) preg_match(
-            '/timed out|timeout|Error Fetching http headers|Could not connect|failed to open/i',
-            $e->getMessage()
-        );
+        return $this->retryPolicy->isTimeoutError($e);
     }
 
     /**
@@ -551,27 +241,29 @@ class Api
      * final exception is rethrown so each call site's existing error handling
      * (Magento fallback / return false) still applies.
      *
-     * @param callable $call
-     * @param int      $maxRetries Retries after the initial attempt (default 1)
+     * Non-idempotent operations pass
+     * {@see \Taxcloud\Magento2\Model\Gateway\RetryPolicy::isRetryableForNonIdempotent()}
+     * as $isRetryable to narrow that to failures that never reached TaxCloud.
+     *
+     * @param callable      $call
+     * @param int           $maxRetries  Retries after the initial attempt (default 1)
+     * @param string        $operation   Label for the Advanced-mode timing record
+     * @param callable|null $isRetryable fn(Throwable): bool, overriding the default rule
      * @return mixed
      */
-    public function callSoapWithRetry(callable $call, $maxRetries = 1)
-    {
-        $attempt = 0;
-        while (true) {
-            try {
-                return $call();
-            } catch (Throwable $e) {
-                if ($this->isTimeoutError($e) || $attempt >= $maxRetries) {
-                    throw $e;
-                }
-                $attempt++;
-                $this->tclogger->info(
-                    'SOAP call failed, retrying (' . $attempt . '/' . $maxRetries
-                    . ') after backoff: ' . $e->getMessage()
-                );
-                usleep(self::SOAP_RETRY_BACKOFF_US);
-            }
+    public function callSoapWithRetry(
+        callable $call,
+        $maxRetries = 1,
+        $operation = 'SOAP',
+        ?callable $isRetryable = null
+    ) {
+        $start = microtime(true);
+        try {
+            return $this->retryPolicy->execute($call, $maxRetries, $isRetryable);
+        } finally {
+            $this->tclogger->debug(
+                sprintf('%s round-trip took %.0f ms (including retries)', $operation, (microtime(true) - $start) * 1000)
+            );
         }
     }
 
@@ -584,9 +276,17 @@ class Api
      */
     public function lookupTaxes($itemsByType, $shippingAssignment, $quote)
     {
-        $this->tclogger->info('Calling lookupTaxes');
+        // All config (credentials, TICs, cache, fallback, logging) resolves
+        // against the quote's store, not the ambient request store.
+        $storeId = $quote->getStoreId();
+        $this->tclogger->setStore($storeId);
 
-        $result = array(self::ITEM_TYPE_PRODUCT => array(), self::ITEM_TYPE_SHIPPING => 0);
+        $this->tclogger->info('Calling lookupTaxes');
+        $this->tclogger->debug(
+            'lookupTaxes context: store=' . $storeId . ', quote=' . ($quote->getId() ?: '(new)')
+        );
+
+        $result = [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
 
         $customer = $quote->getCustomer();
 
@@ -600,19 +300,11 @@ class Api
         
         // Validate the parsed ZIP code
         if (!PostalCodeParser::isValid($parsedZip)) {
-            $this->tclogger->info('Invalid ZIP code format: ' . $destinationPostcode);
+            $this->tclogger->warning('Invalid ZIP code format: ' . $destinationPostcode);
             return $result;
         }
         
-        $destination = array(
-            'Address1' => $address->getStreet()[0] ?? '',
-            'Address2' => $address->getStreet()[1] ?? '',
-            'City' => $address->getCity(),
-            'State' => $this->regionFactory->create()->load($address->getRegionId())->getCode(),
-            'Zip5' => $parsedZip['Zip5'],
-            'Zip4' => $parsedZip['Zip4'],
-        );
-
+        $destination = $this->requestBuilder->buildLookupDestination($address, $parsedZip);
 
         if ($address->getCountryId() !== 'US') {
             $this->tclogger->info('Not US, returning 0');
@@ -629,11 +321,6 @@ class Api
             return $result;
         }
 
-        if (!$address->getPostcode()) {
-            $this->tclogger->info('No postcode, returning 0');
-            return $result;
-        }
-
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
             // Skip composite child lines with no tax calculation id (null array
@@ -645,42 +332,9 @@ class Api
             $keyedAddressItems[$taxCalculationItemId] = $item;
         }
 
-        $index = 0;
-        $indexedItems = array();
-        $cartItems = array();
-
-        if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
-            foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
-                $item = $keyedAddressItems[$code];
-                if ($item->getProduct() && $item->getProduct()->getTaxClassId() === '0') {
-                    // Skip products with tax_class_id of None, store owners should avoid doing this
-                    continue;
-                }
-                $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
-                    'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes'),
-                    'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
-                    'Qty' => $item->getQty(),
-                );
-                $indexedItems[$index++] = $code;
-            }
-        }
-
-        if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
-            $addressShippingAmount = (float) $address->getShippingAmount();
-            foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
-                // Shipping as a cart item - shipping needs to be taxed
-                $shippingRowTotal = $itemTaxDetail[self::KEY_ITEM]->getRowTotal();
-                $cartItems[] = array(
-                    'ItemID' => 'shipping',
-                    'Index' => $index++,
-                    'TIC' => $this->productTicService->getShippingTic(),
-                    'Price' => ($shippingRowTotal ?: $addressShippingAmount),
-                    'Qty' => 1,
-                );
-            }
-        }
+        $built = $this->requestBuilder->buildLookupCartItems($itemsByType, $keyedAddressItems, $address, $storeId);
+        $cartItems = $built['cartItems'];
+        $indexedItems = $built['indexedItems'];
 
         if (count($cartItems) === 0) {
             $this->tclogger->info('No cart items, returning 0');
@@ -695,251 +349,126 @@ class Api
                 $certificateID = $this->getValidatedCertificateID(
                     $certificate->getValue(),
                     $customer->getId(),
-                    $destination['State']
+                    $destination['State'],
+                    $storeId
                 );
             }
         }
 
-        $origin = $this->getOrigin();
+        $origin = $this->requestBuilder->buildOrigin($storeId);
         if ($origin === null) {
-            $this->tclogger->info('Invalid origin address configuration - cannot proceed with tax calculation');
+            $this->tclogger->error('Invalid origin address configuration - cannot proceed with tax calculation');
             return $result;
         }
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $customer->getId() ?? $this->getGuestCustomerId(),
-            'cartID' => $quote->getId(),
-            'cartItems' => $cartItems,
-            'origin' => $origin,
-            'destination' => $destination,
-            'deliveredBySeller' => false,
-            'exemptCert' => array(
-                'CertificateID' => $certificateID,
-            ),
+        $params = $this->requestBuilder->buildLookupParams(
+            $customer,
+            $quote,
+            $cartItems,
+            $origin,
+            $destination,
+            $certificateID
         );
 
         // Call before event (observers may modify $params, e.g. address verification)
-        $lookupParamsHolder = $this->objectFactory->create();
-        $lookupParamsHolder->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_lookup_before', array(
-            'obj' => $lookupParamsHolder,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_lookup_before', $params, [
             'customer' => $customer,
             'address' => $address,
             'quote' => $quote,
             'itemsByType' => $itemsByType,
             'shippingAssignment' => $shippingAssignment,
-        ));
+        ]);
 
-        $params = $lookupParamsHolder->getParams();
-
-        // hash, check cache (use post-observer params so cache key matches what we send to TaxCloud)
-        $cacheKeyApi = 'taxcloud_rates_' . hash('sha256', json_encode($params));
-        $cacheResult = null;
-        if ($this->cacheType->load($cacheKeyApi)) {
-            $cacheResult = $this->serializer->unserialize($this->cacheType->load($cacheKeyApi));
-        }
-
-        if ($this->getCacheLifetime() && $cacheResult) {
+        // check cache (use post-observer params so cache key matches what we send to TaxCloud)
+        $cacheResult = $this->resultCache->getLookup($params, $storeId);
+        if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
         }
 
-        $client = $this->getClient();
+        $client = $this->getClient($storeId);
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during lookupTaxes: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during lookupTaxes: Cannot get SoapClient');
             return $result;
         }
 
         // Call the TaxCloud web service
 
         $this->tclogger->info('Calling lookupTaxes LIVE API');
-        $this->tclogger->info('lookupTaxes PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('lookupTaxes PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $lookupResponse = $this->callSoapWithRetry(function () use ($client, $params) {
                 return $client->lookup($params);
-            });
+            }, 1, 'lookupTaxes');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during lookupTaxes: ' . $e->getMessage());
+            $this->tclogger->error('Error encountered during lookupTaxes: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'lookupTaxes', $storeId);
 
             // Check if fallback to Magento is enabled
-            if ($this->isFallbackToMagentoEnabled()) {
-                $this->tclogger->info('TaxCloud lookup failed, falling back to Magento tax rates');
-                return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
+            if ($this->config->isFallbackToMagentoEnabled($storeId)) {
+                $this->tclogger->warning('TaxCloud lookup failed, falling back to Magento tax rates');
+                return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
 
             return $result;
         }
 
-        // Force into array
-        $lookupResponse = json_decode(json_encode($lookupResponse), true);
+        $this->logSoapTrace($client, 'lookupTaxes', $storeId);
 
-        $this->tclogger->info('lookupTaxes RESPONSE:');
-        $this->tclogger->info(print_r($lookupResponse, true));
+        // Force into array
+        $lookupResponse = $this->responseMapper->toArray($lookupResponse);
+
+        $this->tclogger->debug('lookupTaxes RESPONSE:');
+        $this->tclogger->debug(print_r($lookupResponse, true));
 
         $lookupResult = $lookupResponse['LookupResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($lookupResult);
-
-        $this->eventManager->dispatch('taxcloud_lookup_after', array(
-            'obj' => $obj,
+        $lookupResult = $this->eventDispatcher->dispatchAfter('taxcloud_lookup_after', $lookupResult, [
             'customer' => $customer,
             'address' => $address,
             'quote' => $quote,
             'itemsByType' => $itemsByType,
             'shippingAssignment' => $shippingAssignment,
-        ));
-
-        $lookupResult = $obj->getResult();
+        ]);
 
         if ($lookupResult['ResponseType'] == 'OK' || $lookupResult['ResponseType'] == 'Informational') {
             $cartItemResponse = $lookupResult['CartItemsResponse']['CartItemResponse'];
             
             if (empty($cartItemResponse)) {
-                $this->tclogger->info('CartItemResponse is empty, skipping tax calculation');
+                $this->tclogger->warning('CartItemResponse is empty, skipping tax calculation');
                 return $result;
             }
-            $this->cartItemResponseHandler->processAndApplyCartItemResponses(
+            $this->responseMapper->applyCartItemResponses(
                 $cartItemResponse,
                 $cartItems,
                 $indexedItems,
                 $result
             );
 
-            $this->tclogger->info('Caching lookupTaxes result for ' . $this->getCacheLifetime());
-            $this->cacheType->save(
-                $this->serializer->serialize($result),
-                $cacheKeyApi,
-                array('taxcloud_rates'),
-                $this->getCacheLifetime()
+            $this->tclogger->info(
+                'Caching lookupTaxes result for ' . $this->resultCache->getLookupLifetime($storeId)
+                . 's (capped at the store\'s next local midnight)'
             );
+            $this->resultCache->saveLookup($params, $result, $storeId);
 
             return $result;
         } else {
-            $this->tclogger->info('Error encountered during lookupTaxes: ');
-            $this->tclogger->info(print_r($lookupResult, true));
-            
-            // Check if fallback to Magento is enabled
-            if ($this->isFallbackToMagentoEnabled()) {
-                $this->tclogger->info('TaxCloud lookup returned error response, falling back to Magento tax rates');
-                return $this->getMagentoTaxRates($itemsByType, $shippingAssignment, $quote);
-            }
-            
-            return $result;
-        }
-    }
+            $this->tclogger->error(
+                'Error encountered during lookupTaxes: '
+                . ($lookupResult['Messages']['ResponseMessage']['Message'] ?? 'non-OK response')
+            );
+            $this->tclogger->debug(print_r($lookupResult, true));
 
-    /**
-     * Get Magento's default tax rates for fallback when TaxCloud fails
-     * @param $itemsByType
-     * @param $shippingAssignment
-     * @param $quote
-     * @return array
-     */
-    private function getMagentoTaxRates($itemsByType, $shippingAssignment, $quote)
-    {
-        $this->tclogger->info('Falling back to Magento tax rates');
-        
-        $result = array(self::ITEM_TYPE_PRODUCT => array(), self::ITEM_TYPE_SHIPPING => 0);
-        
-        $address = $shippingAssignment->getShipping()->getAddress();
-        if (!$address) {
-            return $result;
-        }
-        
-        try {
-            // Build customer address for tax calculation
-            $customerAddress = $this->customerAddressFactory->create();
-            $this->setFromAddress($customerAddress, $address);
-            
-            // Create quote details
-            $quoteDetails = $this->quoteDetailsFactory->create();
-            $quoteDetails->setBillingAddress($customerAddress);
-            $quoteDetails->setShippingAddress($customerAddress);
-            $quoteDetails->setCustomerTaxClassId($quote->getCustomerTaxClassId());
-            $quoteDetails->setItems([]);
-            
-            $keyedAddressItems = [];
-            foreach ($shippingAssignment->getItems() as $item) {
-                // Skip composite child lines with no tax calculation id (null
-                // array key is a PHP 8 deprecation, fatal in developer mode).
-                $taxCalculationItemId = $item->getTaxCalculationItemId();
-                if ($taxCalculationItemId === null) {
-                    continue;
-                }
-                $keyedAddressItems[$taxCalculationItemId] = $item;
+            // Check if fallback to Magento is enabled
+            if ($this->config->isFallbackToMagentoEnabled($storeId)) {
+                $this->tclogger->warning('TaxCloud lookup returned error response, falling back to Magento tax rates');
+                return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
             }
             
-            $items = [];
-            if (isset($itemsByType[self::ITEM_TYPE_PRODUCT])) {
-                foreach ($itemsByType[self::ITEM_TYPE_PRODUCT] as $code => $itemTaxDetail) {
-                    $item = $keyedAddressItems[$code];
-                    if ($item->getProduct()->getTaxClassId() === '0') {
-                        continue;
-                    }
-                    
-                    $quoteDetailsItem = $this->quoteDetailsItemFactory->create();
-                    $quoteDetailsItem->setCode($code);
-                    $quoteDetailsItem->setType(self::ITEM_TYPE_PRODUCT);
-                    $taxClassKey = $this->taxClassKeyFactory->create();
-                    $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
-                    $taxClassKey->setValue($item->getProduct()->getTaxClassId());
-                    $quoteDetailsItem->setTaxClassKey($taxClassKey);
-                    $quoteDetailsItem->setUnitPrice($item->getPrice());
-                    $quoteDetailsItem->setQuantity($item->getQty());
-                    $quoteDetailsItem->setDiscountAmount($item->getDiscountAmount());
-                    $quoteDetailsItem->setIsTaxIncluded(false);
-                    
-                    $items[] = $quoteDetailsItem;
-                }
-            }
-            
-            if (isset($itemsByType[self::ITEM_TYPE_SHIPPING])) {
-                foreach ($itemsByType[self::ITEM_TYPE_SHIPPING] as $code => $itemTaxDetail) {
-                    $quoteDetailsItem = $this->quoteDetailsItemFactory->create();
-                    $quoteDetailsItem->setCode($code);
-                    $quoteDetailsItem->setType(self::ITEM_TYPE_SHIPPING);
-                    $taxClassKey = $this->taxClassKeyFactory->create();
-                    $taxClassKey->setType(\Magento\Tax\Api\Data\TaxClassKeyInterface::TYPE_ID);
-                    $taxClassKey->setValue(0); // Default tax class for shipping
-                    $quoteDetailsItem->setTaxClassKey($taxClassKey);
-                    $quoteDetailsItem->setUnitPrice($itemTaxDetail[self::KEY_ITEM]->getRowTotal());
-                    $quoteDetailsItem->setQuantity(1);
-                    $quoteDetailsItem->setDiscountAmount(0);
-                    $quoteDetailsItem->setIsTaxIncluded(false);
-                    
-                    $items[] = $quoteDetailsItem;
-                }
-            }
-            
-            $quoteDetails->setItems($items);
-            
-            // Calculate tax using Magento's service
-            $taxDetails = $this->taxCalculationService->calculateTax($quoteDetails, $quote->getStoreId());
-            
-            // Process results
-            foreach ($taxDetails->getItems() as $item) {
-                $code = $item->getCode();
-                $taxAmount = $item->getRowTax();
-                
-                if ($item->getType() === self::ITEM_TYPE_SHIPPING) {
-                    $result[self::ITEM_TYPE_SHIPPING] += $taxAmount;
-                } else {
-                    $result[self::ITEM_TYPE_PRODUCT][$code] = $taxAmount;
-                }
-            }
-            
-            $this->tclogger->info('Successfully calculated Magento tax rates: ' . json_encode($result));
-            return $result;
-        } catch (\Throwable $e) {
-            $this->tclogger->info('Error calculating Magento tax rates: ' . $e->getMessage());
             return $result;
         }
     }
@@ -953,77 +482,65 @@ class Api
      */
     public function authorizeCapture($order)
     {
-        $this->tclogger->info('Calling authorizeCapture');
+        $storeId = $order->getStoreId();
+        $this->tclogger->setStore($storeId);
 
-        $client = $this->getClient();
+        $this->tclogger->info('Calling authorizeCapture for order ' . $order->getIncrementId());
+
+        $client = $this->getClient($storeId);
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during authorizeCapture: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during authorizeCapture: Cannot get SoapClient');
             return false;
         }
 
         $dup = 'This transaction has already been marked as authorized';
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
-            'cartID' => $order->getQuoteId(),
-            'orderID' => $order->getIncrementId(),
-            'dateAuthorized' => date('c'), // date('Y-m-d') . 'T00:00:00'
-            'dateCaptured' => date('c'), // date('Y-m-d') . 'T00:00:00'
-        );
+        $params = $this->requestBuilder->buildAuthorizeCaptureParams($order);
 
         // Call before event
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_authorized_with_capture_before', array(
-            'obj' => $obj,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_authorized_with_capture_before', $params, [
             'order' => $order,
-        ));
+        ]);
 
-        $params = $obj->getParams();
-
-        $this->tclogger->info('authorizedWithCapture PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('authorizedWithCapture PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $authorizedResponse = $this->callSoapWithRetry(function () use ($client, $params) {
                 return $client->authorizedWithCapture($params);
-            });
+            }, 1, 'authorizedWithCapture');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during authorizeCapture: ' . $e->getMessage());
+            $this->tclogger->error('Error encountered during authorizeCapture: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'authorizedWithCapture', $storeId);
             return false;
         }
 
-        // Force into array
-        $authorizedResponse = json_decode(json_encode($authorizedResponse), true);
+        $this->logSoapTrace($client, 'authorizedWithCapture', $storeId);
 
-        $this->tclogger->info('authorizedWithCapture RESPONSE:');
-        $this->tclogger->info(print_r($authorizedResponse, true));
+        // Force into array
+        $authorizedResponse = $this->responseMapper->toArray($authorizedResponse);
+
+        $this->tclogger->debug('authorizedWithCapture RESPONSE:');
+        $this->tclogger->debug(print_r($authorizedResponse, true));
 
         $authorizedResult = $authorizedResponse['AuthorizedWithCaptureResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($authorizedResult);
-
-        $this->eventManager->dispatch('taxcloud_authorized_with_capture_after', array(
-            'obj' => $obj,
-            'order' => $order,
-        ));
-
-        $authorizedResult = $obj->getResult();
+        $authorizedResult = $this->eventDispatcher->dispatchAfter(
+            'taxcloud_authorized_with_capture_after',
+            $authorizedResult,
+            ['order' => $order]
+        );
 
         if ($authorizedResult['ResponseType'] != 'OK') {
             $respMsg = $authorizedResult['Messages']['ResponseMessage']['Message'];
             if (trim(substr($respMsg, 0, strlen($dup))) === $dup) {
                 // Duplicate means the the previous call was good. Therefore, consider this to be good
-                $this->tclogger->info('Warning encountered during authorizeCapture: Duplicate transaction');
+                $this->tclogger->warning('Warning encountered during authorizeCapture: Duplicate transaction');
                 return true;
             } else {
-                $this->tclogger->info('Error encountered during authorizeCapture: ' . $respMsg);
+                $this->tclogger->error('Error encountered during authorizeCapture: ' . $respMsg);
                 return false;
             }
         }
@@ -1038,165 +555,94 @@ class Api
      */
     public function returnOrder($creditmemo)
     {
-        $this->tclogger->info('Calling returnOrder');
+        $order = $creditmemo->getOrder();
+        $storeId = $order->getStoreId();
+        $this->tclogger->setStore($storeId);
 
-        $client = $this->getClient();
+        $this->tclogger->info('Calling returnOrder for creditmemo ' . $creditmemo->getIncrementId());
+
+        $client = $this->getClient($storeId);
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during returnOrder: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during returnOrder: Cannot get SoapClient');
             return false;
         }
 
-        $order = $creditmemo->getOrder();
-        $items = $creditmemo->getAllItems();
-
-        $index = 0;
-        $cartItems = array();
-
-        if ($items) {
-            foreach ($items as $creditItem) {
-                $qty = $creditItem->getQty();
-                if ($qty <= 0) {
-                    continue;
-                }
-                $item = $creditItem->getOrderItem();
-                $price = $creditItem->getPrice();
-                $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
-                $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
-                    'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
-                    'Price' => $price - $discountPerUnit,
-                    'Qty' => $qty,
-                );
-                $index++;
-            }
+        $returnCart = $this->requestBuilder->buildReturnCartItems($creditmemo);
+        if ($returnCart['skip']) {
+            return true;
         }
+        $cartItems = $returnCart['cartItems'];
+        $wasTaxOnlyRefund = $returnCart['wasTaxOnlyRefund'];
 
-        $shippingAmount = $creditmemo->getShippingAmount();
-
-        if ($shippingAmount > 0) {
-            $cartItems[] = array(
-                'ItemID' => 'shipping',
-                'Index' => $index,
-                'TIC' => $this->productTicService->getShippingTic(),
-                'Price' => $shippingAmount,
-                'Qty' => 1,
-            );
-        }
-
-        // Tax-only refund: no product/shipping returned, refund amount equals order tax.
-        // Flow: return full order in TaxCloud, then re-create order as exempt.
-        $wasTaxOnlyRefund = false;
-        if (empty($cartItems)) {
-            $orderTax = (float) $order->getBaseTaxAmount();
-            $refundTotal = (float) $creditmemo->getBaseGrandTotal();
-            $isTaxOnlyRefund = $orderTax > 0
-                && abs($refundTotal - $orderTax) < 0.02;
-
-            if ($isTaxOnlyRefund) {
-                $this->tclogger->info('returnOrder: tax-only refund detected; will re-create as exempt after Returned');
-                $wasTaxOnlyRefund = true;
-            } else {
-                // Adjustment-only credit memo (no items, no shipping, not tax-only).
-                // Without this guard, an empty cartItems array would tell TaxCloud
-                // to return the entire order. Instead, distribute the adjustment
-                // proportionally across remaining (unrefunded) items + shipping.
-                $distribution = $this->refundDistributor->distribute($creditmemo);
-                $this->tclogger->info(
-                    'returnOrder: adjustment-only refund; distributor action=' . $distribution['action']
-                    . ' (' . $distribution['reason'] . ')'
-                );
-                if ($distribution['action'] === \Taxcloud\Magento2\Model\RefundDistributor::ACTION_SKIP) {
-                    // Nothing meaningful to send to TaxCloud; treat as success.
-                    return true;
-                }
-                // ACTION_FULL_RETURN leaves cartItems empty (TaxCloud returns the remainder).
-                // ACTION_DISTRIBUTE replaces cartItems with the proportional distribution.
-                $cartItems = $distribution['cartItems'];
-            }
-        }
-
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'orderID' => $order->getIncrementId(),
-            'cartItems' => $cartItems,
-            'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00';
-            'returnCoDeliveryFeeWhenNoCartItems' => false
-        );
+        $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
 
         // Call before event
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_returned_before', array(
-            'obj' => $obj,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, [
             'order' => $order,
             'items' => $creditmemo->getAllItems(),
             'creditmemo' => $creditmemo,
-        ));
-
-        $params = $obj->getParams();
+        ]);
 
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
             $params['returnCoDeliveryFeeWhenNoCartItems'] = false;
         }
 
-        $this->tclogger->info('returnOrder PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('returnOrder PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
-        $soapParams = array(
+        $soapParams = [
             'apiLoginID' => $params['apiLoginID'],
             'apiKey' => $params['apiKey'],
             'orderID' => $params['orderID'],
             'cartItems' => $params['cartItems'],
             'returnedDate' => $params['returnedDate'],
             'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
-        );
+        ];
 
-        $this->tclogger->info('returnOrder SOAP PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
+        $this->tclogger->debug('returnOrder SOAP PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
+            // Returned is not idempotent in SOAP v1 — only retry a failure that
+            // never reached TaxCloud, or the refund gets booked twice.
             $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
                 return $client->Returned($soapParams);
-            });
+            }, 1, 'Returned', [$this->retryPolicy, 'isRetryableForNonIdempotent']);
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during returnOrder: ' . $e->getMessage());
-            $this->tclogger->info('SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true));
+            $this->tclogger->error('Error encountered during returnOrder: ' . $e->getMessage());
+            $this->tclogger->debug(
+                'SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true)
+            );
+            $this->logSoapTrace($client, 'Returned', $storeId);
             return false;
         }
 
-        // Force into array
-        $returnResponse = json_decode(json_encode($returnResponse), true);
+        $this->logSoapTrace($client, 'Returned', $storeId);
 
-        $this->tclogger->info('returnOrder RESPONSE:');
-        $this->tclogger->info(print_r($returnResponse, true));
+        // Force into array
+        $returnResponse = $this->responseMapper->toArray($returnResponse);
+
+        $this->tclogger->debug('returnOrder RESPONSE:');
+        $this->tclogger->debug(print_r($returnResponse, true));
 
         $returnResult = $returnResponse['ReturnedResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($returnResult);
-
-        $this->eventManager->dispatch('taxcloud_returned_after', array(
-            'obj' => $obj,
+        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, [
             'order' => $order,
             'items' => $creditmemo->getAllItems(),
             'creditmemo' => $creditmemo,
-        ));
-
-        $returnResult = $obj->getResult();
+        ]);
 
         if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
             $errorMessage = 'Unknown error';
             if ($returnResult && isset($returnResult['Messages']['ResponseMessage']['Message'])) {
                 $errorMessage = $returnResult['Messages']['ResponseMessage']['Message'];
             }
-            $this->tclogger->info('Error encountered during returnOrder: ' . $errorMessage);
+            $this->tclogger->error('Error encountered during returnOrder: ' . $errorMessage);
             return false;
         }
 
@@ -1205,10 +651,10 @@ class Api
             if ($this->lookupForOrderExempt($order, $client)) {
                 $exemptCartId = $order->getIncrementId() . '-exempt';
                 if (!$this->authorizeCaptureWithCartId($order, $exemptCartId, $client)) {
-                    $this->tclogger->info('returnOrder: re-create as exempt capture failed; return was successful');
+                    $this->tclogger->warning('returnOrder: re-create as exempt capture failed; return was successful');
                 }
             } else {
-                $this->tclogger->info('returnOrder: re-create as exempt lookup failed; return was successful');
+                $this->tclogger->warning('returnOrder: re-create as exempt lookup failed; return was successful');
             }
         }
 
@@ -1224,35 +670,52 @@ class Api
      */
     public function getOrderDetails($order)
     {
+        $storeId = $order->getStoreId();
+        $this->tclogger->setStore($storeId);
+
         $this->tclogger->info('Calling getOrderDetails for order ' . $order->getIncrementId());
 
-        $client = $this->getClient();
+        $client = $this->getClient($storeId);
         if (!$client) {
-            $this->tclogger->info('Error in getOrderDetails: Cannot get SoapClient');
+            $this->tclogger->error('Error in getOrderDetails: Cannot get SoapClient');
             return null;
         }
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'orderID' => $order->getIncrementId(),
-        );
+        $params = $this->requestBuilder->buildOrderDetailsParams($order);
+        $this->tclogger->debug('getOrderDetails PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $response = $client->OrderDetails($params);
         } catch (Throwable $e) {
-            $this->tclogger->info('getOrderDetails failed: ' . $e->getMessage());
+            $this->tclogger->error('getOrderDetails failed: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'OrderDetails', $storeId);
             return null;
         }
 
-        $response = json_decode(json_encode($response), true);
+        $this->logSoapTrace($client, 'OrderDetails', $storeId);
+        $this->tclogger->debug('getOrderDetails RESPONSE:');
+        $this->tclogger->debug(print_r($this->responseMapper->toArray($response), true));
+
+        $response = $this->responseMapper->toArray($response);
         if (empty($response['OrderDetailsResult'])) {
             return null;
         }
 
         $result = $response['OrderDetailsResult'];
         if (isset($result['ResponseType']) && $result['ResponseType'] !== 'OK') {
-            $this->tclogger->info('getOrderDetails returned non-OK: ' . ($result['ResponseType'] ?? 'unknown'));
+            // Report what TaxCloud actually said. A caller that cannot confirm the
+            // capture skips the Returned call entirely, so without the message a
+            // silently unreversed order looks identical to one that was never
+            // captured in the first place.
+            $errorMessage = 'Unknown error';
+            if (isset($result['Messages']['ResponseMessage']['Message'])) {
+                $errorMessage = $result['Messages']['ResponseMessage']['Message'];
+            }
+            $this->tclogger->error(
+                'getOrderDetails returned non-OK for order ' . $order->getIncrementId() . ': '
+                . ($result['ResponseType'] ?? 'unknown') . ' - ' . $errorMessage
+            );
             return null;
         }
 
@@ -1266,179 +729,96 @@ class Api
      */
     public function returnOrderCancellation($order)
     {
-        $this->tclogger->info('Calling returnOrderCancellation');
+        $storeId = $order->getStoreId();
+        $this->tclogger->setStore($storeId);
 
-        $client = $this->getClient();
+        $this->tclogger->info('Calling returnOrderCancellation for order ' . $order->getIncrementId());
+
+        $client = $this->getClient($storeId);
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during returnOrderCancellation: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during returnOrderCancellation: Cannot get SoapClient');
             return false;
         }
 
-        $cartItems = $this->buildCartItemsFromOrder($order);
+        $cartItems = $this->requestBuilder->buildCartItemsFromOrder($order);
 
         if (empty($cartItems)) {
-            $this->tclogger->info('returnOrderCancellation: no cart items for order ' . $order->getIncrementId());
+            $this->tclogger->warning('returnOrderCancellation: no cart items for order ' . $order->getIncrementId());
             return false;
         }
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'orderID' => $order->getIncrementId(),
-            'cartItems' => $cartItems,
-            'returnedDate' => date('c'), // date('Y-m-d') . 'T00:00:00'
-            'returnCoDeliveryFeeWhenNoCartItems' => false
-        );
+        $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
 
         // Call before event
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_returned_before', array(
-            'obj' => $obj,
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, [
             'order' => $order,
             'items' => $order->getAllVisibleItems(),
             'creditmemo' => null,
-        ));
-
-        $params = $obj->getParams();
+        ]);
 
         // Ensure returnCoDeliveryFeeWhenNoCartItems is always present
         if (!isset($params['returnCoDeliveryFeeWhenNoCartItems'])) {
             $params['returnCoDeliveryFeeWhenNoCartItems'] = false;
         }
 
-        $this->tclogger->info('returnOrderCancellation PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('returnOrderCancellation PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         // Ensure all required parameters are properly set for SOAP call
-        $soapParams = array(
+        $soapParams = [
             'apiLoginID' => $params['apiLoginID'],
             'apiKey' => $params['apiKey'],
             'orderID' => $params['orderID'],
             'cartItems' => $params['cartItems'],
             'returnedDate' => $params['returnedDate'],
             'returnCoDeliveryFeeWhenNoCartItems' => $params['returnCoDeliveryFeeWhenNoCartItems']
-        );
+        ];
 
-        $this->tclogger->info('returnOrderCancellation SOAP PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($soapParams), true));
+        $this->tclogger->debug('returnOrderCancellation SOAP PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($soapParams), true));
 
         try {
+            // Returned is not idempotent in SOAP v1 — see returnOrder().
             $returnResponse = $this->callSoapWithRetry(function () use ($client, $soapParams) {
                 return $client->Returned($soapParams);
-            });
+            }, 1, 'Returned', [$this->retryPolicy, 'isRetryableForNonIdempotent']);
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $e->getMessage());
-            $this->tclogger->info('SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true));
+            $this->tclogger->error('Error encountered during returnOrderCancellation: ' . $e->getMessage());
+            $this->tclogger->debug(
+                'SOAP parameters that failed: ' . print_r($this->redactParamsForLog($soapParams), true)
+            );
+            $this->logSoapTrace($client, 'Returned', $storeId);
             return false;
         }
 
-        // Force into array
-        $returnResponse = json_decode(json_encode($returnResponse), true);
+        $this->logSoapTrace($client, 'Returned', $storeId);
 
-        $this->tclogger->info('returnOrderCancellation RESPONSE:');
-        $this->tclogger->info(print_r($returnResponse, true));
+        // Force into array
+        $returnResponse = $this->responseMapper->toArray($returnResponse);
+
+        $this->tclogger->debug('returnOrderCancellation RESPONSE:');
+        $this->tclogger->debug(print_r($returnResponse, true));
 
         $returnResult = $returnResponse['ReturnedResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($returnResult);
-
-        $this->eventManager->dispatch('taxcloud_returned_after', array(
-            'obj' => $obj,
+        $returnResult = $this->eventDispatcher->dispatchAfter('taxcloud_returned_after', $returnResult, [
             'order' => $order,
             'items' => $order->getAllVisibleItems(),
             'creditmemo' => null,
-        ));
-
-        $returnResult = $obj->getResult();
+        ]);
 
         if (!$returnResult || $returnResult['ResponseType'] != 'OK') {
             $errorMessage = 'Unknown error';
             if ($returnResult && isset($returnResult['Messages']['ResponseMessage']['Message'])) {
                 $errorMessage = $returnResult['Messages']['ResponseMessage']['Message'];
             }
-            $this->tclogger->info('Error encountered during returnOrderCancellation: ' . $errorMessage);
+            $this->tclogger->error('Error encountered during returnOrderCancellation: ' . $errorMessage);
             return false;
         }
 
         return true;
-    }
-
-    /**
-     * Build cart items from order for full-order return / exempt re-create.
-     *
-     * @param \Magento\Sales\Model\Order $order
-     * @return array
-     */
-    private function buildCartItemsFromOrder($order)
-    {
-        $cartItems = array();
-        $index = 0;
-        $orderItems = $order->getAllVisibleItems();
-        if ($orderItems) {
-            foreach ($orderItems as $item) {
-                $qty = (float) $item->getQtyOrdered();
-                if ($qty <= 0) {
-                    continue;
-                }
-                $price = (float) $item->getPrice();
-                $discountAmount = (float) $item->getDiscountAmount();
-                $discountPerUnit = $qty > 0 ? $discountAmount / $qty : 0;
-                $cartItems[] = array(
-                    'ItemID' => $item->getSku(),
-                    'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder'),
-                    'Price' => $price - $discountPerUnit,
-                    'Qty' => $qty,
-                );
-                $index++;
-            }
-        }
-        $shippingAmount = (float) $order->getBaseShippingAmount();
-        if ($shippingAmount > 0) {
-            $cartItems[] = array(
-                'ItemID' => 'shipping',
-                'Index' => $index,
-                'TIC' => $this->productTicService->getShippingTic(),
-                'Price' => $shippingAmount,
-                'Qty' => 1,
-            );
-        }
-        return $cartItems;
-    }
-
-    /**
-     * Get destination array from order shipping address for Lookup.
-     *
-     * @param \Magento\Sales\Model\Order $order
-     * @return array|null
-     */
-    private function getDestinationFromOrder($order)
-    {
-        $address = $order->getShippingAddress();
-        if (!$address || !$address->getPostcode() || $address->getCountryId() !== 'US') {
-            return null;
-        }
-        $parsedZip = PostalCodeParser::parse($address->getPostcode());
-        if (!PostalCodeParser::isValid($parsedZip)) {
-            return null;
-        }
-        $street = $address->getStreet();
-        $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
-        $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
-        $regionCode = $address->getRegionCode() ?? '';
-        return array(
-            'Address1' => $street1,
-            'Address2' => $street2,
-            'City' => $address->getCity() ?? '',
-            'State' => $regionCode ?? '',
-            'Zip5' => $parsedZip['Zip5'],
-            'Zip4' => $parsedZip['Zip4'],
-        );
     }
 
     /**
@@ -1450,38 +830,33 @@ class Api
      */
     private function lookupForOrderExempt($order, $client)
     {
-        $cartItems = $this->buildCartItemsFromOrder($order);
+        $storeId = $order->getStoreId();
+        $cartItems = $this->requestBuilder->buildCartItemsFromOrder($order);
         if (empty($cartItems)) {
             return false;
         }
-        $destination = $this->getDestinationFromOrder($order);
+        $destination = $this->requestBuilder->buildDestinationFromOrder($order);
         if ($destination === null) {
-            $this->tclogger->info('returnOrder: no valid shipping address for exempt lookup');
+            $this->tclogger->warning('returnOrder: no valid shipping address for exempt lookup');
             return false;
         }
-        $origin = $this->getOrigin();
+        $origin = $this->requestBuilder->buildOrigin($storeId);
         if ($origin === null) {
             return false;
         }
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
-            'cartID' => $order->getIncrementId() . '-exempt',
-            'cartItems' => $cartItems,
-            'origin' => $origin,
-            'destination' => $destination,
-            'deliveredBySeller' => false,
-            'isExempt' => true,
-        );
+        $params = $this->requestBuilder->buildExemptLookupParams($order, $cartItems, $destination, $origin);
+        $this->tclogger->debug('exempt lookup PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
         try {
             $lookupResponse = $client->lookup($params);
         } catch (Throwable $e) {
-            $this->tclogger->info('returnOrder: exempt lookup failed: ' . $e->getMessage());
+            $this->tclogger->error('returnOrder: exempt lookup failed: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'exempt lookup', $storeId);
             return false;
         }
-        $lookupResponse = json_decode(json_encode($lookupResponse), true);
-        $result = isset($lookupResponse['LookupResult']) ? $lookupResponse['LookupResult'] : array();
+        $this->logSoapTrace($client, 'exempt lookup', $storeId);
+        $lookupResponse = $this->responseMapper->toArray($lookupResponse);
+        $result = isset($lookupResponse['LookupResult']) ? $lookupResponse['LookupResult'] : [];
         $responseType = isset($result['ResponseType']) ? $result['ResponseType'] : '';
         return $responseType === 'OK' || $responseType === 'Informational';
     }
@@ -1496,130 +871,100 @@ class Api
      */
     private function authorizeCaptureWithCartId($order, $cartId, $client)
     {
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'customerID' => $order->getCustomerId() ?? $this->getGuestCustomerId(),
-            'cartID' => $cartId,
-            'orderID' => $order->getIncrementId(),
-            'dateAuthorized' => date('c'),
-            'dateCaptured' => date('c'),
-        );
+        $storeId = $order->getStoreId();
+        $params = $this->requestBuilder->buildAuthorizeCaptureParams($order, $cartId);
+        $this->tclogger->debug('exempt authorizedWithCapture PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
         try {
             $response = $client->authorizedWithCapture($params);
         } catch (Throwable $e) {
-            $this->tclogger->info('returnOrder: authorizeCapture failed: ' . $e->getMessage());
+            $this->tclogger->error('returnOrder: authorizeCapture failed: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'exempt authorizedWithCapture', $storeId);
             return false;
         }
-        $response = json_decode(json_encode($response), true);
-        $result = isset($response['AuthorizedWithCaptureResult']) ? $response['AuthorizedWithCaptureResult'] : array();
+        $this->logSoapTrace($client, 'exempt authorizedWithCapture', $storeId);
+        $response = $this->responseMapper->toArray($response);
+        $result = isset($response['AuthorizedWithCaptureResult']) ? $response['AuthorizedWithCaptureResult'] : [];
         return (isset($result['ResponseType']) ? $result['ResponseType'] : '') === 'OK';
     }
 
     /**
      * Verify address using TaxCloud web services
-     * @param $creditmemo
+     * @param array $address
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose TaxCloud config applies
      * @return bool|array
      */
-    public function verifyAddress($address)
+    public function verifyAddress($address, $store = null)
     {
+        $this->tclogger->setStore($store);
+
         $this->tclogger->info('Calling verifyAddress');
 
-        $params = array(
-            'apiLoginID' => $this->getApiId(),
-            'apiKey' => $this->getApiKey(),
-            'address1' => $address['Address1'],
-            'address2' => $address['Address2'],
-            'city' => $address['City'],
-            'state' => $address['State'],
-            'zip5' => $address['Zip5'],
-            'zip4' => $address['Zip4'],
-        );
+        $params = $this->requestBuilder->buildVerifyAddressParams($address, $store);
 
-        // hash, check cache
-        $cacheKeyApi = 'taxcloud_address_' . hash('sha256', json_encode($params));
-        $cacheResult = null;
-        if ($this->cacheType->load($cacheKeyApi)) {
-            $cacheResult = $this->serializer->unserialize($this->cacheType->load($cacheKeyApi));
-        }
-
-        if ($this->getCacheLifetime() && $cacheResult) {
+        // check cache
+        $cacheResult = $this->resultCache->getAddress($params, $store);
+        if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
         }
 
-        $client = $this->getClient();
+        $client = $this->getClient($store);
 
         if (!$client) {
-            $this->tclogger->info('Error encountered during verifyAddress: Cannot get SoapClient');
+            $this->tclogger->error('Error encountered during verifyAddress: Cannot get SoapClient');
             return false;
         }
 
         // Call before event
 
-        $obj = $this->objectFactory->create();
-        $obj->setParams($params);
-
-        $this->eventManager->dispatch('taxcloud_verify_address_before', array(
-            'obj' => $obj,
-        ));
-
-        $params = $obj->getParams();
+        $params = $this->eventDispatcher->dispatchBefore('taxcloud_verify_address_before', $params);
 
         // Call the TaxCloud web service
 
         $this->tclogger->info('Calling verifyAddress LIVE API');
-        $this->tclogger->info('verifyAddress PARAMS:');
-        $this->tclogger->info(print_r($this->redactParamsForLog($params), true));
+        $this->tclogger->debug('verifyAddress PARAMS:');
+        $this->tclogger->debug(print_r($this->redactParamsForLog($params), true));
 
         try {
             $verifyResponse = $this->callSoapWithRetry(function () use ($client, $params) {
                 return $client->verifyAddress($params);
-            });
+            }, 1, 'verifyAddress');
         } catch (Throwable $e) {
-            $this->tclogger->info('Error encountered during verifyAddress: ' . $e->getMessage());
+            $this->tclogger->error('Error encountered during verifyAddress: ' . $e->getMessage());
+            $this->logSoapTrace($client, 'verifyAddress', $store);
             return false;
         }
 
-        // Force into array
-        $verifyResponse = json_decode(json_encode($verifyResponse), true);
+        $this->logSoapTrace($client, 'verifyAddress', $store);
 
-        $this->tclogger->info('verifyAddress RESPONSE:');
-        $this->tclogger->info(print_r($verifyResponse, true));
+        // Force into array
+        $verifyResponse = $this->responseMapper->toArray($verifyResponse);
+
+        $this->tclogger->debug('verifyAddress RESPONSE:');
+        $this->tclogger->debug(print_r($verifyResponse, true));
 
         $verifyResult = $verifyResponse['VerifyAddressResult'];
 
         // Call after event
-        $obj = $this->objectFactory->create();
-        $obj->setResult($verifyResult);
-
-        $this->eventManager->dispatch('taxcloud_verify_address_after', array(
-            'obj' => $obj,
-        ));
-
-        $verifyResult = $obj->getResult();
+        $verifyResult = $this->eventDispatcher->dispatchAfter('taxcloud_verify_address_after', $verifyResult);
 
         if ($verifyResult['ErrNumber'] == 0) {
-            $result = array(
+            $result = [
                 'Address1' => $verifyResult['Address1'] ?? '',
                 'Address2' => $verifyResult['Address2'] ?? '',
                 'City' => $verifyResult['City'],
                 'State' => $verifyResult['State'],
                 'Zip5' => $verifyResult['Zip5'] ?? '',
                 'Zip4' => $verifyResult['Zip4'] ?? '',
-            );
+            ];
 
-            $this->tclogger->info('Caching verifyAddress result for ' . $this->getCacheLifetime());
-            $this->cacheType->save(
-                $this->serializer->serialize($result),
-                $cacheKeyApi,
-                array('taxcloud_address'),
-                $this->getCacheLifetime()
-            );
+            $this->tclogger->info('Caching verifyAddress result for ' . $this->config->getCacheLifetime($store));
+            $this->resultCache->saveAddress($params, $result, $store);
 
             return $result;
         } else {
-            $this->tclogger->info('Error encountered during verifyAddress: ' . $verifyResult['ErrDescription']);
+            $this->tclogger->warning('Error encountered during verifyAddress: ' . $verifyResult['ErrDescription']);
             return false;
         }
     }
@@ -1627,7 +972,7 @@ class Api
     /**
      * Placeholder substituted for credential values in log output.
      */
-    const REDACTED_PLACEHOLDER = '***REDACTED***';
+    public const REDACTED_PLACEHOLDER = LogRedactor::PLACEHOLDER;
 
     /**
      * Return a copy of a SOAP params array with TaxCloud credentials masked
@@ -1641,12 +986,48 @@ class Api
      */
     public function redactParamsForLog(array $params)
     {
-        if (array_key_exists('apiLoginID', $params)) {
-            $params['apiLoginID'] = self::REDACTED_PLACEHOLDER;
+        return LogRedactor::redactArray($params);
+    }
+
+    /**
+     * Log the raw SOAP wire traffic of the client's most recent call at debug
+     * level (Advanced mode only), credentials redacted.
+     *
+     * The client only buffers wire traffic when it was constructed with
+     * trace=true (see SoapGateway::buildSoapOptions, also Advanced-gated);
+     * otherwise the trace getters return null/empty and nothing is logged.
+     * Safe to call in catch blocks — after a fault the buffers still hold
+     * whatever was sent and received last.
+     *
+     * @param \SoapClient|object $client
+     * @param string $operation
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return void
+     */
+    private function logSoapTrace($client, $operation, $store = null)
+    {
+        if (!$this->config->isAdvancedLoggingEnabled($store)) {
+            return;
         }
-        if (array_key_exists('apiKey', $params)) {
-            $params['apiKey'] = self::REDACTED_PLACEHOLDER;
+        if (!$client instanceof \SoapClient) {
+            return;
         }
-        return $params;
+
+        $requestHeaders = $client->__getLastRequestHeaders();
+        if ($requestHeaders) {
+            $this->tclogger->debug($operation . ' HTTP request headers: ' . trim($requestHeaders));
+        }
+        $request = $client->__getLastRequest();
+        if ($request) {
+            $this->tclogger->debug($operation . ' SOAP request XML: ' . LogRedactor::redactXml($request));
+        }
+        $responseHeaders = $client->__getLastResponseHeaders();
+        if ($responseHeaders) {
+            $this->tclogger->debug($operation . ' HTTP response headers: ' . trim($responseHeaders));
+        }
+        $response = $client->__getLastResponse();
+        if ($response) {
+            $this->tclogger->debug($operation . ' SOAP response XML: ' . LogRedactor::redactXml($response));
+        }
     }
 }

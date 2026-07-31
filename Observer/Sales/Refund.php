@@ -19,53 +19,47 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 
 class Refund implements ObserverInterface
 {
 
     /**
-     * Core store config
+     * TaxCloud store-scoped configuration reader
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
+     * @var TaxcloudConfig
      */
-    protected $scopeConfig = null;
+    protected $config;
 
     /**
-     * TaxCloud Api Object
+     * TaxCloud order-lifecycle gateway
      *
-     * @var \Taxcloud\Magento2\Model\Api
+     * @var \Taxcloud\Magento2\Api\OrderGatewayInterface
      */
     protected $tcapi;
 
     /**
      * TaxCloud Logger
      *
-     * @var \Taxcloud\Magento2\Logger\Logger
+     * @var \Psr\Log\LoggerInterface
      */
     protected $tclogger;
 
     /**
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
-     * @param \Taxcloud\Magento2\Model\Api $tcapi
-     * @param \Taxcloud\Magento2\Logger\Logger $tclogger
+     * @param TaxcloudConfig $config
+     * @param \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi
+     * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      */
     public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Taxcloud\Magento2\Model\Api $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger
+        TaxcloudConfig $config,
+        \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi,
+        \Psr\Log\LoggerInterface $tclogger
     ) {
-        $this->scopeConfig = $scopeConfig;
+        $this->config = $config;
         $this->tcapi = $tcapi;
 
-        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->tclogger = $tclogger;
-        } else {
-            $this->tclogger = new class {
-                public function info()
-                {
-                }
-            };
-        }
+        $this->tclogger = $tclogger;
     }
 
     /**
@@ -74,23 +68,37 @@ class Refund implements ObserverInterface
     public function execute(
         Observer $observer
     ) {
-        if (!$this->scopeConfig->getValue(
-            'tax/taxcloud_settings/enabled',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        )) {
+        // Credit memos are issued from the admin, where the ambient store is
+        // the default store view — gate on the ORDER's store instead.
+        $creditmemo = $observer->getEvent()->getCreditmemo();
+        $storeId = $creditmemo->getOrder()->getStoreId();
+
+        if ($this->tclogger instanceof GatewayLogger) {
+            $this->tclogger->setStore($storeId);
+        }
+
+        if (!$this->config->isEnabled($storeId)) {
+            return;
+        }
+
+        // Calculation-only stores never sent the sale to TaxCloud in the first
+        // place, so there is nothing to reverse — a Returned call here would
+        // reference an order TaxCloud has no record of.
+        if ($this->config->isCalculationsOnly($storeId)) {
+            $this->tclogger->info(
+                'Skipping returnOrder for creditmemo ' . $creditmemo->getIncrementId() . ' (calculations-only mode)'
+            );
             return;
         }
 
         $this->tclogger->info('Running Observer sales_order_creditmemo_refund');
-
-        $creditmemo = $observer->getEvent()->getCreditmemo();
 
         try {
             $this->tcapi->returnOrder($creditmemo);
         } catch (\Throwable $e) {
             // Magento has already committed the refund — don't let a TaxCloud
             // failure surface to the admin user.
-            $this->tclogger->info('returnOrder threw exception: ' . $e->getMessage());
+            $this->tclogger->error('returnOrder threw exception: ' . $e->getMessage());
         }
     }
 }

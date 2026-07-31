@@ -1,0 +1,160 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TACTICAL PHPStan baseline — level 5.  Generated 2026-07-16 against Magento
+# 2.4.9 / PHP 8.5 (the pinned CI version — see .github/workflows/test.yml).
+#
+# These are PRE-EXISTING findings, not license to add more. Two buckets:
+#
+#   1. Tooling limits (safe to keep): Magento's FactoryGenerator stub shadows the
+#      real ClientFactory::create() signature; Monolog\Logger is @final but Magento
+#      modules conventionally extend it.
+#   2. Type-imprecision to burn down during the REST migration: production code
+#      reaches for concrete Quote\Item / Quote\Address / Customer methods through
+#      the narrower *Interface types.
+#
+# TIME-BOX: burn this down as part of the REST migration (TC-028). New code must
+# pass clean — do not append to this file to silence fresh findings; fix them.
+# Regenerate after reducing findings:
+#   MAGENTO_ROOT=<root> vendor/bin/phpstan analyse -c phpstan.neon \
+#     --memory-limit=1G --generate-baseline=phpstan-baseline.neon
+# ─────────────────────────────────────────────────────────────────────────────
+parameters:
+	ignoreErrors:
+		-
+			message: "#^Class Taxcloud\\\\Magento2\\\\Logger\\\\Logger extends @final class Monolog\\\\Logger\\.$#"
+			count: 1
+			path: Logger/Logger.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Framework\\\\Api\\\\ExtensibleDataInterface\\:\\:getCustomAttribute\\(\\)\\.$#"
+			count: 1
+			path: Model/Api.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Framework\\\\Api\\\\ExtensibleDataInterface\\:\\:getId\\(\\)\\.$#"
+			count: 1
+			path: Model/Api.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getTaxCalculationItemId\\(\\)\\.$#"
+			count: 1
+			path: Model/Api.php
+
+		-
+			message: "#^Parameter \\#1 \\$address of method Taxcloud\\\\Magento2\\\\Model\\\\Gateway\\\\RequestBuilder\\:\\:buildLookupDestination\\(\\) expects Magento\\\\Quote\\\\Model\\\\Quote\\\\Address, Magento\\\\Quote\\\\Api\\\\Data\\\\AddressInterface given\\.$#"
+			count: 1
+			path: Model/Api.php
+
+		-
+			message: "#^Parameter \\#1 \\$customer of method Taxcloud\\\\Magento2\\\\Model\\\\Gateway\\\\RequestBuilder\\:\\:buildLookupParams\\(\\) expects Magento\\\\Customer\\\\Api\\\\Data\\\\CustomerInterface\\|null, Magento\\\\Framework\\\\Api\\\\ExtensibleDataInterface given\\.$#"
+			count: 1
+			path: Model/Api.php
+
+		-
+			message: "#^Parameter \\#3 \\$address of method Taxcloud\\\\Magento2\\\\Model\\\\Gateway\\\\RequestBuilder\\:\\:buildLookupCartItems\\(\\) expects Magento\\\\Quote\\\\Model\\\\Quote\\\\Address, Magento\\\\Quote\\\\Api\\\\Data\\\\AddressInterface given\\.$#"
+			count: 1
+			path: Model/Api.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getDiscountAmount\\(\\)\\.$#"
+			count: 1
+			path: Model/Fallback/MagentoTaxFallback.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getProduct\\(\\)\\.$#"
+			count: 2
+			path: Model/Fallback/MagentoTaxFallback.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getTaxCalculationItemId\\(\\)\\.$#"
+			count: 1
+			path: Model/Fallback/MagentoTaxFallback.php
+
+		-
+			message: "#^Parameter \\#2 \\$quoteAddress of method Taxcloud\\\\Magento2\\\\Model\\\\Fallback\\\\MagentoTaxFallback\\:\\:setFromAddress\\(\\) expects Magento\\\\Quote\\\\Model\\\\Quote\\\\Address, Magento\\\\Quote\\\\Api\\\\Data\\\\AddressInterface given\\.$#"
+			count: 1
+			path: Model/Fallback/MagentoTaxFallback.php
+
+		-
+			message: "#^Method Magento\\\\Framework\\\\Webapi\\\\Soap\\\\ClientFactory\\:\\:create\\(\\) invoked with 2 parameters, 0\\-1 required\\.$#"
+			count: 1
+			path: Model/Gateway/Soap/SoapGateway.php
+
+		-
+			message: "#^Parameter \\#1 \\$data of method Magento\\\\Framework\\\\Webapi\\\\Soap\\\\ClientFactory\\:\\:create\\(\\) expects array, string given\\.$#"
+			count: 1
+			path: Model/Gateway/Soap/SoapGateway.php
+
+		-
+			message: "#^Property Taxcloud\\\\Magento2\\\\Model\\\\RefundDistributor\\:\\:\\$tclogger is never read, only written\\.$#"
+			count: 1
+			path: Model/RefundDistributor.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getBasePrice\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getBaseRowTotal\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getData\\(\\)\\.$#"
+			count: 6
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getProduct\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getRowTotal\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getTaxCalculationItemId\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setBasePriceInclTax\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setBaseRowTotalInclTax\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setBaseTaxAmount\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setData\\(\\)\\.$#"
+			count: 5
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setPriceInclTax\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setRowTotalInclTax\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setTaxAmount\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php
+
+		-
+			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setTaxPercent\\(\\)\\.$#"
+			count: 1
+			path: Model/Tax.php

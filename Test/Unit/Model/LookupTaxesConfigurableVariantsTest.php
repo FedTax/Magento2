@@ -53,9 +53,12 @@ class LookupTaxesConfigurableVariantsTest extends TestCase
         $this->logger = $this->createMock(Logger::class);
 
         $this->productTicService = new ProductTicService(
-            $this->scopeConfig,
+            new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($this->scopeConfig),
             $this->productRepository,
-            $this->logger
+            $this->logger,
+            // Unstubbed: resolve() returns null, so these tests keep exercising
+            // the product-TIC -> default-TIC path with no category level involved.
+            $this->createMock(\Taxcloud\Magento2\Model\CategoryTicResolver::class)
         );
     }
 

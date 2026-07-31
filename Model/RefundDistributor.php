@@ -32,25 +32,25 @@ use Taxcloud\Magento2\Logger\Logger;
 class RefundDistributor
 {
     /** Caller should skip the TaxCloud Returned call entirely. */
-    const ACTION_SKIP = 'skip';
+    public const ACTION_SKIP = 'skip';
 
     /** Caller should send empty cartItems so TaxCloud returns the remainder. */
-    const ACTION_FULL_RETURN = 'full_return';
+    public const ACTION_FULL_RETURN = 'full_return';
 
     /** Caller should send the returned cartItems to TaxCloud. */
-    const ACTION_DISTRIBUTE = 'distribute';
+    public const ACTION_DISTRIBUTE = 'distribute';
 
     /** Below this threshold the adjustment is treated as floating-point noise. */
-    const MIN_ADJUSTMENT = 0.01;
+    public const MIN_ADJUSTMENT = 0.01;
 
     /**
      * Penny tolerance for the full-return fallback. If the adjustment is within
      * this many dollars of the remaining order total, treat it as a full return.
      */
-    const FULL_RETURN_TOLERANCE = 0.01;
+    public const FULL_RETURN_TOLERANCE = 0.01;
 
     /** Decimal precision for fractional quantities sent to TaxCloud. */
-    const QTY_PRECISION = 4;
+    public const QTY_PRECISION = 4;
 
     /**
      * @var ProductTicService
@@ -168,6 +168,7 @@ class RefundDistributor
      */
     private function buildRemainingItems($order)
     {
+        $store = $order->getStoreId();
         $remaining = [];
 
         foreach ($order->getAllItems() as $item) {
@@ -195,7 +196,7 @@ class RefundDistributor
 
             $remaining[] = [
                 'ItemID' => $item->getSku(),
-                'TIC'    => $this->productTicService->getProductTic($item, 'returnOrderDistribute'),
+                'TIC'    => $this->productTicService->getProductTic($item, 'returnOrderDistribute', $store),
                 'price'  => $effectivePrice,
                 'qty'    => $remainingQty,
             ];
@@ -207,7 +208,7 @@ class RefundDistributor
         if ($remainingShipping > 0) {
             $remaining[] = [
                 'ItemID' => 'shipping',
-                'TIC'    => $this->productTicService->getShippingTic(),
+                'TIC'    => $this->productTicService->getShippingTic($store),
                 'price'  => $remainingShipping,
                 'qty'    => 1.0,
             ];

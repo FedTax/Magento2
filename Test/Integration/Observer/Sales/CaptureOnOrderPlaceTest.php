@@ -61,5 +61,15 @@ class CaptureOnOrderPlaceTest extends IntegrationTestCase
             $args['orderID'] ?? null,
             'The captured orderID should match the placed order increment ID.'
         );
+
+        // The flag is the cancel flow's primary signal for "TaxCloud has this
+        // sale". Without it, cancelling falls through to the license-gated
+        // OrderDetails API and a merchant without that license silently never
+        // reverses the sale.
+        $this->assertOrderCapturedFlag(
+            $order,
+            true,
+            'A successful capture must persist taxcloud_captured on the order row.'
+        );
     }
 }

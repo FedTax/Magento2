@@ -50,6 +50,12 @@ class CaptureOnInvoicePayTest extends IntegrationTestCase
             $soap->callCount('authorizedWithCapture'),
             'With capture_trigger=payment, simply placing the order must NOT capture.'
         );
+        $this->assertOrderCapturedFlag(
+            $order,
+            false,
+            'An order that has not been captured yet must not carry taxcloud_captured — '
+            . 'the cancel flow would otherwise reverse a sale TaxCloud never received.'
+        );
 
         $this->payInvoice($order);
 
@@ -64,6 +70,11 @@ class CaptureOnInvoicePayTest extends IntegrationTestCase
             $order->getIncrementId(),
             $args['orderID'] ?? null,
             'The captured orderID should match the order whose invoice was paid.'
+        );
+        $this->assertOrderCapturedFlag(
+            $order,
+            true,
+            'Capturing on invoice payment must persist taxcloud_captured on the order row.'
         );
     }
 }

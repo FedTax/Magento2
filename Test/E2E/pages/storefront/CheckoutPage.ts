@@ -51,8 +51,10 @@ export class CheckoutPage {
     this.successBlock = page.locator('.checkout-success');
   }
 
-  async open(): Promise<void> {
-    await this.page.goto('/checkout/');
+  /** Open the checkout, optionally on a specific store view (store code in URL). */
+  async open(storeCode?: string): Promise<void> {
+    const prefix = storeCode ? `/${storeCode}` : '';
+    await this.page.goto(`${prefix}/checkout/`);
     await this.email.waitFor({ timeout: 40_000 });
   }
 
@@ -70,15 +72,25 @@ export class CheckoutPage {
   /**
    * Select Flat Rate shipping and advance to the payment step, then wait until
    * the summary's Tax row carries a value (i.e. the TaxCloud lookup returned).
+   *
+   * Pass `{ expectTax: false }` for a store where no tax applies — Luma hides
+   * the Tax row entirely at zero tax, so waiting for it would time out.
    */
-  async selectFlatRateAndContinue(): Promise<void> {
+  async selectFlatRateAndContinue(options: { expectTax?: boolean } = {}): Promise<void> {
+    const { expectTax = true } = options;
     await this.page
       .locator('input[type="radio"][value="flatrate_flatrate"]')
       .check({ timeout: 40_000 });
     await this.page.locator('button.button.action.continue.primary').first().click();
 
     await this.placeOrderButton.waitFor({ timeout: 60_000 });
-    await expect(this.tax).toContainText('$', { timeout: 60_000 });
+    if (expectTax) {
+      await expect(this.tax).toContainText('$', { timeout: 60_000 });
+    } else {
+      // Give the totals XHR time to land, then let the spec assert on the
+      // (absent or zero) tax row.
+      await expect(this.grandTotal).toContainText('$', { timeout: 60_000 });
+    }
   }
 
   /** Select Check / Money Order if it isn't already the sole, pre-selected method. */

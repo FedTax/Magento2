@@ -23,7 +23,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Test\Unit\Double as Dbl;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Event\ManagerInterface;
 use Magento\Framework\Webapi\Soap\ClientFactory;
 use Magento\Framework\DataObjectFactory;
@@ -45,6 +45,8 @@ use Magento\Customer\Api\Data\RegionInterfaceFactory;
 #[AllowMockObjectsWithoutExpectations]
 class ApiTest extends TestCase
 {
+    use \Taxcloud\Magento2\Test\Unit\BuildsGatewayApi;
+
     private $api;
     private $scopeConfig;
     private $cacheType;
@@ -71,7 +73,7 @@ class ApiTest extends TestCase
     protected function setUp(): void
     {
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->eventManager = $this->createMock(ManagerInterface::class);
         $this->soapClientFactory = $this->createMock(ClientFactory::class);
         $this->objectFactory = $this->createMock(DataObjectFactory::class);
@@ -114,26 +116,24 @@ class ApiTest extends TestCase
      */
     private function constructApi(): void
     {
-        $this->api = new Api(
-            $this->scopeConfig,
-            $this->cacheType,
-            $this->eventManager,
-            $this->soapClientFactory,
-            $this->objectFactory,
-            $this->productFactory,
-            $this->regionFactory,
-            $this->logger,
-            $this->serializer,
-            $this->cartItemResponseHandler,
-            $this->productTicService,
-            $this->taxCalculationService,
-            $this->quoteDetailsFactory,
-            $this->quoteDetailsItemFactory,
-            $this->taxClassKeyFactory,
-            $this->customerAddressFactory,
-            $this->customerAddressRegionFactory,
-            $this->refundDistributor
-        );
+        $this->api = $this->buildGatewayApi([
+            'scopeConfig' => $this->scopeConfig,
+            'cacheType' => $this->cacheType,
+            'eventManager' => $this->eventManager,
+            'soapClientFactory' => $this->soapClientFactory,
+            'objectFactory' => $this->objectFactory,
+            'regionFactory' => $this->regionFactory,
+            'logger' => $this->logger,
+            'serializer' => $this->serializer,
+            'cartItemResponseHandler' => $this->cartItemResponseHandler,
+            'productTicService' => $this->productTicService,
+            'taxCalculationService' => $this->taxCalculationService,
+            'quoteDetailsFactory' => $this->quoteDetailsFactory,
+            'quoteDetailsItemFactory' => $this->quoteDetailsItemFactory,
+            'taxClassKeyFactory' => $this->taxClassKeyFactory,
+            'customerAddressFactory' => $this->customerAddressFactory,
+            'refundDistributor' => $this->refundDistributor,
+        ]);
     }
 
     /**
@@ -677,6 +677,47 @@ class ApiTest extends TestCase
     }
 
     /**
+     * getOrderDetails: TaxCloud's own explanation reaches the log. A caller that
+     * cannot confirm the capture skips the Returned call, so this message is the
+     * only signal distinguishing a silently unreversed order from one that was
+     * never captured.
+     */
+    public function testGetOrderDetailsLogsTaxcloudErrorMessage()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+            ]);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('SO000000013');
+
+        $mockResponse = new \stdClass();
+        $mockResponse->OrderDetailsResult = new \stdClass();
+        $mockResponse->OrderDetailsResult->ResponseType = 'Error';
+        $mockResponse->OrderDetailsResult->Messages = (object) [
+            'ResponseMessage' => (object) ['Message' => 'Order not found'],
+        ];
+
+        $this->mockSoapClient->method('OrderDetails')->willReturn($mockResponse);
+
+        // GatewayLogger routes everything through log($level, $message), not info().
+        $logged = [];
+        $this->logger->method('log')->willReturnCallback(function ($level, $message) use (&$logged) {
+            $logged[] = $message;
+        });
+
+        $this->assertNull($this->api->getOrderDetails($order));
+
+        $errorLine = implode("\n", $logged);
+        $this->assertStringContainsString('Order not found', $errorLine, "TaxCloud's message must be logged");
+        $this->assertStringContainsString('SO000000013', $errorLine, 'the order must be identifiable in the log');
+    }
+
+    /**
      * lookupTaxes: when shipping row total is 0, uses address getShippingAmount() for shipping price sent to TaxCloud.
      */
     public function testLookupTaxesUsesAddressShippingAmountWhenShippingRowTotalIsZero()
@@ -961,7 +1002,7 @@ class ApiTest extends TestCase
     private function setUpLookupWithCert(string $certID, string $destinationState): array
     {
         $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->eventManager = $this->createMock(ManagerInterface::class);
         $this->soapClientFactory = $this->createMock(ClientFactory::class);
         $this->objectFactory = $this->createMock(DataObjectFactory::class);
@@ -1172,9 +1213,9 @@ class ApiTest extends TestCase
             $this->setUpLookupWithCert($certID, $destinationState);
         $lookupParams = &$this->capturedLookupParams;
 
-        // Cache key is scoped per (customer, certificate); customer ID is 42
-        // in setUpLookupWithCert().
-        $certCacheKey = 'taxcloud_cert_states_42_' . $certID;
+        // Cache key is scoped per (customer, certificate, TaxCloud account);
+        // customer ID is 42 in setUpLookupWithCert(), api_id is test_api_id.
+        $certCacheKey = 'taxcloud_cert_states_42_' . $certID . '_' . hash('sha256', 'test_api_id');
         $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedStates) {
             if ($key === $certCacheKey) {
                 return json_encode($cachedStates);
@@ -1384,6 +1425,113 @@ class ApiTest extends TestCase
             1.23,
             $result[Api::ITEM_TYPE_PRODUCT]['item-1'],
             'lookupTaxes must surface the fixture TaxAmount unchanged — pinned to TaxCloud sandbox.'
+        );
+    }
+
+    /**
+     * Section 1.2: TaxCloud documents both "OK" and "Informational" as valid
+     * success ResponseTypes — see Api::lookupTaxes() at the
+     * `ResponseType == 'OK' || ResponseType == 'Informational'` guard. Only the
+     * OK arm was exercised; a regression that dropped the `|| 'Informational'`
+     * clause would silently route Informational responses into the error/fallback
+     * branch (empty tax) with no failing test.
+     *
+     * Reuses the pinned single-item fixture but flips ResponseType to
+     * 'Informational', and asserts the same TaxAmount is surfaced — i.e. the
+     * success branch runs, not the fallback.
+     */
+    public function testLookupTaxesTreatsInformationalResponseAsSuccess()
+    {
+        $this->configureBaseLookupScopeConfig('0');
+
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['load', 'getCode'])
+            ->getMock();
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn('NY');
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(1);
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionId', 'getStreet', 'getShippingAmount'])
+            ->getMock();
+        $address->method('getPostcode')->willReturn('10001');
+        $address->method('getStreet')->willReturn(['350 Fifth Ave']);
+        $address->method('getCity')->willReturn('New York');
+        $address->method('getRegionId')->willReturn(1);
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getShippingAmount')->willReturn(0);
+
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getAddress'])
+            ->getMock();
+        $shipping->method('getAddress')->willReturn($address);
+
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getTaxClassId'])
+            ->getMock();
+        $product->method('getTaxClassId')->willReturn('2');
+        $quoteItem = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku', 'getDiscountAmount', 'getTaxCalculationItemId'])
+            ->getMock();
+        $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
+        $quoteItem->method('getProduct')->willReturn($product);
+        $quoteItem->method('getQty')->willReturn(1);
+        $quoteItem->method('getPrice')->willReturn(14.99);
+        $quoteItem->method('getDiscountAmount')->willReturn(0);
+        $quoteItem->method('getSku')->willReturn('SKU-1');
+
+        $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getShipping')->willReturn($shipping);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+
+        $productTaxDetail = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getRowTotal'])
+            ->getMock();
+        $productTaxDetail->method('getRowTotal')->willReturn(14.99);
+
+        $itemsByType = [
+            Api::ITEM_TYPE_PRODUCT => [
+                'item-1' => [Api::KEY_ITEM => $productTaxDetail],
+            ],
+        ];
+
+        $this->productTicService->method('getProductTic')->willReturn('00000');
+        $this->cacheType->method('load')->willReturn(false);
+
+        $this->setUpPassThroughDataObject();
+
+        // Same pinned fixture, but with an Informational ResponseType.
+        $fixturePath = __DIR__ . '/../fixtures/lookup_single_item_taxable.json';
+        $fixture = json_decode(file_get_contents($fixturePath));
+        $fixture->LookupResult->ResponseType = 'Informational';
+        $this->mockSoapClient->method('lookup')->willReturn($fixture);
+
+        // Fallback must NOT be consulted — Informational is a success, not an error.
+        // The Magento fallback path runs through taxCalculationService->calculateTax();
+        // it must never fire on an Informational response.
+        $this->taxCalculationService->expects($this->never())->method('calculateTax');
+
+        $this->useRealCartItemResponseHandler();
+
+        $result = $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertArrayHasKey(Api::ITEM_TYPE_PRODUCT, $result);
+        $this->assertArrayHasKey('item-1', $result[Api::ITEM_TYPE_PRODUCT]);
+        $this->assertSame(
+            1.23,
+            $result[Api::ITEM_TYPE_PRODUCT]['item-1'],
+            'lookupTaxes must treat an Informational ResponseType as success and surface the TaxAmount.'
         );
     }
 
@@ -1660,6 +1808,378 @@ class ApiTest extends TestCase
             $result,
             'Tax-only refund must report success when the exempt re-create lookup fails — Returned itself succeeded'
         );
+    }
+
+    /**
+     * Shared setup for the tax-only-refund exempt-recreation tests: a credit memo
+     * that refunds only tax (getAllItems() empty, baseTaxAmount > 0) against an
+     * order with one visible item and — when $withValidAddress — a US shipping
+     * address, so lookupForOrderExempt() reaches the SOAP lookup. Returned always
+     * succeeds; callers wire the lookup / authorizedWithCapture behavior.
+     *
+     * @return \Magento\Sales\Model\Order\Creditmemo (mock)
+     */
+    private function buildTaxOnlyRefundExemptContext(bool $withValidAddress = true)
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/guest_customer_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '-1'],
+                ['shipping/origin/postcode', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '60005'],
+                ['shipping/origin/street_line1', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '71 W Seegers Rd'],
+                ['shipping/origin/street_line2', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, ''],
+                ['shipping/origin/city', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'Arlington Heights'],
+                ['shipping/origin/region_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ]);
+
+        $this->productTicService->method('getProductTic')->willReturn('00000');
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['load', 'getCode'])
+            ->getMock();
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn('NY');
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $orderItem = $this->createMock(\Magento\Sales\Model\Order\Item::class);
+        $orderItem->method('getSku')->willReturn('SKU-1');
+        $orderItem->method('getQtyOrdered')->willReturn(1);
+        $orderItem->method('getPrice')->willReturn(10.0);
+        $orderItem->method('getDiscountAmount')->willReturn(0);
+        $orderItem->method('getProduct')->willReturn(null);
+
+        $shippingAddress = null;
+        if ($withValidAddress) {
+            $shippingAddress = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods(['getCity', 'getCountryId', 'getPostcode', 'getRegionCode', 'getRegionId', 'getStreet'])
+                ->getMock();
+            $shippingAddress->method('getPostcode')->willReturn('10001');
+            $shippingAddress->method('getStreet')->willReturn(['1 Main St']);
+            $shippingAddress->method('getCity')->willReturn('New York');
+            $shippingAddress->method('getRegionId')->willReturn(1);
+            $shippingAddress->method('getCountryId')->willReturn('US');
+            $shippingAddress->method('getRegionCode')->willReturn('NY');
+        }
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('TEST_TAXONLY');
+        $order->method('getBaseTaxAmount')->willReturn(5.0);
+        $order->method('getAllVisibleItems')->willReturn([$orderItem]);
+        $order->method('getBaseShippingAmount')->willReturn(0);
+        $order->method('getShippingAddress')->willReturn($shippingAddress);
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0);
+        $creditmemo->method('getBaseTaxAmount')->willReturn(5.0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(5.0);
+
+        $this->setUpPassThroughDataObject();
+
+        $returnedResponse = new \stdClass();
+        $returnedResponse->ReturnedResult = new \stdClass();
+        $returnedResponse->ReturnedResult->ResponseType = 'OK';
+        $returnedResponse->ReturnedResult->Messages = [];
+        $this->mockSoapClient->method('Returned')->willReturn($returnedResponse);
+
+        return $creditmemo;
+    }
+
+    /**
+     * Helper: an OK exempt-lookup SOAP response (one cart item), so
+     * lookupForOrderExempt() returns true and the exempt re-capture proceeds.
+     */
+    private function okExemptLookupResponse(): \stdClass
+    {
+        $lookup = new \stdClass();
+        $lookup->LookupResult = new \stdClass();
+        $lookup->LookupResult->ResponseType = 'OK';
+        $lookup->LookupResult->CartItemsResponse = new \stdClass();
+        $lookup->LookupResult->CartItemsResponse->CartItemResponse = [
+            (object)['CartItemIndex' => 0, 'TaxAmount' => 0.0],
+        ];
+        return $lookup;
+    }
+
+    /**
+     * T1a: tax-only refund → exempt lookup succeeds → order is re-created as
+     * exempt via authorizedWithCapture (isExempt). Covers the success return of
+     * lookupForOrderExempt() and the entire authorizeCaptureWithCartId() method,
+     * which were previously uncovered. The exempt cart id is "<incrementId>-exempt".
+     */
+    public function testTaxOnlyRefundReCreatesAsExemptWhenLookupAndCaptureSucceed()
+    {
+        $creditmemo = $this->buildTaxOnlyRefundExemptContext();
+
+        $this->mockSoapClient->method('lookup')->willReturn($this->okExemptLookupResponse());
+
+        $capturedCartId = null;
+        $authResponse = new \stdClass();
+        $authResponse->AuthorizedWithCaptureResult = new \stdClass();
+        $authResponse->AuthorizedWithCaptureResult->ResponseType = 'OK';
+        $this->mockSoapClient->expects($this->once())
+            ->method('authorizedWithCapture')
+            ->willReturnCallback(function ($params) use (&$capturedCartId, $authResponse) {
+                $capturedCartId = $params['cartID'] ?? null;
+                return $authResponse;
+            });
+
+        $result = $this->api->returnOrder($creditmemo);
+
+        $this->assertTrue($result, 'Tax-only refund with successful exempt re-create must return true');
+        $this->assertSame(
+            'TEST_TAXONLY-exempt',
+            $capturedCartId,
+            'Exempt re-capture must use the "<incrementId>-exempt" cart id'
+        );
+    }
+
+    /**
+     * T1b: tax-only refund → exempt lookup succeeds → the exempt authorizedWithCapture
+     * SOAP call throws. Covers the catch branch of authorizeCaptureWithCartId().
+     * The refund itself already succeeded, so returnOrder must still return true.
+     */
+    public function testTaxOnlyRefundExemptCaptureSoapFaultIsSwallowedAndRefundSucceeds()
+    {
+        $creditmemo = $this->buildTaxOnlyRefundExemptContext();
+
+        $this->mockSoapClient->method('lookup')->willReturn($this->okExemptLookupResponse());
+        $this->mockSoapClient->method('authorizedWithCapture')
+            ->willThrowException(new \SoapFault('SOAP-ERROR', 'capture unavailable'));
+
+        $result = $this->api->returnOrder($creditmemo);
+
+        $this->assertTrue(
+            $result,
+            'A failed exempt re-capture must not fail the refund — Returned already succeeded'
+        );
+    }
+
+    /**
+     * T1c: tax-only refund where the order has no usable shipping address, so
+     * lookupForOrderExempt() bails at the destination guard (returns false) and
+     * never calls the SOAP lookup or authorizedWithCapture. Refund still succeeds.
+     */
+    public function testTaxOnlyRefundSkipsExemptReCreateWhenNoShippingAddress()
+    {
+        $creditmemo = $this->buildTaxOnlyRefundExemptContext(withValidAddress: false);
+
+        $this->mockSoapClient->expects($this->never())->method('lookup');
+        $this->mockSoapClient->expects($this->never())->method('authorizedWithCapture');
+
+        $result = $this->api->returnOrder($creditmemo);
+
+        $this->assertTrue($result, 'Refund succeeds even when the exempt re-create is skipped for lack of address');
+    }
+
+    /**
+     * Minimal enabled + credentials scope-config for the failure-path tests below
+     * (no cache, logging off). Callers that need more keys should inline instead.
+     */
+    private function configureEnabledWithCredentials(): void
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+                ['tax/taxcloud_settings/default_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '00000'],
+                ['tax/taxcloud_settings/shipping_tic', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '11010'],
+            ]);
+    }
+
+    // ─── T3: getOrderDetails failure branches ───────────────────────────────
+
+    /** T3a: getClient() unavailable → getOrderDetails returns null without SOAP. */
+    public function testGetOrderDetailsReturnsNullWhenClientUnavailable()
+    {
+        $this->configureEnabledWithCredentials();
+        // Fresh factory that throws → SoapGateway::getClient() returns null. Rebuilding
+        // the Api avoids the setUp default create() stub winning (first-registered rule).
+        $this->soapClientFactory = $this->createMock(ClientFactory::class);
+        $this->soapClientFactory->method('create')->willThrowException(new \Exception('WSDL unavailable'));
+        $this->constructApi();
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('ORDER_NOCLIENT');
+
+        $this->assertNull($this->api->getOrderDetails($order));
+    }
+
+    /** T3b: OrderDetails SOAP call throws → getOrderDetails returns null. */
+    public function testGetOrderDetailsReturnsNullOnSoapFault()
+    {
+        $this->configureEnabledWithCredentials();
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('ORDER_FAULT');
+
+        $this->mockSoapClient->method('OrderDetails')
+            ->willThrowException(new \SoapFault('SOAP-ERROR', 'OrderDetails unavailable'));
+
+        $this->assertNull($this->api->getOrderDetails($order));
+    }
+
+    /** T3c: empty OrderDetailsResult in the response → getOrderDetails returns null. */
+    public function testGetOrderDetailsReturnsNullWhenResultEmpty()
+    {
+        $this->configureEnabledWithCredentials();
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('ORDER_EMPTY');
+
+        // Response with no OrderDetailsResult payload.
+        $this->mockSoapClient->method('OrderDetails')->willReturn(new \stdClass());
+
+        $this->assertNull($this->api->getOrderDetails($order));
+    }
+
+    // ─── T3: returnOrderCancellation failure branches ───────────────────────
+
+    /** T3d: getClient() unavailable → returnOrderCancellation returns false. */
+    public function testReturnOrderCancellationReturnsFalseWhenClientUnavailable()
+    {
+        $this->configureEnabledWithCredentials();
+        $this->soapClientFactory = $this->createMock(ClientFactory::class);
+        $this->soapClientFactory->method('create')->willThrowException(new \Exception('WSDL unavailable'));
+        $this->constructApi();
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('CANCEL_NOCLIENT');
+
+        $this->assertFalse($this->api->returnOrderCancellation($order));
+    }
+
+    /**
+     * T3e: Returned succeeds at the transport level but comes back non-OK →
+     * returnOrderCancellation returns false (the error-response branch, distinct
+     * from the SOAP-fault branch already covered elsewhere).
+     */
+    public function testReturnOrderCancellationReturnsFalseOnNonOkResponse()
+    {
+        $this->configureEnabledWithCredentials();
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+        $this->setUpPassThroughDataObject();
+
+        $orderItem = $this->createMock(\Magento\Sales\Model\Order\Item::class);
+        $orderItem->method('getQtyOrdered')->willReturn(1);
+        $orderItem->method('getPrice')->willReturn(10.00);
+        $orderItem->method('getDiscountAmount')->willReturn(0);
+        $orderItem->method('getSku')->willReturn('SKU1');
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('CANCEL_NONOK');
+        $order->method('getAllVisibleItems')->willReturn([$orderItem]);
+        $order->method('getBaseShippingAmount')->willReturn(0);
+
+        $resp = new \stdClass();
+        $resp->ReturnedResult = new \stdClass();
+        $resp->ReturnedResult->ResponseType = 'Error';
+        $resp->ReturnedResult->Messages = (object)[
+            'ResponseMessage' => (object)['Message' => 'order not found'],
+        ];
+        $this->mockSoapClient->method('Returned')->willReturn($resp);
+
+        $this->assertFalse($this->api->returnOrderCancellation($order));
+    }
+
+    // ─── T4: returnOrder guard branches ─────────────────────────────────────
+
+    /** T4a: getClient() unavailable → returnOrder returns false. */
+    public function testReturnOrderReturnsFalseWhenClientUnavailable()
+    {
+        $this->configureEnabledWithCredentials();
+        $this->soapClientFactory = $this->createMock(ClientFactory::class);
+        $this->soapClientFactory->method('create')->willThrowException(new \Exception('WSDL unavailable'));
+        $this->constructApi();
+
+        // returnOrder resolves the order's store before touching the client.
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+
+        $this->assertFalse($this->api->returnOrder($creditmemo));
+    }
+
+    /**
+     * T4b: an adjustment-only credit memo the distributor resolves to ACTION_SKIP
+     * yields returnCart['skip'] = true → returnOrder returns true and never calls SOAP.
+     */
+    public function testReturnOrderReturnsTrueWhenReturnCartSkipped()
+    {
+        $this->configureEnabledWithCredentials();
+
+        // Fresh distributor stubbed to ACTION_SKIP, then rebuild the Api so this is the
+        // only distribute() rule (setUp registers a FULL_RETURN default that would win).
+        $this->refundDistributor = $this->createMock(RefundDistributor::class);
+        $this->refundDistributor->method('distribute')->willReturn([
+            'action'    => RefundDistributor::ACTION_SKIP,
+            'cartItems' => [],
+            'reason'    => 'adjustment rounds to zero',
+        ]);
+        $this->constructApi();
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('ADJ_ONLY');
+        $order->method('getBaseTaxAmount')->willReturn(0.0); // not a tax-only refund
+        $order->method('getBaseShippingAmount')->willReturn(0);
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0);
+        $creditmemo->method('getBaseGrandTotal')->willReturn(3.00);
+
+        // No SOAP call at all on the skip path.
+        $this->mockSoapClient->expects($this->never())->method('Returned');
+
+        $this->assertTrue($this->api->returnOrder($creditmemo));
+    }
+
+    /** T4c: Returned comes back non-OK → returnOrder returns false. */
+    public function testReturnOrderReturnsFalseOnNonOkResponse()
+    {
+        $this->configureEnabledWithCredentials();
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+        $this->setUpPassThroughDataObject();
+
+        $orderItem = $this->createMock(\Magento\Sales\Model\Order\Item::class);
+        $orderItem->method('getSku')->willReturn('SKU1');
+        $orderItem->method('getProduct')->willReturn(null);
+        $this->productTicService->method('getProductTic')->willReturn('00000');
+
+        $creditItem = $this->createMock(\Magento\Sales\Model\Order\Creditmemo\Item::class);
+        $creditItem->method('getOrderItem')->willReturn($orderItem);
+        $creditItem->method('getQty')->willReturn(1);
+        $creditItem->method('getPrice')->willReturn(10.00);
+        $creditItem->method('getDiscountAmount')->willReturn(0);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getIncrementId')->willReturn('RET_NONOK');
+        $order->method('getBaseTaxAmount')->willReturn(1.0);
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([$creditItem]);
+        $creditmemo->method('getShippingAmount')->willReturn(0);
+
+        $resp = new \stdClass();
+        $resp->ReturnedResult = new \stdClass();
+        $resp->ReturnedResult->ResponseType = 'Error';
+        $resp->ReturnedResult->Messages = (object)[
+            'ResponseMessage' => (object)['Message' => 'duplicate return'],
+        ];
+        $this->mockSoapClient->method('Returned')->willReturn($resp);
+
+        $this->assertFalse($this->api->returnOrder($creditmemo));
     }
 
     // ─── Coverage section C: Api.php gaps ───────────────────────────────────
@@ -2747,7 +3267,21 @@ class ApiTest extends TestCase
             }
         }
 
-        $this->scopeConfig->method('getValue')->willReturnMap($merged);
+        // Config reads are now store-scoped: quotes built by
+        // buildBasicSingleItemLookupContext() live on store 1, while older
+        // contexts leave getStoreId() unstubbed (null). Serve both scope codes
+        // the same values so every context resolves the same configuration.
+        $expanded = [];
+        foreach ($merged as $entry) {
+            $expanded[] = $entry;
+            if ($entry[2] === null) {
+                $withStore = $entry;
+                $withStore[2] = 1;
+                $expanded[] = $withStore;
+            }
+        }
+
+        $this->scopeConfig->method('getValue')->willReturnMap($expanded);
     }
 
     /**

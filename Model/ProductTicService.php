@@ -17,36 +17,43 @@
 
 namespace Taxcloud\Magento2\Model;
 
-use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
-use Taxcloud\Magento2\Logger\Logger;
+use Psr\Log\LoggerInterface;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 
 /**
  * Service for handling Product TIC (Taxability Information Code) logic
  * Handles cases where products have been deleted or don't have custom TIC attributes
+ *
+ * TIC resolution is three levels deep, first non-empty value wins:
+ *
+ *  1. the product's own `taxcloud_tic` attribute
+ *  2. the nearest category above it carrying a TIC — see {@see CategoryTicResolver}
+ *  3. the store's configured default TIC (`tax/taxcloud_settings/default_tic`)
  */
 class ProductTicService
 {
     /**
      * Default TIC fallback value when configuration is empty or null
      */
-    const DEFAULT_TIC = '00000';
+    public const DEFAULT_TIC = TaxcloudConfig::DEFAULT_TIC;
 
     /**
      * Default shipping TIC fallback value when configuration is empty or null
      */
-    const DEFAULT_SHIPPING_TIC = '11010';
+    public const DEFAULT_SHIPPING_TIC = TaxcloudConfig::DEFAULT_SHIPPING_TIC;
 
     /**
      * Product type whose TIC must come from the purchased child simple, not the
      * parent. Kept as a literal so this module doesn't take a hard dependency on
      * Magento_ConfigurableProduct.
      */
-    const TYPE_CONFIGURABLE = 'configurable';
+    public const TYPE_CONFIGURABLE = 'configurable';
+
     /**
-     * @var ScopeConfigInterface
+     * @var TaxcloudConfig
      */
-    private $scopeConfig;
+    private $config;
 
     /**
      * @var ProductRepositoryInterface
@@ -54,23 +61,34 @@ class ProductTicService
     private $productRepository;
 
     /**
-     * @var Logger
+     * TaxCloud logger. di.xml binds this to the config-gated GatewayLogger so
+     * these records honor the store's logging mode like every other class.
+     *
+     * @var LoggerInterface
      */
     private $logger;
 
     /**
-     * @param ScopeConfigInterface $scopeConfig
+     * @var CategoryTicResolver
+     */
+    private $categoryTicResolver;
+
+    /**
+     * @param TaxcloudConfig $config
      * @param ProductRepositoryInterface $productRepository
-     * @param Logger $logger
+     * @param LoggerInterface $logger
+     * @param CategoryTicResolver $categoryTicResolver
      */
     public function __construct(
-        ScopeConfigInterface $scopeConfig,
+        TaxcloudConfig $config,
         ProductRepositoryInterface $productRepository,
-        Logger $logger
+        LoggerInterface $logger,
+        CategoryTicResolver $categoryTicResolver
     ) {
-        $this->scopeConfig = $scopeConfig;
+        $this->config = $config;
         $this->productRepository = $productRepository;
         $this->logger = $logger;
+        $this->categoryTicResolver = $categoryTicResolver;
     }
 
     /**
@@ -79,31 +97,73 @@ class ProductTicService
      *
      * @param \Magento\Sales\Model\Order\Item $item
      * @param string $context Context for logging (e.g., 'lookupTaxes', 'returnOrder')
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store the fallback TIC is resolved for
      * @return string The TIC value
      */
-    public function getProductTic($item, $context = '')
+    public function getProductTic($item, $context = '', $store = null)
     {
         $product = $this->resolveTaxableProduct($item);
 
         // Handle case where product has been deleted
         if (!$product || !$product->getId()) {
-            $this->logger->info(
+            $this->logger->warning(
                 'Product not found for item ' . $item->getSku() . ' in ' . $context . ', using default TIC'
             );
-            return $this->getDefaultTic();
+            return $this->getDefaultTic($store);
         }
-        
+
         try {
             $productModel = $this->productRepository->getById($product->getId());
         } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
-            $this->logger->info(
+            $this->logger->warning(
                 'Product ID ' . $product->getId() . ' not found in repository for ' . $context . ', using default TIC'
             );
-            return $this->getDefaultTic();
+            return $this->getDefaultTic($store);
         }
         $tic = $productModel->getCustomAttribute('taxcloud_tic');
-        
-        return $tic ? $tic->getValue() : $this->getDefaultTic();
+        $value = $tic ? trim((string) $tic->getValue()) : '';
+        if ($value !== '') {
+            return $value;
+        }
+
+        $categoryTic = $this->getCategoryTic($item, $productModel, $store);
+        if ($categoryTic !== null) {
+            return $categoryTic;
+        }
+
+        return $this->getDefaultTic($store);
+    }
+
+    /**
+     * The TIC inherited from the item's categories, or null when none applies.
+     *
+     * Two products are consulted, in order: the one whose TIC governs the line
+     * (for a configurable, the purchased child simple), then — only if that
+     * yielded nothing — the product the item itself carries. Child simples are
+     * usually assigned to no categories at all, so without the second hop a
+     * configurable would skip the category level entirely and drop straight to
+     * the store default.
+     *
+     * @param \Magento\Sales\Model\Order\Item|\Magento\Quote\Model\Quote\Item $item
+     * @param \Magento\Catalog\Api\Data\ProductInterface $productModel
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string|null
+     */
+    private function getCategoryTic($item, $productModel, $store)
+    {
+        $tic = $this->categoryTicResolver->resolve($productModel, $store);
+        if ($tic !== null) {
+            return $tic;
+        }
+
+        $lineProduct = $item->getProduct();
+        if (!$lineProduct || !$lineProduct->getId()
+            || (int) $lineProduct->getId() === (int) $productModel->getId()
+        ) {
+            return null;
+        }
+
+        return $this->categoryTicResolver->resolve($lineProduct, $store);
     }
 
     /**
@@ -161,16 +221,12 @@ class ProductTicService
      * Get the default TIC value from configuration
      * Falls back to DEFAULT_TIC if configuration is empty or null
      *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return string
      */
-    public function getDefaultTic()
+    public function getDefaultTic($store = null)
     {
-        $value = $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/default_tic',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-        
-        return ($value !== null && $value !== '') ? $value : self::DEFAULT_TIC;
+        return $this->config->getDefaultTic($store);
     }
 
     /**
@@ -189,15 +245,11 @@ class ProductTicService
      * Get the shipping TIC value from configuration
      * Falls back to DEFAULT_SHIPPING_TIC if configuration is empty or null
      *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return string
      */
-    public function getShippingTic()
+    public function getShippingTic($store = null)
     {
-        $value = $this->scopeConfig->getValue(
-            'tax/taxcloud_settings/shipping_tic',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-        
-        return ($value !== null && $value !== '') ? $value : self::DEFAULT_SHIPPING_TIC;
+        return $this->config->getShippingTic($store);
     }
 }

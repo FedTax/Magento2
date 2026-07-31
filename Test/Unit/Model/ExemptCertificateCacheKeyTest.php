@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\Api;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Event\ManagerInterface;
 use Magento\Framework\Webapi\Soap\ClientFactory;
 use Magento\Framework\DataObjectFactory;
@@ -50,6 +50,8 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 #[AllowMockObjectsWithoutExpectations]
 class ExemptCertificateCacheKeyTest extends TestCase
 {
+    use \Taxcloud\Magento2\Test\Unit\BuildsGatewayApi;
+
     private const CERT_ID    = '11111111-2222-3333-4444-555555555555';
     private const STATE      = 'NY';
 
@@ -61,7 +63,7 @@ class ExemptCertificateCacheKeyTest extends TestCase
         // so we can compare the keys used for two different customers.
         $writtenKeys = [];
 
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->cacheType->method('load')->willReturn(false);
         $this->cacheType->method('save')
             ->willReturnCallback(function ($data, $key) use (&$writtenKeys) {
@@ -103,7 +105,7 @@ class ExemptCertificateCacheKeyTest extends TestCase
         $storedPayload = null;
         $storedKey     = null;
 
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->cacheType->method('load')
             ->willReturnCallback(function ($key) use (&$storedPayload, &$storedKey) {
                 return ($key === $storedKey) ? $storedPayload : false;
@@ -139,7 +141,7 @@ class ExemptCertificateCacheKeyTest extends TestCase
         // also short-circuits on empty inputs. This test pins both, so a
         // future refactor that drops one of those guards still won't
         // produce a cache key without a customer scope.
-        $this->cacheType = $this->createMock(CacheInterface::class);
+        $this->cacheType = $this->createMock(FrontendInterface::class);
         $this->cacheType->expects($this->never())->method('load');
         $this->cacheType->expects($this->never())->method('save');
 
@@ -210,25 +212,23 @@ class ExemptCertificateCacheKeyTest extends TestCase
         $soapClientFactory = $this->createMock(ClientFactory::class);
         $soapClientFactory->method('create')->willReturn($client);
 
-        return new Api(
-            $scopeConfig,
-            $this->cacheType,
-            $this->createMock(ManagerInterface::class),
-            $soapClientFactory,
-            $this->createMock(DataObjectFactory::class),
-            $this->createMock(ProductFactory::class),
-            $this->createMock(RegionFactory::class),
-            $this->createMock(Logger::class),
-            $this->createMock(SerializerInterface::class),
-            $this->createMock(CartItemResponseHandler::class),
-            $this->createMock(ProductTicService::class),
-            $this->createMock(TaxCalculationInterface::class),
-            $this->createMock(QuoteDetailsInterfaceFactory::class),
-            $this->createMock(QuoteDetailsItemInterfaceFactory::class),
-            $this->createMock(TaxClassKeyInterfaceFactory::class),
-            $this->createMock(AddressInterfaceFactory::class),
-            $this->createMock(RegionInterfaceFactory::class),
-            $this->createMock(RefundDistributor::class)
-        );
+        return $this->buildGatewayApi([
+            'scopeConfig' => $scopeConfig,
+            'cacheType' => $this->cacheType,
+            'eventManager' => $this->createMock(ManagerInterface::class),
+            'soapClientFactory' => $soapClientFactory,
+            'objectFactory' => $this->createMock(DataObjectFactory::class),
+            'regionFactory' => $this->createMock(RegionFactory::class),
+            'logger' => $this->createMock(Logger::class),
+            'serializer' => $this->createMock(SerializerInterface::class),
+            'cartItemResponseHandler' => $this->createMock(CartItemResponseHandler::class),
+            'productTicService' => $this->createMock(ProductTicService::class),
+            'taxCalculationService' => $this->createMock(TaxCalculationInterface::class),
+            'quoteDetailsFactory' => $this->createMock(QuoteDetailsInterfaceFactory::class),
+            'quoteDetailsItemFactory' => $this->createMock(QuoteDetailsItemInterfaceFactory::class),
+            'taxClassKeyFactory' => $this->createMock(TaxClassKeyInterfaceFactory::class),
+            'customerAddressFactory' => $this->createMock(AddressInterfaceFactory::class),
+            'refundDistributor' => $this->createMock(RefundDistributor::class),
+        ]);
     }
 }

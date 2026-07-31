@@ -59,7 +59,7 @@ class InstallTaxcloudData implements DataPatchInterface, PatchRevertableInterfac
     /**
      * Apply patch
      *
-     * @param ModuleDataSetupInterface $setup
+     * @return $this
      */
     public function apply()
     {
@@ -114,6 +114,8 @@ class InstallTaxcloudData implements DataPatchInterface, PatchRevertableInterfac
             ]);
 
         $attribute->save();
+
+        return $this;
     }
 
     /**

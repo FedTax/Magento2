@@ -121,6 +121,7 @@ The seeded baseline every test can rely on:
 | TaxCloud config | `enabled`, `logging`, `verify_address` = 1; `default_tic` = 20000; `api_id`/`api_key` from env |
 | Shipping origin | 1401 Lavaca St, Austin TX 78701-1634 (region 57) |
 | Checkout methods | `carriers/flatrate` + `payment/checkmo` active |
+| Multi-store | Second website/group/store view (all code `second`), same root category, full test catalog assigned; `tax/taxcloud_settings/enabled` = 0 at `stores/second` scope (TaxCloud OFF there). `web/url/use_store` = 1, so storefronts are `/default/...` and `/second/...` on one base URL |
 | Indexers / caches | All reindexed, all flushed |
 
 The script is idempotent — re-running updates rather than duplicates. It
@@ -258,6 +259,20 @@ config and `reinit()` the shared config). Current coverage lives in
 | `CaptureOnShipmentTest` | trigger=shipment → capture on shipment save only |
 | `CancelOnRealOrderStateTransitionTest` | cancelling a captured, uninvoiced order calls `Returned` once across both cancel events |
 | `RefundOnCreditmemoTest` | credit memo → `Returned`, with payload items matching the memo |
+
+Multi-store scoping lives in
+[`Test/Integration/MultiStore/`](../Test/Integration/MultiStore/), built on the
+seeded second store view (TaxCloud disabled at `stores/second`) plus the
+snapshot-restoring `setScopedConfig()` / `setSecondStoreConfig()` helpers and
+the `$storeCode` parameter on the quote/order builders. These tests run from
+the CLI, where the ambient store is NOT the second store — so passing proves
+config resolves against the order's/quote's store, never the ambient one:
+
+| Test | Proves |
+| ---- | ------ |
+| `StorefrontStoreScopeTest` | a second-store cart makes zero TaxCloud calls while the default store's does (TC-1); store-scoped `default_tic`/`shipping_tic` reach the Lookup payload (TC-6); store-scoped `verify_address=0` suppresses VerifyAddress (TC-7) |
+| `DisabledStoreViewAdminLifecycleTest` | admin cancel/refund of a disabled-store order produces no TaxCloud traffic — no OrderDetails probe, no Returned (TC-2, TC-3) |
+| `EnabledStoreViewLifecycleTest` | with default scope disabled and the store view enabled under its own account, invoice capture and cancel reversal fire and carry the store view's credentials (TC-4, TC-5) |
 
 Beyond observer wiring, [`Test/Integration/Model/`](../Test/Integration/Model/)
 exercises tax collection, EAV, and config through the real stack:

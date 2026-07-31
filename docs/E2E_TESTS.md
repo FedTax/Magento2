@@ -140,7 +140,15 @@ seed already provides everything a browser checkout needs:
 - an active **payment** method (Check / Money Order) and **shipping** method
   (Flat Rate),
 - the admin user (`admin` / `1234567a`),
-- TaxCloud config + ship-from origin.
+- TaxCloud config + ship-from origin,
+- a second website/group/store view (code `second`) with the same catalog and
+  TaxCloud **disabled** at store scope; store codes are in URLs
+  (`web/url/use_store` = 1), so the stores are browsable side by side at
+  `/default/...` and `/second/...` on the same base URL. The
+  `multistore-second-store-no-tax` spec checks out on `/second/` and asserts
+  the customer sees **no** TaxCloud tax there, while the A.1 checkout spec pins
+  the taxed default-store totals — together they prove per-store scoping
+  through real URL-based store resolution.
 
 E2E-specific data that the smoke test doesn't need (e.g. a registered customer
 account for login flows) is **deferred**: it'll be added as an optional

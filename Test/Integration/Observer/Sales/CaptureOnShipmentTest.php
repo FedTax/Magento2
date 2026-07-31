@@ -52,6 +52,11 @@ class CaptureOnShipmentTest extends IntegrationTestCase
             'With capture_trigger=shipment, neither placing the order nor paying the '
             . 'invoice should capture.'
         );
+        $this->assertOrderCapturedFlag(
+            $order,
+            false,
+            'Nothing has been captured yet, so taxcloud_captured must still be unset.'
+        );
 
         $this->createShipment($order);
 
@@ -66,6 +71,49 @@ class CaptureOnShipmentTest extends IntegrationTestCase
             $order->getIncrementId(),
             $args['orderID'] ?? null,
             'The captured orderID should match the shipped order.'
+        );
+        $this->assertOrderCapturedFlag(
+            $order,
+            true,
+            'Capturing on shipment must persist taxcloud_captured on the order row.'
+        );
+    }
+
+    /**
+     * Attaching a tracking number to the only shipment must not report the sale
+     * to TaxCloud twice.
+     *
+     * The admin "Add Tracking Number" action saves the shipment a second time
+     * (Magento\Shipping\Controller\Adminhtml\Order\Shipment\AddTrack), and the
+     * observer's dedupe would not catch it: it counts shipments on the order,
+     * which is still 1. What saves us today is upstream — that second save does
+     * not re-dispatch sales_order_shipment_save_after, verified by instrumenting
+     * the observer. So this passes for a reason outside the module's control,
+     * which is exactly why it is worth pinning: if a Magento upgrade starts
+     * dispatching on the track save, the module would silently start filing
+     * every tracked shipment as a second sale.
+     */
+    public function testAddingTrackingToTheOnlyShipmentDoesNotCaptureTwice(): void
+    {
+        $soap = $this->soapClient();
+
+        $order = $this->placeOrder();
+        $shipment = $this->createShipment($order);
+
+        $this->assertSame(
+            1,
+            $soap->callCount('authorizedWithCapture'),
+            'Sanity: creating the shipment should have captured once.'
+        );
+
+        // Same shipment, saved again with a tracking number attached.
+        $this->addTrackingToShipment($shipment);
+
+        $this->assertSame(
+            1,
+            $soap->callCount('authorizedWithCapture'),
+            'Saving the same shipment a second time must not capture again — the sale '
+            . 'would be reported to TaxCloud twice.'
         );
     }
 }

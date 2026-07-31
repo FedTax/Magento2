@@ -1,0 +1,30 @@
+includes:
+    # Tactical, time-boxed baseline of pre-existing level-5 findings. New code must
+    # pass clean; see the header in that file. Burn down during the REST migration.
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    phpVersion: 80200
+    paths:
+        - Api
+        - Logger
+        - Model
+        - Observer
+        - Plugin
+        - Setup
+        - registration.php
+    # Test/ is intentionally excluded: unit tests use partial mocks and doubles that
+    # deliberately bend Magento signatures. This gate is about production code — the
+    # class of bug it must catch (undefined $result, TC-002) lives under Model/.
+    bootstrapFiles:
+        - phpstan-bootstrap.php
+    treatPhpDocTypesAsCertain: false
+
+services:
+    # Teach PHPStan about Magento DataObject magic getters/setters (getIncrementId(),
+    # getData(), etc.) so they are not reported as undefined methods.
+    -
+        class: Magento\PhpStan\Reflection\Php\DataObjectClassReflectionExtension
+        tags:
+            - phpstan.broker.methodsClassReflectionExtension

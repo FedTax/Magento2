@@ -68,21 +68,44 @@ abstract class IntegrationTestCase extends TestCase
     /**
      * Module classes whose shared (singleton) instances must be rebuilt after
      * the SOAP factory is swapped, so they pick up the mock instead of a
-     * client cached from an earlier test. Everything here either holds the
-     * \SoapClient (Api) or constructor-injects Api.
+     * client cached from an earlier test. This walks the graph from the
+     * \SoapClient outward: SoapGateway holds (and caches) the client;
+     * ExemptionValidator and Api hold the SoapGateway; Tax and the observers
+     * hold Api. Evicting all of them forces the next resolution to rebuild the
+     * whole chain around the mock ClientFactory.
      *
      * @var string[]
      */
     private const SOAP_DEPENDENT_TYPES = [
+        \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway::class,
+        \Taxcloud\Magento2\Model\Gateway\ExemptionValidator::class,
         \Taxcloud\Magento2\Model\Api::class,
         \Taxcloud\Magento2\Model\Tax::class,
         \Taxcloud\Magento2\Observer\Sales\Complete::class,
-        \Taxcloud\Magento2\Observer\Sales\Cancel::class,
         \Taxcloud\Magento2\Observer\Sales\Refund::class,
         \Taxcloud\Magento2\Observer\Sales\Address::class,
+        // Cancellation runs through a plugin, not an observer: the plugin holds
+        // the processor, the processor holds the gateway (Api). Both cached
+        // singletons must be evicted or a cancel reversal talks to a client
+        // from an earlier test's mock.
+        \Taxcloud\Magento2\Model\Order\CancellationProcessor::class,
+        \Taxcloud\Magento2\Plugin\Sales\OrderCancellation::class,
     ];
 
+    /** Store view code created by scripts/seed-test-data.php (TaxCloud disabled there). */
+    protected const SECOND_STORE_CODE = 'second';
+
     private ?RecordingSoapClient $soapClient = null;
+
+    /**
+     * Prior core_config_data state for every row written via
+     * {@see setScopedConfig()}, keyed "scope|scopeId|path". Restored (or
+     * deleted, when the row didn't exist) in tearDown so config changes never
+     * leak across tests.
+     *
+     * @var array<string, array{scope: string, scopeId: int, path: string, value: string|null}>
+     */
+    private array $configSnapshots = [];
 
     protected function setUp(): void
     {
@@ -96,6 +119,12 @@ abstract class IntegrationTestCase extends TestCase
         } catch (\Magento\Framework\Exception\LocalizedException $e) {
             // Area code already set by an earlier test — fine.
         }
+    }
+
+    protected function tearDown(): void
+    {
+        $this->restoreScopedConfig();
+        parent::tearDown();
     }
 
     // -- ObjectManager access --------------------------------------------------
@@ -163,13 +192,41 @@ abstract class IntegrationTestCase extends TestCase
         // (its freshly-evicted Api) instead of the first test's client.
         $this->resetTotalsCollector();
 
+        // Plugin instances are ALSO cached inside the shared PluginList
+        // (Interception\PluginList::$_pluginInstances), independently of the
+        // ObjectManager's shared-instance array. Without clearing it, the
+        // OrderCancellation plugin (and its processor -> gateway chain) built
+        // around the FIRST test's mock keeps serving every later cancel.
+        $this->resetPluginInstances();
+
         // lookup/verifyAddress results are cached (cache_lifetime defaults to
         // 86400s, in Redis) keyed by request hash — and an unsaved quote has a
-        // null cartID, so the key collides across tests. Clear the TaxCloud cache
-        // tags so each test's first lookup actually reaches the (mock) SOAP layer.
-        $this->get(\Magento\Framework\App\CacheInterface::class)->clean(['taxcloud_rates', 'taxcloud_address']);
+        // null cartID, so the key collides across tests. Flush the TaxCloud cache
+        // type so each test's first lookup actually reaches the (mock) SOAP layer.
+        // clean() on this frontend is scoped to the TaxCloud tag, so it leaves
+        // every other cache type intact.
+        $this->get(\Taxcloud\Magento2\Model\Cache\Type\Taxcloud::class)->clean();
 
         return $client;
+    }
+
+    /**
+     * Clear the interception layer's cached plugin instances so plugins are
+     * re-resolved from the (freshly mutated) ObjectManager on next use.
+     */
+    private function resetPluginInstances(): void
+    {
+        $pluginList = $this->get(\Magento\Framework\Interception\PluginListInterface::class);
+        if (!$pluginList instanceof \Magento\Framework\Interception\PluginList\PluginList) {
+            return;
+        }
+        \Closure::bind(
+            function () {
+                $this->_pluginInstances = [];
+            },
+            $pluginList,
+            \Magento\Framework\Interception\PluginList\PluginList::class
+        )();
     }
 
     /**
@@ -229,6 +286,31 @@ abstract class IntegrationTestCase extends TestCase
      *
      * @return array<string, mixed>
      */
+    /**
+     * The happy-path response set with individual operations swapped out. Use
+     * this rather than hand-building the array when a test only cares about one
+     * operation — installSoapMock() replaces the whole set when given a
+     * non-empty array, so a partial array would leave the other operations
+     * unstubbed.
+     *
+     * @param array<string, mixed> $overrides SOAP method => response
+     * @return array<string, mixed>
+     */
+    protected function soapResponsesWith(array $overrides): array
+    {
+        return array_merge($this->defaultSoapResponses(), $overrides);
+    }
+
+    /**
+     * Load a canned response from Test/Integration/_files/soap_responses/.
+     *
+     * @return mixed
+     */
+    protected function soapResponseFixture(string $name)
+    {
+        return require __DIR__ . '/_files/soap_responses/' . $name . '.php';
+    }
+
     private function defaultSoapResponses(): array
     {
         $dir = __DIR__ . '/_files/soap_responses/';
@@ -274,6 +356,158 @@ abstract class IntegrationTestCase extends TestCase
         $this->writeConfig('tax/taxcloud_settings/capture_trigger', $value);
     }
 
+    /**
+     * Write (or delete, with $value = null) a core_config_data row at an
+     * arbitrary scope, snapshotting the prior state so tearDown restores it
+     * exactly — including deleting rows that didn't exist before. This is what
+     * multi-store tests use to flip per-store values without leaking config
+     * into later tests.
+     *
+     * @param string      $path      e.g. 'tax/taxcloud_settings/enabled'
+     * @param string|null $value     null deletes the row
+     * @param string      $scopeType 'default', 'websites' or 'stores'
+     * @param int         $scopeId   0 for default scope
+     */
+    protected function setScopedConfig(
+        string $path,
+        ?string $value,
+        string $scopeType = 'default',
+        int $scopeId = 0
+    ): void {
+        $key = $scopeType . '|' . $scopeId . '|' . $path;
+        if (!array_key_exists($key, $this->configSnapshots)) {
+            $this->configSnapshots[$key] = [
+                'scope'   => $scopeType,
+                'scopeId' => $scopeId,
+                'path'    => $path,
+                'value'   => $this->readConfigRow($path, $scopeType, $scopeId),
+            ];
+        }
+
+        $this->applyConfigRow($path, $value, $scopeType, $scopeId);
+        $this->get(ReinitableConfigInterface::class)->reinit();
+    }
+
+    /**
+     * Convenience: store-scope write for the seeded second store view.
+     */
+    protected function setSecondStoreConfig(string $path, ?string $value): void
+    {
+        $this->setScopedConfig($path, $value, 'stores', $this->secondStoreId());
+    }
+
+    /**
+     * The seeded second store view's id (resolved, not hard-coded).
+     */
+    protected function secondStoreId(): int
+    {
+        return (int) $this->get(StoreManagerInterface::class)
+            ->getStore(self::SECOND_STORE_CODE)
+            ->getId();
+    }
+
+    /**
+     * Pin the ambient (current) store to the default store view.
+     *
+     * Multi-store tests use this before an admin-side action on a second-store
+     * order, so the ambient store provably differs from the order's store —
+     * a correct outcome can then only come from order-store config resolution.
+     *
+     * The ambient store cannot merely be *asserted*: on Magento 2.4.7,
+     * Order\Address\Renderer::format() calls setCurrentStore() during order
+     * placement and never restores it, so after placing a second-store order
+     * the ambient store IS the second store. (2.4.8+ restores it.) Pinning
+     * makes the tests deterministic across versions.
+     */
+    protected function pinAmbientStoreToDefault(): void
+    {
+        $storeManager = $this->get(StoreManagerInterface::class);
+        $storeManager->setCurrentStore('default');
+
+        $this->assertNotSame(
+            self::SECOND_STORE_CODE,
+            (string) $storeManager->getStore()->getCode(),
+            'Test precondition: the ambient store must differ from the second store after pinning.'
+        );
+    }
+
+    /**
+     * The raw core_config_data value at exactly this scope row, or null when
+     * absent. Reads the DB directly — scopeConfig would apply fallback.
+     */
+    private function readConfigRow(string $path, string $scopeType, int $scopeId): ?string
+    {
+        $connection = $this->get(\Magento\Framework\App\ResourceConnection::class)->getConnection();
+        $select = $connection->select()
+            ->from($connection->getTableName('core_config_data'), ['value'])
+            ->where('scope = ?', $scopeType)
+            ->where('scope_id = ?', $scopeId)
+            ->where('path = ?', $path);
+        $value = $connection->fetchOne($select);
+
+        return $value === false ? null : (string) $value;
+    }
+
+    private function applyConfigRow(string $path, ?string $value, string $scopeType, int $scopeId): void
+    {
+        /** @var \Magento\Framework\App\Config\Storage\WriterInterface $writer */
+        $writer = $this->get(\Magento\Framework\App\Config\Storage\WriterInterface::class);
+        if ($value === null) {
+            $writer->delete($path, $scopeType, $scopeId);
+        } else {
+            $writer->save($path, $value, $scopeType, $scopeId);
+        }
+    }
+
+    private function restoreScopedConfig(): void
+    {
+        if (!$this->configSnapshots) {
+            return;
+        }
+        foreach ($this->configSnapshots as $snapshot) {
+            $this->applyConfigRow(
+                $snapshot['path'],
+                $snapshot['value'],
+                $snapshot['scope'],
+                $snapshot['scopeId']
+            );
+        }
+        $this->configSnapshots = [];
+        $this->get(ReinitableConfigInterface::class)->reinit();
+    }
+
+    // -- Catalog fixtures ------------------------------------------------------
+
+    /**
+     * Run $callback with Magento's `isSecureArea` flag set.
+     *
+     * Catalog deletes go through Magento\Framework\Validator\Model\ActionValidator,
+     * which forbids removing a product or category outside the admin area unless
+     * that flag is registered — so a fixture cleanup that skips it silently fails
+     * ("Delete operation is forbidden for current area") and leaks rows into the
+     * next test, where they resurface as url-key collisions.
+     *
+     * @param callable $callback
+     * @return mixed whatever $callback returns
+     */
+    protected function inSecureArea(callable $callback)
+    {
+        $registry = $this->get(\Magento\Framework\Registry::class);
+        $previous = $registry->registry('isSecureArea');
+
+        $registry->unregister('isSecureArea');
+        $registry->register('isSecureArea', true);
+
+        try {
+            return $callback();
+        } finally {
+            $registry->unregister('isSecureArea');
+            if ($previous !== null) {
+                $registry->register('isSecureArea', $previous);
+            }
+        }
+    }
+
     // -- Sales-flow helpers ----------------------------------------------------
 
     /**
@@ -289,14 +523,16 @@ abstract class IntegrationTestCase extends TestCase
      *        ship-to/bill-to address (e.g. region_id/region/postcode) — used by
      *        the native-tax test to ship to a state no other test touches, so it
      *        doesn't collide on Magento's region|postcode-keyed tax-rate cache.
+     * @param string $storeCode store view the quote belongs to — multi-store
+     *        tests pass SECOND_STORE_CODE to build a second-store cart.
      */
-    protected function newGuestQuote(array $addressOverride = []): Quote
+    protected function newGuestQuote(array $addressOverride = [], string $storeCode = 'default'): Quote
     {
         $om = $this->objectManager();
 
         /** @var StoreManagerInterface $storeManager */
         $storeManager = $this->get(StoreManagerInterface::class);
-        $store = $storeManager->getStore('default');
+        $store = $storeManager->getStore($storeCode);
 
         // Ship-to in Austin TX (region 57), matching the seeded origin. SOAP is
         // mocked, so the actual tax/destination is immaterial to most assertions
@@ -357,23 +593,129 @@ abstract class IntegrationTestCase extends TestCase
      * Build, collect and save a guest quote containing the seeded test product.
      *
      * @param array<string, mixed> $addressOverride see {@see newGuestQuote()}
+     * @param string $storeCode see {@see newGuestQuote()}
      */
-    protected function buildQuoteWithTestProduct(int $qty = 1, array $addressOverride = []): Quote
-    {
-        $quote = $this->newGuestQuote($addressOverride);
+    protected function buildQuoteWithTestProduct(
+        int $qty = 1,
+        array $addressOverride = [],
+        string $storeCode = 'default'
+    ): Quote {
+        $quote = $this->newGuestQuote($addressOverride, $storeCode);
         $product = $this->get(ProductRepositoryInterface::class)->get(self::TEST_PRODUCT_SKU);
         $quote->addProduct($product, $qty);
 
         return $this->collectAndSaveQuote($quote);
     }
 
-    protected function placeOrder(): Order
+    protected function placeOrder(string $storeCode = 'default', int $qty = 1): Order
     {
-        $quote = $this->buildQuoteWithTestProduct(1);
+        $quote = $this->buildQuoteWithTestProduct($qty, [], $storeCode);
 
         $orderId = $this->get(CartManagementInterface::class)->placeOrder((int) $quote->getId());
 
         return $this->get(OrderRepositoryInterface::class)->get($orderId);
+    }
+
+    /**
+     * Re-read the order straight from the database, bypassing the repository's
+     * identity map.
+     *
+     * Observer\Sales\Complete writes taxcloud_captured with
+     * ResourceModel\Order::saveAttribute() on its own order instance, so a test
+     * holding an earlier instance can see a stale value either way. Loading a
+     * fresh model is what makes an assertion on that column mean "this is what
+     * the cancel flow will read".
+     */
+    protected function reloadOrder(Order $order): Order
+    {
+        /** @var Order $fresh */
+        $fresh = $this->objectManager()->create(Order::class);
+        $this->get(\Magento\Sales\Model\ResourceModel\Order::class)->load($fresh, (int) $order->getId());
+
+        return $fresh;
+    }
+
+    /**
+     * Assert whether the order carries the taxcloud_captured flag the cancel
+     * flow reads. Always reloads, so callers cannot accidentally assert against
+     * an in-memory instance the observer never touched.
+     */
+    protected function assertOrderCapturedFlag(Order $order, bool $expected, string $message = ''): void
+    {
+        $actual = (bool) $this->reloadOrder($order)->getData('taxcloud_captured');
+
+        $this->assertSame($expected, $actual, $message ?: sprintf(
+            'Expected taxcloud_captured to be %s on order %s.',
+            $expected ? 'set' : 'unset',
+            $order->getIncrementId()
+        ));
+    }
+
+    /**
+     * Invoice only part of the order and pay it. The first partial invoice still
+     * fires sales_order_invoice_pay with an invoice collection of exactly one,
+     * which is all the capture observer's dedupe looks at.
+     *
+     * @param array<int, float> $qtys order item id => qty to invoice
+     */
+    protected function payPartialInvoice(Order $order, array $qtys): InvoiceInterface
+    {
+        $om = $this->objectManager();
+
+        /** @var Invoice $invoice */
+        $invoice = $this->get(InvoiceService::class)->prepareInvoice($order, $qtys);
+        $invoice->setRequestedCaptureCase(Invoice::CAPTURE_OFFLINE);
+        $invoice->register();
+
+        $transaction = $om->create(\Magento\Framework\DB\Transaction::class);
+        $transaction->addObject($invoice)->addObject($invoice->getOrder())->save();
+
+        return $invoice;
+    }
+
+    /**
+     * Invoice the order asking for NO capture — the case an admin picks for a
+     * payment settled outside Magento.
+     *
+     * Note this does not guarantee the invoice goes unpaid: Invoice::register()
+     * only honors the requested capture case when canCapture() is true, and
+     * pays anyway for non-gateway (offline) methods. Named for what the caller
+     * requests, not for the outcome.
+     */
+    protected function createUnpaidInvoice(Order $order): InvoiceInterface
+    {
+        $om = $this->objectManager();
+
+        /** @var Invoice $invoice */
+        $invoice = $this->get(InvoiceService::class)->prepareInvoice($order);
+        $invoice->setRequestedCaptureCase(Invoice::NOT_CAPTURE);
+        $invoice->register();
+
+        $transaction = $om->create(\Magento\Framework\DB\Transaction::class);
+        $transaction->addObject($invoice)->addObject($invoice->getOrder())->save();
+
+        return $invoice;
+    }
+
+    /**
+     * Attach a tracking number to an existing shipment and save it, mirroring
+     * Magento\Shipping\Controller\Adminhtml\Order\Shipment\AddTrack.
+     *
+     * The track is what makes this reproduce the admin action: AbstractModel
+     * skips the save (and therefore the sales_order_shipment_save_after
+     * dispatch) when nothing on the model changed, so re-saving an untouched
+     * shipment would silently prove nothing.
+     */
+    protected function addTrackingToShipment(ShipmentInterface $shipment, string $number = '1Z-TEST-0001'): void
+    {
+        $track = $this->objectManager()->create(\Magento\Sales\Model\Order\Shipment\Track::class)
+            ->setNumber($number)
+            ->setCarrierCode('custom')
+            ->setTitle('Test carrier');
+
+        $shipment->addTrack($track);
+
+        $this->get(ShipmentRepositoryInterface::class)->save($shipment);
     }
 
     /**

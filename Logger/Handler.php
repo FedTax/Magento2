@@ -23,15 +23,28 @@ use Magento\Framework\Logger\Handler\Base;
 class Handler extends Base
 {
     /**
-     * Logging level
-     * @var int
+     * Log file this handler writes to when nothing is injected, relative to the
+     * Magento base directory. etc/di.xml binds the same value explicitly, so the
+     * default survives even if a deployment's di.xml is overridden wholesale.
      */
-    protected $loggerType = \Monolog\Logger::INFO;
+    public const DEFAULT_FILE_NAME = '/var/log/taxcloud.log';
 
     /**
+     * Logging level. DEBUG so Advanced-mode records (payload dumps, wire
+     * traces) reach the file; whether debug records are emitted at all is
+     * decided upstream by GatewayLogger from the store's logging mode.
+     *
+     * @var int
+     */
+    protected $loggerType = \Monolog\Logger::DEBUG;
+
+    /**
+     * Operators can point TaxCloud logging elsewhere by overriding the fileName
+     * argument in their own di.xml — see README "Changing the log file location".
+     *
      * @param DriverInterface $filesystem
-     * @param string $filePath
-     * @param string $fileName
+     * @param string|null $filePath
+     * @param string|null $fileName
      * @throws \Exception
      */
     public function __construct(
@@ -39,7 +52,8 @@ class Handler extends Base
         $filePath = null,
         $fileName = null
     ) {
-        $fileName = '/var/log/taxcloud.log';
-        parent::__construct($filesystem, $filePath, $fileName);
+        // ?: not ?? — an empty string would otherwise reach the parent as a falsy
+        // fileName, leaving the stream URL pointing at the base directory itself.
+        parent::__construct($filesystem, $filePath, $fileName ?: self::DEFAULT_FILE_NAME);
     }
 }

@@ -25,23 +25,23 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 {
 
     /**
-     * Magento Config Object
+     * TaxCloud store-scoped configuration reader
      *
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
+     * @var \Taxcloud\Magento2\Model\Config\TaxcloudConfig
      */
-    protected $scopeConfig = null;
+    protected $taxcloudConfig;
 
     /**
-     * TaxCloud Api Object
+     * TaxCloud tax-lookup gateway
      *
-     * @var \Taxcloud\Magento2\Model\Api
+     * @var \Taxcloud\Magento2\Api\LookupGatewayInterface
      */
     protected $tcapi;
 
     /**
      * TaxCloud Logger
      *
-     * @var \Taxcloud\Magento2\Logger\Logger
+     * @var \Psr\Log\LoggerInterface
      */
     protected $tclogger;
 
@@ -56,9 +56,9 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
      * @param \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory
      * @param \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory
      * @param \Magento\Tax\Helper\Data $taxData
-     * @param \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
-     * @param \Taxcloud\Magento2\Api $tcapi
-     * @param \Taxcloud\Magento2\Logger\Logger $tclogger
+     * @param \Taxcloud\Magento2\Model\Config\TaxcloudConfig $taxcloudConfig
+     * @param \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi
+     * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      * @param \Magento\Framework\Serialize\Serializer\Json $serializer
      */
     public function __construct(
@@ -70,23 +70,15 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Customer\Api\Data\AddressInterfaceFactory $customerAddressFactory,
         \Magento\Customer\Api\Data\RegionInterfaceFactory $customerAddressRegionFactory,
         \Magento\Tax\Helper\Data $taxData,
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Taxcloud\Magento2\Model\Api $tcapi,
-        \Taxcloud\Magento2\Logger\Logger $tclogger,
+        \Taxcloud\Magento2\Model\Config\TaxcloudConfig $taxcloudConfig,
+        \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi,
+        \Psr\Log\LoggerInterface $tclogger,
         ?\Magento\Framework\Serialize\Serializer\Json $serializer = null
     ) {
-        $this->scopeConfig = $scopeConfig;
+        $this->taxcloudConfig = $taxcloudConfig;
         $this->tcapi = $tcapi;
 
-        if ($scopeConfig->getValue('tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE)) {
-            $this->tclogger = $tclogger;
-        } else {
-            $this->tclogger = new class {
-                public function info()
-                {
-                }
-            };
-        }
+        $this->tclogger = $tclogger;
 
         parent::__construct(
             $taxConfig,
@@ -100,7 +92,6 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
             $serializer
         );
     }
-
 
     /**
      * Collect tax totals for quote address
@@ -117,10 +108,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Quote\Model\Quote\Address\Total $total
     ) {
 
-        if (!$this->scopeConfig->getValue(
-            'tax/taxcloud_settings/enabled',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        )) {
+        // Resolve against the QUOTE's store, not the ambient request store:
+        // in admin/API contexts (admin order creation, webhooks) the ambient
+        // store is the default store view, not the store this cart belongs to.
+        if (!$this->taxcloudConfig->isEnabled($quote->getStoreId())) {
             return parent::collect($quote, $shippingAssignment, $total);
         }
 
@@ -137,7 +128,6 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
         // Fetch tax amount from TaxCloud
         $taxAmounts = $this->tcapi->lookupTaxes($itemsByType, $shippingAssignment, $quote);
-        // $this->tclogger->info(json_encode($taxAmounts, JSON_PRETTY_PRINT));
 
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
@@ -194,7 +184,8 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
                 // This ensures tax is available when quote is converted to order
                 $quoteItem->setTaxAmount($taxAmount);
                 $quoteItem->setBaseTaxAmount($taxAmount);
-                $quoteItem->setTaxPercent($taxDetail->getRowTotal() > 0 ? round(100 * $taxAmount / $taxDetail->getRowTotal(), 3) : 0);
+                $detailRowTotal = $taxDetail->getRowTotal();
+                $quoteItem->setTaxPercent($detailRowTotal > 0 ? round(100 * $taxAmount / $detailRowTotal, 3) : 0);
                 $quoteItem->setPriceInclTax($snapPrice + $taxAmountPer);
                 $quoteItem->setBasePriceInclTax($snapBasePrice + $taxAmountPer);
                 $quoteItem->setRowTotalInclTax($snapRowTotal + $taxAmount);

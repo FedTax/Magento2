@@ -24,15 +24,13 @@ use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
 
 /**
  * Proves that cancelling a captured-but-uninvoiced order through the real
- * Magento flow reverses the sale in TaxCloud — exactly once, even though the
- * cancellation fires two events the observer listens to.
+ * Magento flow reverses the sale in TaxCloud, exactly once.
  *
- * Cancelling fires both order_cancel_after and sales_order_save_after (the
- * state transition to "canceled"). Observer\Sales\Cancel listens to both but
- * dedupes per order, so Api::returnOrderCancellation() -> the Returned SOAP
- * operation runs once. Exercising the real OrderManagementInterface::cancel()
- * transition — rather than synthetic event objects — is what makes this cover
- * gap #6.1 across both event paths.
+ * OrderManagementInterface::cancel() reaches Order::registerCancellation(),
+ * where Plugin\Sales\OrderCancellation intercepts and hands the order to
+ * CancellationProcessor, which calls Api::returnOrderCancellation() -> the
+ * Returned SOAP operation. Driving the real cancellation rather than synthetic
+ * event objects is what makes this cover the admin/API path end to end.
  */
 class CancelOnRealOrderStateTransitionTest extends IntegrationTestCase
 {
@@ -45,7 +43,7 @@ class CancelOnRealOrderStateTransitionTest extends IntegrationTestCase
         $this->setCaptureTrigger(CaptureTrigger::ORDER_CREATION);
     }
 
-    public function testCancelObserverFiresWhenCapturedOrderIsCanceled(): void
+    public function testCancellationReversesSaleWhenCapturedOrderIsCanceled(): void
     {
         $soap = $this->soapClient();
 
@@ -65,8 +63,7 @@ class CancelOnRealOrderStateTransitionTest extends IntegrationTestCase
         $this->assertSame(
             1,
             $soap->callCount('Returned'),
-            'Cancelling a captured, uninvoiced order should call Returned exactly once, '
-            . 'even though order_cancel_after and sales_order_save_after both fire.'
+            'Cancelling a captured, uninvoiced order should call Returned exactly once.'
         );
 
         $args = $soap->firstCallArgs('Returned');

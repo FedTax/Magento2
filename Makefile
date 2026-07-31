@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-unit-version lint lint-fix help \
+.PHONY: test test-unit test-unit-version lint lint-fix phpstan analyse help \
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
         e2e-trace e2e-clean
@@ -30,6 +30,10 @@ help:
 	@echo "                           MAGENTO_EDITION / MAGENTO_VERSION / PHP_VERSION, e.g.:"
 	@echo "                             make test-unit-version MAGENTO_VERSION=2.4.7-p3 PHP_VERSION=8.2"
 	@echo ""
+	@echo "Static analysis:"
+	@echo "  make phpstan           - Run PHPStan level 5 via the Magento install's binary"
+	@echo "                           (alias: make analyse). Override MAGENTO_ROOT=..."
+	@echo ""
 	@echo "Integration tests (see docs/INTEGRATION_TESTS.md for setup):"
 	@echo "  make integration-test  - Install Magento + run integration tests"
 	@echo "                           Override with MAGENTO_EDITION / MAGENTO_VERSION / PHP_VERSION"
@@ -49,7 +53,8 @@ help:
 	@echo "                             make e2e-setup && make e2e-test"
 	@echo ""
 	@echo "Lint:"
-	@echo "  make lint              - Run PHP CodeSniffer linting"
+	@echo "  make lint              - Run PHP CodeSniffer (Magento2 coding standard)"
+	@echo "                           via the Magento install's binary. Override MAGENTO_ROOT=..."
 	@echo "  make lint-fix          - Auto-fix linting issues where possible"
 	@echo "  make help              - Show this help message"
 
@@ -84,23 +89,49 @@ test-unit-version:
 	@docker compose exec -T -w /srv/module -e MAGENTO_ROOT=/var/www/html app \
 		/var/www/html/vendor/bin/phpunit -c /srv/module/phpunit.xml.dist Test/Unit/ --testdox
 
-# Run PHP CodeSniffer linting
-lint:
-	@echo "Running PHP CodeSniffer..."
-	@lint_output=$$(phpcs --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/ 2>&1 || true); \
-	if echo "$$lint_output" | grep -q "FOUND [1-9][0-9]* ERROR"; then \
-		echo "❌ Linting failed - errors found:"; \
-		echo "$$lint_output"; \
+# Run PHPStan static analysis (level 5) using the Magento install's phpstan binary.
+# The module has no vendor/ of its own; phpstan-bootstrap.php resolves the real
+# Magento classes via MAGENTO_ROOT (same model as test-unit). See phpstan.neon.
+phpstan:
+	@if [ ! -x "$(MAGENTO_ROOT)/vendor/bin/phpstan" ]; then \
+		echo "ERROR: $(MAGENTO_ROOT)/vendor/bin/phpstan not found."; \
+		echo "PHPStan runs with the Magento install's binary. Either:"; \
+		echo "  - check this module out at <magento-root>/app/code/Taxcloud/Magento2/, or"; \
+		echo "  - pass MAGENTO_ROOT=/path/to/magento"; \
 		exit 1; \
-	else \
-		echo "✅ Linting passed - only warnings found (non-fatal):"; \
-		echo "$$lint_output"; \
 	fi
+	@MAGENTO_ROOT=$(MAGENTO_ROOT) $(MAGENTO_ROOT)/vendor/bin/phpstan analyse \
+		-c phpstan.neon --no-progress --memory-limit=1G
 
-# Auto-fix PHP CodeSniffer issues where possible
+analyse: phpstan
+
+# Run PHP CodeSniffer against the Magento2 coding standard. No arguments: phpcs
+# discovers phpcs.xml.dist, which carries the standard, the scanned paths and the
+# deferrals — the same file CI runs, so the two cannot drift. See README
+# "Coding standard". Uses the Magento install's phpcs (same model as test-unit /
+# phpstan); magento/magento-coding-standard is one of its dev dependencies.
+lint:
+	@if [ ! -x "$(MAGENTO_ROOT)/vendor/bin/phpcs" ]; then \
+		echo "ERROR: $(MAGENTO_ROOT)/vendor/bin/phpcs not found."; \
+		echo "Linting runs with the Magento install's PHP CodeSniffer. Either:"; \
+		echo "  - check this module out at <magento-root>/app/code/Taxcloud/Magento2/, or"; \
+		echo "  - pass MAGENTO_ROOT=/path/to/magento"; \
+		exit 1; \
+	fi
+	@echo "Running PHP CodeSniffer (Magento2 standard)..."
+	@$(MAGENTO_ROOT)/vendor/bin/phpcs
+
+# Auto-fix what the standard can fix mechanically (short array syntax, whitespace,
+# import formatting). Anything left needs a human — run `make lint` to see it.
 lint-fix:
-	@echo "Auto-fixing PHP CodeSniffer issues..."
-	@phpcbf --standard=PSR2 --extensions=php Model/ Observer/ Logger/ Setup/ --ignore=Test/
+	@if [ ! -x "$(MAGENTO_ROOT)/vendor/bin/phpcbf" ]; then \
+		echo "ERROR: $(MAGENTO_ROOT)/vendor/bin/phpcbf not found."; \
+		echo "  - check this module out at <magento-root>/app/code/Taxcloud/Magento2/, or"; \
+		echo "  - pass MAGENTO_ROOT=/path/to/magento"; \
+		exit 1; \
+	fi
+	@echo "Auto-fixing PHP CodeSniffer issues (Magento2 standard)..."
+	@$(MAGENTO_ROOT)/vendor/bin/phpcbf
 
 # ---------------------------------------------------------------------------
 # Integration tests — see docs/INTEGRATION_TESTS.md

@@ -28,7 +28,9 @@
         <shipping_tic>11010</shipping_tic>
         <cache_lifetime>86400</cache_lifetime>
         <api_timeout>10</api_timeout>
+        <wsdl_url>https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl</wsdl_url>
         <fallback_to_magento>0</fallback_to_magento>
+        <calculations_only>0</calculations_only>
         <capture_trigger>order_creation</capture_trigger>
       </taxcloud_settings>
     </tax>

@@ -19,6 +19,13 @@
  *                     shipping/origin/*       (1401 Lavaca St, Austin TX)
  *                     carriers/flatrate/active + payment/checkmo/active
  *                     (so at least one shipping + payment method works)
+ *                     web/url/use_store = 1 (store code in URLs, so both
+ *                     stores are reachable on one base URL: /default/, /second/)
+ *   - Multi-store     second website/group/store view (all code "second"),
+ *                     same root category + full test catalog assigned;
+ *                     TaxCloud DISABLED on it via store-scope override;
+ *                     own customer record (same email/password — accounts
+ *                     are per-website)
  *   - Reindex all indexers, flush all caches
  *
  * Usage:
@@ -137,6 +144,11 @@ $configValues = [
     // Guarantee at least one active shipping carrier + payment method.
     'carriers/flatrate/active' => '1',
     'payment/checkmo/active'   => '1',
+
+    // Store code in URLs so the default and second store (section 4d) are both
+    // reachable on the same base URL as /default/... and /second/... — no extra
+    // vhost/DNS needed for multi-store E2E navigation.
+    'web/url/use_store' => '1',
 
     // Take stock out of the equation for the test catalog. Product salability
     // (Quote::addProduct -> isSalable()) otherwise depends on the MSI salable-qty
@@ -402,18 +414,31 @@ $step('configurable "' . CONFIGURABLE_SKU . "\" assigned to category $categoryId
 const CUSTOMER_EMAIL    = 'customer@example.com';
 const CUSTOMER_PASSWORD = 'Test1234!';
 
-$defaultStore = $storeManager->getStore();
-$customerWebsiteId = (int) $defaultStore->getWebsiteId();
 $customerRepository = $om->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
 
-try {
-    $customerRepository->get(CUSTOMER_EMAIL, $customerWebsiteId);
-    $step('customer "' . CUSTOMER_EMAIL . '" already exists');
-} catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+// Customer accounts are scoped PER WEBSITE (customer/account_share/scope
+// default). The same email on two websites is two independent accounts, so the
+// second store (section 4d) gets its own record with the SAME credentials —
+// tests log in with one email/password everywhere and the website context
+// picks the account. Callable per store view; idempotent per website.
+$ensureCustomer = function (\Magento\Store\Api\Data\StoreInterface $store) use (
+    $om,
+    $customerRepository,
+    $step
+): void {
+    $websiteId = (int) $store->getWebsiteId();
+    try {
+        $customerRepository->get(CUSTOMER_EMAIL, $websiteId);
+        $step('customer "' . CUSTOMER_EMAIL . "\" already exists (website $websiteId)");
+        return;
+    } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+        // fall through and create
+    }
+
     /** @var \Magento\Customer\Api\Data\CustomerInterface $customer */
     $customer = $om->create(\Magento\Customer\Api\Data\CustomerInterfaceFactory::class)->create();
-    $customer->setWebsiteId($customerWebsiteId)
-        ->setStoreId((int) $defaultStore->getId())
+    $customer->setWebsiteId($websiteId)
+        ->setStoreId((int) $store->getId())
         ->setEmail(CUSTOMER_EMAIL)
         ->setFirstname('Test')
         ->setLastname('Customer')
@@ -424,7 +449,8 @@ try {
     $passwordHash = $om->get(\Magento\Framework\Encryption\EncryptorInterface::class)
         ->getHash(CUSTOMER_PASSWORD, true);
     $customer = $customerRepository->save($customer, $passwordHash);
-    $step('customer "' . CUSTOMER_EMAIL . '" created (password ' . CUSTOMER_PASSWORD . ')');
+    $step('customer "' . CUSTOMER_EMAIL . '" created (website ' . $websiteId
+        . ', password ' . CUSTOMER_PASSWORD . ')');
 
     // Default shipping + billing: Austin TX 78701 — in-state with the seeded
     // origin, so a logged-in customer's cart computes deterministic in-state tax.
@@ -446,8 +472,122 @@ try {
         ->setIsDefaultBilling(true)
         ->setIsDefaultShipping(true);
     $om->get(\Magento\Customer\Api\AddressRepositoryInterface::class)->save($address);
-    $step('customer default address set (1401 Lavaca St, Austin TX 78701)');
+    $step("customer default address set (1401 Lavaca St, Austin TX 78701; website $websiteId)");
+};
+
+// getDefaultStoreView(), NOT getStore(): the current store was pinned to the
+// admin scope at bootstrap, and a customer created there (website_id 0) can't
+// log in on any storefront under per-website account sharing.
+$ensureCustomer($storeManager->getDefaultStoreView());
+
+// --- 4d. Second website / store group / store view (multi-store) -------------
+//
+// A complete second scope tree (website "second" -> group "second" -> store
+// view "second") sharing the main root category, so the same test catalog is
+// browsable on both stores. Combined with web/url/use_store=1 (section 2) the
+// storefronts live on one base URL as /default/... and /second/....
+//
+// TaxCloud is explicitly DISABLED on the second store via a store-scope config
+// override (the module reads tax/taxcloud_settings/enabled at SCOPE_STORE, see
+// Model/Tax.php), so multi-store tests can prove scope isolation: carts on
+// "second" must fall back to native Magento tax, never hitting TaxCloud.
+//
+// Saving through the resource models (not raw SQL) fires the real plugins and
+// events: MSI links the new website to the Default Stock, and Magento_Sales
+// creates the sales sequence tables for the new store. Idempotent.
+
+const SECOND_WEBSITE_CODE = 'second';
+const SECOND_GROUP_CODE   = 'second';
+const SECOND_STORE_CODE   = 'second';
+
+/** @var \Magento\Store\Model\ResourceModel\Website $websiteResource */
+$websiteResource = $om->get(\Magento\Store\Model\ResourceModel\Website::class);
+/** @var \Magento\Store\Model\Website $secondWebsite */
+$secondWebsite = $om->create(\Magento\Store\Model\WebsiteFactory::class)->create();
+$websiteResource->load($secondWebsite, SECOND_WEBSITE_CODE, 'code');
+if ($secondWebsite->getId()) {
+    $step('website "' . SECOND_WEBSITE_CODE . '" already exists (id ' . $secondWebsite->getId() . ')');
+} else {
+    $secondWebsite->setCode(SECOND_WEBSITE_CODE)
+        ->setName('Second Website')
+        ->setSortOrder(10);
+    $websiteResource->save($secondWebsite);
+    $step('website "' . SECOND_WEBSITE_CODE . '" created (id ' . $secondWebsite->getId() . ')');
 }
+
+/** @var \Magento\Store\Model\ResourceModel\Group $groupResource */
+$groupResource = $om->get(\Magento\Store\Model\ResourceModel\Group::class);
+/** @var \Magento\Store\Model\Group $secondGroup */
+$secondGroup = $om->create(\Magento\Store\Model\GroupFactory::class)->create();
+$groupResource->load($secondGroup, SECOND_GROUP_CODE, 'code');
+if ($secondGroup->getId()) {
+    $step('store group "' . SECOND_GROUP_CODE . '" already exists (id ' . $secondGroup->getId() . ')');
+} else {
+    $secondGroup->setWebsiteId((int) $secondWebsite->getId())
+        ->setCode(SECOND_GROUP_CODE)
+        ->setName('Second Store')
+        ->setRootCategoryId($rootCategoryId);
+    $groupResource->save($secondGroup);
+    $step('store group "' . SECOND_GROUP_CODE . '" created (id ' . $secondGroup->getId()
+        . ", root category $rootCategoryId)");
+}
+
+/** @var \Magento\Store\Model\ResourceModel\Store $storeResource */
+$storeResource = $om->get(\Magento\Store\Model\ResourceModel\Store::class);
+/** @var \Magento\Store\Model\Store $secondStore */
+$secondStore = $om->create(\Magento\Store\Model\StoreFactory::class)->create();
+$storeResource->load($secondStore, SECOND_STORE_CODE, 'code');
+if ($secondStore->getId()) {
+    $step('store view "' . SECOND_STORE_CODE . '" already exists (id ' . $secondStore->getId() . ')');
+} else {
+    $secondStore->setCode(SECOND_STORE_CODE)
+        ->setName('Second Store View')
+        ->setWebsiteId((int) $secondWebsite->getId())
+        ->setGroupId((int) $secondGroup->getId())
+        ->setSortOrder(10)
+        ->setIsActive(1);
+    $storeResource->save($secondStore);
+    $step('store view "' . SECOND_STORE_CODE . '" created (id ' . $secondStore->getId() . ')');
+}
+
+// Wire the defaults so the new scope tree is fully navigable.
+if ((int) $secondGroup->getDefaultStoreId() !== (int) $secondStore->getId()) {
+    $secondGroup->setDefaultStoreId((int) $secondStore->getId());
+    $groupResource->save($secondGroup);
+}
+if ((int) $secondWebsite->getDefaultGroupId() !== (int) $secondGroup->getId()) {
+    $secondWebsite->setDefaultGroupId((int) $secondGroup->getId());
+    $websiteResource->save($secondWebsite);
+}
+$step('scope tree wired: website "' . SECOND_WEBSITE_CODE . '" -> group "'
+    . SECOND_GROUP_CODE . '" -> store "' . SECOND_STORE_CODE . '"');
+
+// Make the whole test catalog visible on the second website too.
+$secondWebsiteId = (int) $secondWebsite->getId();
+$catalogSkus = [PRODUCT_SKU, CONFIGURABLE_SKU, VARIANT_RED_SKU, VARIANT_BLUE_SKU];
+$catalogIds = [];
+foreach ($catalogSkus as $sku) {
+    $catalogIds[] = (int) $productRepository->get($sku)->getId();
+}
+$om->get(\Magento\Catalog\Model\Product\Action::class)
+    ->updateWebsites($catalogIds, [$secondWebsiteId], 'add');
+$step('test catalog (' . implode(', ', $catalogSkus) . ") assigned to website $secondWebsiteId");
+
+// Disable TaxCloud on the second store only (store-scope override).
+$disabledValue = $preparedValueFactory->create(
+    'tax/taxcloud_settings/enabled',
+    '0',
+    \Magento\Store\Model\ScopeInterface::SCOPE_STORES,
+    SECOND_STORE_CODE
+);
+if ($disabledValue instanceof \Magento\Framework\App\Config\Value) {
+    $disabledValue->getResource()->save($disabledValue);
+}
+$step('config tax/taxcloud_settings/enabled = 0 (scope stores/' . SECOND_STORE_CODE . ')');
+
+// Same credentials, second website: accounts are per-website (section 4c), so
+// the second store needs its own customer record for logged-in test flows.
+$ensureCustomer($secondStore);
 
 // --- 5. Reindex + cache flush --------------------------------------------------
 
@@ -465,8 +605,11 @@ $step('flushed all caches');
 
 echo "\n[seed] Done. Test environment ready:\n";
 echo '       admin:    ' . ADMIN_USERNAME . ' / ' . ADMIN_PASSWORD . ' <' . ADMIN_EMAIL . ">\n";
-echo '       customer: ' . CUSTOMER_EMAIL . ' / ' . CUSTOMER_PASSWORD . " (default addr Austin TX)\n";
+echo '       customer: ' . CUSTOMER_EMAIL . ' / ' . CUSTOMER_PASSWORD
+    . " (default addr Austin TX; one account per website, same creds)\n";
 echo '       category: ' . CATEGORY_NAME . ' (' . CATEGORY_URL_KEY . ")\n";
 echo '       product:  ' . PRODUCT_SKU . ' ($' . number_format(PRODUCT_PRICE, 2) . ")\n";
 echo '       config.:  ' . CONFIGURABLE_SKU . ' (' . VARIANT_RED_SKU . ' tic '
     . VARIANT_RED_TIC . ', ' . VARIANT_BLUE_SKU . ' tic ' . VARIANT_BLUE_TIC . ")\n";
+echo '       stores:   /default/ (TaxCloud ON), /' . SECOND_STORE_CODE
+    . "/ (TaxCloud OFF; store codes in URLs enabled)\n";

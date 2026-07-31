@@ -18,9 +18,15 @@
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
 
+  <!--
+    fileName is the module's default log target, relative to the Magento base
+    directory. Operators can redirect TaxCloud logging by re-declaring this
+    argument in their own di.xml — see README "Changing the log file location".
+  -->
   <type name="Taxcloud\Magento2\Logger\Handler">
     <arguments>
       <argument name="filesystem" xsi:type="object">Magento\Framework\Filesystem\Driver\File</argument>
+      <argument name="fileName" xsi:type="string">/var/log/taxcloud.log</argument>
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Logger\Logger">
@@ -33,5 +39,121 @@
   </type>
 
   <preference for="Magento\Tax\Model\Sales\Total\Quote\Tax" type="Taxcloud\Magento2\Model\Tax" />
+
+  <!--
+    Reverse the TaxCloud sale when an order is cancelled. registerCancellation()
+    is the one method every cancellation path reaches, so this is the whole of
+    the module's cancellation wiring.
+  -->
+  <type name="Magento\Sales\Model\Order">
+    <plugin name="taxcloud_order_cancellation"
+            type="Taxcloud\Magento2\Plugin\Sales\OrderCancellation"
+            sortOrder="10"/>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Order\CancellationProcessor">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <!--
+    Bind the TaxCloud gateway contracts to the SOAP implementation. Consumers
+    type-hint the finer-grained interface they need; the REST migration can
+    swap the concrete type here without touching any call site.
+  -->
+  <preference for="Taxcloud\Magento2\Api\GatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\ExemptionGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+
+  <!-- SOAP transport is the default client provider for the gateway. -->
+  <preference for="Taxcloud\Magento2\Model\Gateway\Soap\SoapClientProviderInterface"
+              type="Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway" />
+
+  <!--
+    Hand every gateway collaborator the config-gated logger so TaxCloud logging
+    respects the store's "logging" setting instead of each class re-deriving it.
+  -->
+  <type name="Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\RetryPolicy">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\ResponseMapper">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\RequestBuilder">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\ExemptionValidator">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <!--
+    Every TaxCloud cache write goes through the module's own cache type, so
+    System → Cache Management can flush TaxCloud entries on their own.
+    Magento\Framework\Cache\FrontendInterface has no global preference, so these
+    bindings are what resolve it — a missing one fails loudly at compile time
+    rather than silently falling back to another frontend.
+  -->
+  <type name="Taxcloud\Magento2\Model\Cache\ResultCache">
+    <arguments>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\ProductTicService">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\CategoryTicResolver">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <!--
+    The tax collector and the observers take the same config-gated proxy. The
+    argument is named tclogger here rather than logger, matching those
+    constructors.
+  -->
+  <type name="Taxcloud\Magento2\Model\Tax">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\Address">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\Complete">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\Refund">
+    <arguments>
+      <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
 
 </config>

@@ -21,9 +21,9 @@ use \Magento\Framework\Data\OptionSourceInterface;
 
 class CaptureTrigger implements OptionSourceInterface
 {
-    const ORDER_CREATION = 'order_creation';
-    const PAYMENT = 'payment';
-    const SHIPMENT = 'shipment';
+    public const ORDER_CREATION = 'order_creation';
+    public const PAYMENT = 'payment';
+    public const SHIPMENT = 'shipment';
 
     /**
      * @return array

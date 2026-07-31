@@ -106,7 +106,7 @@ class TaxTest extends TestCase
                 $this->customerAddressFactory,
                 $this->customerAddressRegionFactory,
                 $this->taxData,
-                $this->scopeConfig,
+                new \Taxcloud\Magento2\Model\Config\TaxcloudConfig($this->scopeConfig),
                 $this->tcapi,
                 $this->tclogger,
                 $this->serializer,
@@ -130,10 +130,14 @@ class TaxTest extends TestCase
      */
     private function configureTaxCloudEnabled($logging = false)
     {
+        // The enabled flag is read against the QUOTE's store (id 1 in
+        // createMockQuote), not the ambient store — the null-scope entry stays
+        // so a regression back to ambient resolution reads enabled=0 and fails.
         $this->scopeConfig->method('getValue')
             ->willReturnMap([
-                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
-                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, $logging ? '1' : '0']
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, $logging ? '1' : '0']
             ]);
 
         $this->createTaxInstance();
@@ -442,6 +446,132 @@ class TaxTest extends TestCase
 
         // Call collect
         $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
+     * TC-011 end-to-end: the defensive safeguard exercised against a representative
+     * multi-item quote using a REAL accumulating Total instead of a mock with a
+     * canned getTaxAmount(). This proves the safeguard's arithmetic
+     * ($currentTaxTotal + $productTaxTotal, summed across items) against actual
+     * accumulated total state, not just that the right setters were invoked.
+     *
+     * Scenario mirrors production order #2000543282: Magento kept only shipping
+     * tax in the totals; product tax from two line items was dropped and must be
+     * added back.
+     */
+    public function testDefensiveSafeguardRestoresDroppedProductTaxAcrossRepresentativeQuote()
+    {
+        $this->configureTaxCloudEnabled(logging: true);
+
+        // Two realistic line items: a $12.50 mug (qty 1) and a $24.00 shirt (qty 2).
+        $mug   = $this->createMockQuoteItem('sku-mug', 1, 12.50, 12.50);
+        $shirt = $this->createMockQuoteItem('sku-shirt', 2, 24.00, 48.00);
+
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$mug, $shirt]);
+
+        // Per-item TaxCloud verdicts + a shipping tax. Product tax total = 4.99.
+        $mugProductTax   = 1.03;
+        $shirtProductTax = 3.96;
+        $shippingTax     = 0.62;
+        $productTaxTotal = $mugProductTax + $shirtProductTax; // 4.99
+
+        [$mugDetail, $mugBaseDetail]     = $this->createMockTaxDetails(12.50, 12.50);
+        [$shirtDetail, $shirtBaseDetail] = $this->createMockTaxDetails(24.00, 48.00);
+        $itemsByType = [
+            Tax::ITEM_TYPE_PRODUCT => [
+                'sku-mug'   => [Tax::KEY_ITEM => $mugDetail,   Tax::KEY_BASE_ITEM => $mugBaseDetail],
+                'sku-shirt' => [Tax::KEY_ITEM => $shirtDetail, Tax::KEY_BASE_ITEM => $shirtBaseDetail],
+            ],
+        ];
+
+        $this->setupParentMethodMocks($itemsByType);
+        $this->setupTaxCloudApiMock(
+            ['sku-mug' => $mugProductTax, 'sku-shirt' => $shirtProductTax],
+            $shippingTax
+        );
+
+        // A real accumulating Total: getTaxAmount()/setTaxAmount() and addTotalAmount()
+        // reflect actual state rather than canned returns. Seed it with shipping tax
+        // only — the hostile precondition where product tax was dropped from totals.
+        $total = new class ($shippingTax) extends Total {
+            private float $tax;
+            private float $baseTax;
+            public array $added = [];
+            public array $addedBase = [];
+            public function __construct(float $seedTax)
+            {
+                $this->tax = $seedTax;
+                $this->baseTax = $seedTax;
+            }
+            public function getTaxAmount()
+            {
+                return $this->tax;
+            }
+            public function getBaseTaxAmount()
+            {
+                return $this->baseTax;
+            }
+            public function setTaxAmount($amount)
+            {
+                $this->tax = (float) $amount;
+                return $this;
+            }
+            public function setBaseTaxAmount($amount)
+            {
+                $this->baseTax = (float) $amount;
+                return $this;
+            }
+            public function addTotalAmount($code, $amount)
+            {
+                $this->added[$code] = ($this->added[$code] ?? 0) + $amount;
+                return $this;
+            }
+            public function addBaseTotalAmount($code, $amount)
+            {
+                $this->addedBase[$code] = ($this->addedBase[$code] ?? 0) + $amount;
+                return $this;
+            }
+            public function getExtraTaxAmount()
+            {
+                return 0;
+            }
+            public function getBaseExtraTaxAmount()
+            {
+                return 0;
+            }
+        };
+
+        $quote = $this->createMockQuote();
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+
+        // Safeguard must have restored the two items' dropped product tax on top of
+        // the shipping tax that was already present.
+        $this->assertEqualsWithDelta(
+            $shippingTax + $productTaxTotal,
+            $total->getTaxAmount(),
+            0.0001,
+            'Total tax must equal shipping tax + summed product tax across both items'
+        );
+        $this->assertEqualsWithDelta(
+            $shippingTax + $productTaxTotal,
+            $total->getBaseTaxAmount(),
+            0.0001,
+            'Base total tax must be restored identically'
+        );
+        $this->assertEqualsWithDelta(
+            $productTaxTotal,
+            $total->added['tax'] ?? 0,
+            0.0001,
+            'addTotalAmount(tax, ...) must accumulate exactly the dropped product tax'
+        );
+        $this->assertEqualsWithDelta(
+            $productTaxTotal,
+            $total->addedBase['tax'] ?? 0,
+            0.0001,
+            'addBaseTotalAmount(tax, ...) must accumulate exactly the dropped product tax'
+        );
     }
 
     /**
@@ -867,8 +997,8 @@ class TaxTest extends TestCase
     {
         $this->scopeConfig->method('getValue')
             ->willReturnMap([
-                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
-                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '0'],
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
             ]);
         // scopeConfig is configured directly here (module disabled), so build Tax now.
         $this->createTaxInstance();
@@ -892,9 +1022,43 @@ class TaxTest extends TestCase
 
         $result = $this->tax->collect($quote, $shippingAssignment, $total);
 
-        // The mocked parent's collect() returns $this (see MagentoMocks Tax base class),
-        // so a successful defer should yield the Tax instance itself.
+        // The real Magento parent collector (\Magento\Tax\Model\Sales\Total\Quote\Tax,
+        // which Tax extends) returns $this from collect(); since $this->tax is a partial
+        // mock of Tax, a successful defer yields the Tax instance itself.
         $this->assertSame($this->tax, $result);
+    }
+
+    /**
+     * calculations_only=1 must NOT touch the tax collector — Lookup is the whole
+     * point of the mode.
+     *
+     * Paired with the "does not capture/return" tests on the observers, this is
+     * what separates calculation-only from disabled: a gate accidentally applied
+     * to Tax::collect would leave the storefront charging no TaxCloud tax at all.
+     */
+    public function testCollectStillLooksUpTaxesInCalculationsOnlyMode()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+                ['tax/taxcloud_settings/calculations_only', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+            ]);
+        $this->createTaxInstance();
+
+        $quote = $this->createMockQuote();
+        $quoteItem = $this->createMockQuoteItem();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+        $total = $this->createMock(Total::class);
+
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
+        $this->tax->method('organizeItemTaxDetailsByType')->willReturn([]);
+
+        $this->tcapi->expects($this->once())->method('lookupTaxes')->willReturn([]);
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
     }
 
     /**
