@@ -9,14 +9,24 @@ import { type Page, type Locator, expect } from '@playwright/test';
  */
 export class TaxConfigPage {
   readonly page: Page;
+  readonly apiType: Locator;
   readonly apiId: Locator;
   readonly apiKey: Locator;
+  readonly restApiKey: Locator;
+  readonly restConnectionId: Locator;
+  readonly testConnectionButton: Locator;
+  readonly testConnectionResult: Locator;
   readonly saveButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
+    this.apiType = page.locator('#tax_taxcloud_api_type');
     this.apiId = page.locator('#tax_taxcloud_api_id');
     this.apiKey = page.locator('#tax_taxcloud_api_key');
+    this.restApiKey = page.locator('#tax_taxcloud_rest_api_key');
+    this.restConnectionId = page.locator('#tax_taxcloud_rest_connection_id');
+    this.testConnectionButton = page.locator('#taxcloud_test_connection_btn');
+    this.testConnectionResult = page.locator('#taxcloud_test_connection_result');
     this.saveButton = page.locator('#save');
   }
 
@@ -44,5 +54,25 @@ export class TaxConfigPage {
     await this.saveButton.click();
     await expect(this.page.locator('.message-success').first())
       .toContainText('You saved the configuration', { timeout: 40_000 });
+  }
+
+  /**
+   * Flip the API Type select without saving — the depends-driven field
+   * visibility reacts to the form value alone.
+   */
+  async selectApiType(value: 'soap' | 'rest'): Promise<void> {
+    await this.apiType.selectOption(value);
+  }
+
+  /**
+   * Click Test Connection and wait for the inline result text (the button
+   * posts the current form values via AJAX; no page reload happens).
+   */
+  async testConnection(): Promise<string> {
+    await this.testConnectionButton.click();
+    await expect(this.testConnectionResult).toBeVisible({ timeout: 40_000 });
+    // "Testing connection…" shows first; wait until the outcome replaces it.
+    await expect(this.testConnectionResult).not.toContainText('Testing connection', { timeout: 40_000 });
+    return (await this.testConnectionResult.textContent()) ?? '';
   }
 }

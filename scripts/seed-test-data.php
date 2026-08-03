@@ -132,6 +132,11 @@ $configValues = [
     'tax/taxcloud_settings/verify_address' => '1',
     'tax/taxcloud_settings/api_id'         => $apiId,
     'tax/taxcloud_settings/api_key'        => $apiKey,
+    // The sandbox simulates a legacy SOAP install. On real upgrades the
+    // PinSoapApiTypeForExistingInstalls patch writes this row; here the
+    // credentials are seeded after setup:upgrade, so the patch saw a fresh
+    // install and pinned nothing — seed the pin explicitly instead.
+    'tax/taxcloud_settings/api_type'       => 'soap',
     'tax/taxcloud_settings/default_tic'    => '20000',
 
     // Ship-from origin: 1401 Lavaca St, Austin TX 78701 (region 57 = Texas)

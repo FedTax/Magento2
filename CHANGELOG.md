@@ -2,6 +2,31 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## Unreleased
+
+Run `bin/magento setup:upgrade` after updating: this release pins existing
+installs to their current API via a data patch.
+
+### Added
+
+- **New "API Type" setting** (*Stores → Configuration → Sales → Tax → TaxCloud
+  Settings*) choosing between **V1 SOAP (legacy)** and **V3 REST**. Fresh
+  installs default to V3 REST; installs upgrading with saved V1 credentials
+  are pinned to V1 SOAP, so nothing changes until an admin switches. The
+  setting is store-scoped, like every other TaxCloud setting.
+- **V3 REST credentials.** With V3 REST selected, the form asks for the API
+  Key (*Developer → API* in TaxCloud, stored encrypted) and the Connection ID
+  (*Integrations → Custom API*) instead of the V1 API ID / API Key pair.
+- **"Test Connection" button** for both API types. Verifies the credentials
+  as currently entered (even unsaved) against TaxCloud — the v3 ping endpoint
+  for REST, the SOAP `Ping` operation for V1 — and reports success, a wrong
+  key, an unknown Connection ID, or a transport problem, per the scope being
+  edited.
+- **Store-aware gateway routing (internal).** All TaxCloud operations now
+  dispatch through a router keyed on the store's API Type, preparing the REST
+  migration. Until REST tax operations ship, both selections transact over
+  SOAP, so this release changes no tax behavior.
+
 ## 1.3.0
 
 Run `bin/magento setup:upgrade` after updating: this release adds a category

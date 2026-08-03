@@ -272,6 +272,10 @@ class TaxcloudConfigTest extends TestCase
                 TaxcloudConfig::XML_PATH_LOGGING, '2', '1',
                 static fn (TaxcloudConfig $c) => $c->isAdvancedLoggingEnabled(7), true,
             ],
+            'getApiType' => [
+                TaxcloudConfig::XML_PATH_API_TYPE, 'soap', 'rest',
+                static fn (TaxcloudConfig $c) => $c->getApiType(7), 'soap',
+            ],
             'getApiId' => [
                 TaxcloudConfig::XML_PATH_API_ID, 'store-api-id', 'ambient-api-id',
                 static fn (TaxcloudConfig $c) => $c->getApiId(7), 'store-api-id',
@@ -279,6 +283,22 @@ class TaxcloudConfigTest extends TestCase
             'getApiKey' => [
                 TaxcloudConfig::XML_PATH_API_KEY, 'store-api-key', 'ambient-api-key',
                 static fn (TaxcloudConfig $c) => $c->getApiKey(7), 'store-api-key',
+            ],
+            'getRestApiKey (no encryptor: raw)' => [
+                TaxcloudConfig::XML_PATH_REST_API_KEY, 'store-rest-key', 'ambient-rest-key',
+                static fn (TaxcloudConfig $c) => $c->getRestApiKey(7), 'store-rest-key',
+            ],
+            'getRestConnectionId' => [
+                TaxcloudConfig::XML_PATH_REST_CONNECTION_ID, 'store-conn-id', 'ambient-conn-id',
+                static fn (TaxcloudConfig $c) => $c->getRestConnectionId(7), 'store-conn-id',
+            ],
+            'getRestEndpoint' => [
+                TaxcloudConfig::XML_PATH_REST_ENDPOINT, 'https://store.example', 'https://ambient.example',
+                static fn (TaxcloudConfig $c) => $c->getRestEndpoint(7), 'https://store.example',
+            ],
+            'getRestAuthEndpoint' => [
+                TaxcloudConfig::XML_PATH_REST_AUTH_ENDPOINT, 'https://store-auth.example', 'https://ambient-auth.example',
+                static fn (TaxcloudConfig $c) => $c->getRestAuthEndpoint(7), 'https://store-auth.example',
             ],
             'getGuestCustomerId' => [
                 TaxcloudConfig::XML_PATH_GUEST_CUSTOMER_ID, '42', '-1',
@@ -317,6 +337,115 @@ class TaxcloudConfigTest extends TestCase
                 static fn (TaxcloudConfig $c) => $c->getShippingTic(7), '11000',
             ],
         ];
+    }
+
+    /**
+     * @dataProvider apiTypeProvider
+     */
+    #[DataProvider('apiTypeProvider')]
+    public function testApiTypeReadsStoredValueAndCollapsesUnknownToRest($stored, string $expected, string $message)
+    {
+        $map = $stored === null ? [] : [self::value(TaxcloudConfig::XML_PATH_API_TYPE, $stored)];
+
+        $this->assertSame($expected, $this->config($map)->getApiType(), $message);
+    }
+
+    public static function apiTypeProvider(): array
+    {
+        return [
+            'stored soap' => ['soap', \Taxcloud\Magento2\Model\Config\Source\ApiType::SOAP,
+                'a pinned legacy install must keep SOAP'],
+            'stored rest' => ['rest', \Taxcloud\Magento2\Model\Config\Source\ApiType::REST,
+                'an explicit REST choice must hold'],
+            'unset' => [null, \Taxcloud\Magento2\Model\Config\Source\ApiType::REST,
+                'no stored value must resolve to the shipped default'],
+            'blank' => ['', \Taxcloud\Magento2\Model\Config\Source\ApiType::REST,
+                'a cleared row must fall back to the current API'],
+            'unknown value' => ['graphql', \Taxcloud\Magento2\Model\Config\Source\ApiType::REST,
+                'a corrupted row must select the current API, not the legacy one'],
+        ];
+    }
+
+    /**
+     * The admin field's Encrypted backend stores ciphertext; the accessor must
+     * hand callers the decrypted key.
+     */
+    public function testRestApiKeyIsDecryptedWhenEncryptorPresent()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            [TaxcloudConfig::XML_PATH_REST_API_KEY, ScopeInterface::SCOPE_STORE, null, '0:3:ciphertext'],
+        ]);
+        $encryptor = $this->createMock(\Magento\Framework\Encryption\EncryptorInterface::class);
+        $encryptor->method('decrypt')->with('0:3:ciphertext')->willReturn('plain-key');
+
+        $config = new TaxcloudConfig($scopeConfig, $encryptor);
+
+        $this->assertSame('plain-key', $config->getRestApiKey());
+    }
+
+    public function testRestApiKeyIsNullWhenUnsetAndDecryptIsNeverCalled()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn(null);
+        $encryptor = $this->createMock(\Magento\Framework\Encryption\EncryptorInterface::class);
+        $encryptor->expects($this->never())->method('decrypt');
+
+        $config = new TaxcloudConfig($scopeConfig, $encryptor);
+
+        $this->assertNull($config->getRestApiKey());
+    }
+
+    public function testRestConnectionIdIsTrimmedAndBlankCollapsesToNull()
+    {
+        $config = $this->config([
+            self::value(TaxcloudConfig::XML_PATH_REST_CONNECTION_ID, '  25eb9b97-5acb-492d-b720-c03e79cf715a  '),
+        ]);
+        $this->assertSame('25eb9b97-5acb-492d-b720-c03e79cf715a', $config->getRestConnectionId());
+
+        $this->assertNull($this->config([])->getRestConnectionId());
+        $this->assertNull(
+            $this->config([self::value(TaxcloudConfig::XML_PATH_REST_CONNECTION_ID, '   ')])->getRestConnectionId()
+        );
+    }
+
+    public function testRestEndpointFallsBackToProductionAndTrimsTrailingSlash()
+    {
+        $this->assertSame(TaxcloudConfig::DEFAULT_REST_ENDPOINT, $this->config([])->getRestEndpoint());
+        $this->assertSame(
+            'https://staging.example',
+            $this->config([
+                self::value(TaxcloudConfig::XML_PATH_REST_ENDPOINT, 'https://staging.example/'),
+            ])->getRestEndpoint()
+        );
+    }
+
+    public function testRestAuthEndpointFallsBackToProductionAndTrimsTrailingSlash()
+    {
+        $this->assertSame(TaxcloudConfig::DEFAULT_REST_AUTH_ENDPOINT, $this->config([])->getRestAuthEndpoint());
+        $this->assertSame(
+            'https://staging-auth.example',
+            $this->config([
+                self::value(TaxcloudConfig::XML_PATH_REST_AUTH_ENDPOINT, 'https://staging-auth.example/'),
+            ])->getRestAuthEndpoint()
+        );
+    }
+
+    /**
+     * The etc/config.xml default must agree with the constant the code falls
+     * back to, for both v3 hosts.
+     */
+    public function testRestEndpointConfigXmlDefaultsMatchTheCodeDefaults()
+    {
+        $configXml = simplexml_load_file(__DIR__ . '/../../../../etc/config.xml');
+
+        $endpoint = $configXml->xpath('/config/default/tax/taxcloud_settings/rest_endpoint');
+        $this->assertCount(1, $endpoint);
+        $this->assertSame(TaxcloudConfig::DEFAULT_REST_ENDPOINT, (string) $endpoint[0]);
+
+        $auth = $configXml->xpath('/config/default/tax/taxcloud_settings/rest_auth_endpoint');
+        $this->assertCount(1, $auth, 'etc/config.xml must declare a rest_auth_endpoint default');
+        $this->assertSame(TaxcloudConfig::DEFAULT_REST_AUTH_ENDPOINT, (string) $auth[0]);
     }
 
     public function testCaptureTriggerDefaultsToOrderCreationWhenUnset()

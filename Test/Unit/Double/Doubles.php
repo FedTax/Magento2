@@ -30,6 +30,7 @@ class SoapClientDouble extends \SoapClient
 {
     public function __construct() {}
     public function Returned($params = null) {}
+    public function Ping($params = null) {}
     public function lookup($params = null) {}
     public function authorizedWithCapture($params = null) {}
     public function OrderDetails($params = null) {}

@@ -80,6 +80,10 @@ abstract class IntegrationTestCase extends TestCase
         \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway::class,
         \Taxcloud\Magento2\Model\Gateway\ExemptionValidator::class,
         \Taxcloud\Magento2\Model\Api::class,
+        // The router is the di preference for every gateway interface and holds
+        // the Api instance; left cached, consumers would keep reaching a SOAP
+        // client from before the mock swap.
+        \Taxcloud\Magento2\Model\Gateway\Router::class,
         \Taxcloud\Magento2\Model\Tax::class,
         \Taxcloud\Magento2\Observer\Sales\Complete::class,
         \Taxcloud\Magento2\Observer\Sales\Refund::class,

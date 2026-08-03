@@ -71,12 +71,23 @@
           </depends>
         </field>
 
+        <field id="api_type" translate="label" type="select" sortOrder="35" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+          <label>API Type</label>
+          <source_model>Taxcloud\Magento2\Model\Config\Source\ApiType</source_model>
+          <config_path>tax/taxcloud_settings/api_type</config_path>
+          <tooltip>V3 REST is TaxCloud's current API and the default for new installs. V1 SOAP (legacy) remains available for existing integrations. Each API type uses its own credentials below.</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
         <field id="api_id" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
           <label>API ID</label>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/api_id</config_path>
           <depends>
             <field id="enabled">1</field>
+            <field id="api_type">soap</field>
           </depends>
         </field>
 
@@ -84,6 +95,38 @@
           <label>API Key</label>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/api_key</config_path>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">soap</field>
+          </depends>
+        </field>
+
+        <field id="rest_api_key" translate="label" type="obscure" sortOrder="52" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>API Key</label>
+          <validate>required-entry</validate>
+          <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+          <config_path>tax/taxcloud_settings/rest_api_key</config_path>
+          <comment>Generate this key in your TaxCloud dashboard under Developer &#8594; API.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+          </depends>
+        </field>
+
+        <field id="rest_connection_id" translate="label" type="text" sortOrder="54" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Connection ID</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/rest_connection_id</config_path>
+          <comment>The UUID of your Custom API connection, found in your TaxCloud dashboard under Integrations &#8594; Custom API (e.g. 25eb9b97-5acb-492d-b720-c03e79cf715a). The connection determines whether requests are processed as test or production.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+          </depends>
+        </field>
+
+        <field id="test_connection" translate="label" type="button" sortOrder="56" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Verify Credentials</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TestConnection</frontend_model>
           <depends>
             <field id="enabled">1</field>
           </depends>

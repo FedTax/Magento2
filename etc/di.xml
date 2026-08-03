@@ -57,15 +57,17 @@
   </type>
 
   <!--
-    Bind the TaxCloud gateway contracts to the SOAP implementation. Consumers
-    type-hint the finer-grained interface they need; the REST migration can
-    swap the concrete type here without touching any call site.
+    Bind the TaxCloud gateway contracts to the store-aware router, which
+    dispatches each call to the transport selected by the api_type setting of
+    the entity's store. Consumers type-hint the finer-grained interface they
+    need and stay transport-unaware; adding REST tax operations only changes
+    the router's target wiring, never a call site.
   -->
-  <preference for="Taxcloud\Magento2\Api\GatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\ExemptionGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\GatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+  <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+  <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+  <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+  <preference for="Taxcloud\Magento2\Api\ExemptionGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
 
   <!-- SOAP transport is the default client provider for the gateway. -->
   <preference for="Taxcloud\Magento2\Model\Gateway\Soap\SoapClientProviderInterface"

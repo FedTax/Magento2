@@ -18,7 +18,9 @@
 namespace Taxcloud\Magento2\Model\Config;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Store\Model\ScopeInterface;
+use Taxcloud\Magento2\Model\Config\Source\ApiType;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 /**
@@ -41,6 +43,25 @@ class TaxcloudConfig
      * Default SOAP connection/read timeout in seconds.
      */
     public const DEFAULT_SOAP_TIMEOUT = 10;
+
+    /**
+     * Production TaxCloud v3 REST API base URL.
+     *
+     * Also declared as the field default in etc/config.xml. This constant is
+     * the fallback for installs whose stored value is blank, so the module
+     * keeps reaching production even if the config row is cleared.
+     */
+    public const DEFAULT_REST_ENDPOINT = 'https://api.v3.taxcloud.com';
+
+    /**
+     * Production host of the v1→v3 credential exchange service.
+     *
+     * Undocumented but load-bearing: TaxCloud's own WooCommerce plugin ships
+     * this same host. Config-overridable (config.xml default, no admin field)
+     * so a vendor-side move needs no code release. Staging equivalent:
+     * https://staging-taxcloudapi.azurewebsites.net
+     */
+    public const DEFAULT_REST_AUTH_ENDPOINT = 'https://taxcloudapi-appservice-core-prod.azurewebsites.net';
 
     /**
      * Production TaxCloud SOAP WSDL endpoint.
@@ -78,6 +99,7 @@ class TaxcloudConfig
      * Store-config paths.
      */
     public const XML_PATH_ENABLED = 'tax/taxcloud_settings/enabled';
+    public const XML_PATH_API_TYPE = 'tax/taxcloud_settings/api_type';
     public const XML_PATH_LOGGING = 'tax/taxcloud_settings/logging';
     public const XML_PATH_API_ID = 'tax/taxcloud_settings/api_id';
     public const XML_PATH_API_KEY = 'tax/taxcloud_settings/api_key';
@@ -87,6 +109,10 @@ class TaxcloudConfig
     public const XML_PATH_CALCULATIONS_ONLY = 'tax/taxcloud_settings/calculations_only';
     public const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
     public const XML_PATH_WSDL_URL = 'tax/taxcloud_settings/wsdl_url';
+    public const XML_PATH_REST_API_KEY = 'tax/taxcloud_settings/rest_api_key';
+    public const XML_PATH_REST_CONNECTION_ID = 'tax/taxcloud_settings/rest_connection_id';
+    public const XML_PATH_REST_ENDPOINT = 'tax/taxcloud_settings/rest_endpoint';
+    public const XML_PATH_REST_AUTH_ENDPOINT = 'tax/taxcloud_settings/rest_auth_endpoint';
     public const XML_PATH_VERIFY_ADDRESS = 'tax/taxcloud_settings/verify_address';
     public const XML_PATH_CAPTURE_TRIGGER = 'tax/taxcloud_settings/capture_trigger';
     public const XML_PATH_DEFAULT_TIC = 'tax/taxcloud_settings/default_tic';
@@ -99,11 +125,18 @@ class TaxcloudConfig
     private $scopeConfig;
 
     /**
-     * @param ScopeConfigInterface $scopeConfig
+     * @var EncryptorInterface|null
      */
-    public function __construct(ScopeConfigInterface $scopeConfig)
+    private $encryptor;
+
+    /**
+     * @param ScopeConfigInterface $scopeConfig
+     * @param EncryptorInterface|null $encryptor
+     */
+    public function __construct(ScopeConfigInterface $scopeConfig, ?EncryptorInterface $encryptor = null)
     {
         $this->scopeConfig = $scopeConfig;
+        $this->encryptor = $encryptor;
     }
 
     /**
@@ -155,6 +188,27 @@ class TaxcloudConfig
     public function isAdvancedLoggingEnabled($store = null): bool
     {
         return $this->getLoggingMode($store) === self::LOGGING_ADVANCED;
+    }
+
+    /**
+     * Which TaxCloud API generation this store uses (ApiType::SOAP or ::REST).
+     *
+     * Unknown or blank stored values collapse to REST — the shipped default —
+     * so a corrupted row selects the current API rather than the legacy one.
+     * Existing installs are pinned to SOAP by a data patch at upgrade, not
+     * here: deriving the type from other fields at read time would make the
+     * effective value depend on data this accessor can't show in the admin UI.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getApiType($store = null): string
+    {
+        $value = $this->scopeConfig->getValue(self::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, $store);
+        if (!in_array($value, [ApiType::SOAP, ApiType::REST], true)) {
+            return ApiType::REST;
+        }
+        return $value;
     }
 
     /**
@@ -275,6 +329,80 @@ class TaxcloudConfig
         $configured = is_string($configured) ? trim($configured) : '';
 
         return $configured !== '' ? $configured : self::DEFAULT_WSDL_URL;
+    }
+
+    /**
+     * TaxCloud v3 REST API key, decrypted.
+     *
+     * Stored encrypted by the admin field's Encrypted backend model. Returns
+     * null when unset/blank. Without an encryptor (test construction), the
+     * stored value is returned as-is.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string|null
+     */
+    public function getRestApiKey($store = null)
+    {
+        $stored = $this->scopeConfig->getValue(self::XML_PATH_REST_API_KEY, ScopeInterface::SCOPE_STORE, $store);
+        if ($stored === null || $stored === '') {
+            return null;
+        }
+        return $this->encryptor !== null ? $this->encryptor->decrypt($stored) : $stored;
+    }
+
+    /**
+     * TaxCloud v3 REST connection ID (UUID from Integrations → Custom API).
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string|null
+     */
+    public function getRestConnectionId($store = null)
+    {
+        $value = $this->scopeConfig->getValue(
+            self::XML_PATH_REST_CONNECTION_ID,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+        $value = is_string($value) ? trim($value) : '';
+
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * TaxCloud v3 REST base URL, or the production default when unset/blank.
+     *
+     * Lets an install point at a staging endpoint without a code change (the
+     * field is config-only, not shown in admin). Trailing slashes are trimmed
+     * so callers can append paths directly.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getRestEndpoint($store = null): string
+    {
+        $configured = $this->scopeConfig->getValue(self::XML_PATH_REST_ENDPOINT, ScopeInterface::SCOPE_STORE, $store);
+        $configured = is_string($configured) ? trim($configured) : '';
+
+        return rtrim($configured !== '' ? $configured : self::DEFAULT_REST_ENDPOINT, '/');
+    }
+
+    /**
+     * Host of the v1→v3 credential exchange service, or the production
+     * default when unset/blank. Trailing slashes trimmed for path appending.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getRestAuthEndpoint($store = null): string
+    {
+        $configured = $this->scopeConfig->getValue(
+            self::XML_PATH_REST_AUTH_ENDPOINT,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+        $configured = is_string($configured) ? trim($configured) : '';
+
+        return rtrim($configured !== '' ? $configured : self::DEFAULT_REST_AUTH_ENDPOINT, '/');
     }
 
     /**

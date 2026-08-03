@@ -23,12 +23,15 @@
         <enabled>0</enabled>
         <logging>1</logging>
         <verify_address>1</verify_address>
+        <api_type>rest</api_type>
         <guest_customer_id>-1</guest_customer_id>
         <default_tic>00000</default_tic>
         <shipping_tic>11010</shipping_tic>
         <cache_lifetime>86400</cache_lifetime>
         <api_timeout>10</api_timeout>
         <wsdl_url>https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl</wsdl_url>
+        <rest_endpoint>https://api.v3.taxcloud.com</rest_endpoint>
+        <rest_auth_endpoint>https://taxcloudapi-appservice-core-prod.azurewebsites.net</rest_auth_endpoint>
         <fallback_to_magento>0</fallback_to_magento>
         <calculations_only>0</calculations_only>
         <capture_trigger>order_creation</capture_trigger>
