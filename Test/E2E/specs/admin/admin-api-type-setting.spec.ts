@@ -45,6 +45,47 @@ test.describe('API Type setting', () => {
     await expect(config.testConnectionButton).toBeVisible();
   });
 
+  /**
+   * Bearer mode end-to-end — and the canary for the undocumented exchange
+   * endpoint: with NO V3 API Key anywhere, entering the V1 apiKey as the
+   * Connection ID must yield a successful test, because the module exchanges
+   * the saved V1 credentials for a Bearer token against the LIVE exchange
+   * service and pings api.v3.taxcloud.com with it. If this test starts
+   * failing while the SOAP test stays green, suspect the exchange endpoint.
+   *
+   * Also proves the required-entry fix in a real browser: saving the section
+   * with the API Key box empty must succeed. api_type is restored to SOAP in
+   * the finally block so the rest of the suite sees the sandbox unchanged.
+   */
+  test('Bearer mode: Test Connection succeeds and config saves with empty API Key', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    await new AdminLoginPage(page).login();
+    const config = new TaxConfigPage(page);
+    await config.open();
+
+    // The V1 apiKey doubles as the v3 connection id; read it off the form.
+    await config.selectApiType('soap');
+    const v1ApiKey = (await config.readCredentials()).apiKey;
+    expect(v1ApiKey).not.toBe('');
+
+    try {
+      await config.selectApiType('rest');
+      await config.restApiKey.fill('');
+      await config.restConnectionId.fill(v1ApiKey);
+
+      const result = await config.testConnection();
+      expect(result).toContain('Connection successful');
+
+      // Empty API Key must not block saving (Bearer scopes run key-less).
+      await config.save();
+    } finally {
+      await config.open();
+      await config.selectApiType('soap');
+      await config.save();
+    }
+  });
+
   test('Test Connection verifies SOAP sandbox credentials and validates missing REST input', async ({ page }) => {
     test.setTimeout(120_000);
 
@@ -57,12 +98,14 @@ test.describe('API Type setting', () => {
     const soapResult = await config.testConnection();
     expect(soapResult).toContain('Connection successful');
 
-    // V3 REST with empty credential fields → the endpoint's validation
-    // short-circuit answers without calling TaxCloud.
+    // V3 REST with both credential fields empty → the validation
+    // short-circuit answers without calling TaxCloud. An empty API Key is
+    // legitimate since Bearer mode (saved V1 creds are exchanged), so the
+    // first genuinely missing piece is the Connection ID.
     await config.selectApiType('rest');
     await config.restApiKey.fill('');
     await config.restConnectionId.fill('');
     const restResult = await config.testConnection();
-    expect(restResult).toContain('API Key');
+    expect(restResult).toContain('Connection ID');
   });
 });

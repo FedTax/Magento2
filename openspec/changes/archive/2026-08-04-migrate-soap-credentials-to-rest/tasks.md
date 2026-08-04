@@ -35,5 +35,5 @@
 
 - [x] 7.1 Verify all new test code against the PHPUnit 9.5/10.5/12.5 matrix conventions; run `make lint` — clean (one annotated phpcs ignore for the deliberate getenv hatch)
 - [x] 7.2 Run `make phpstan` and the full unit suite; no new baseline entries — phpstan OK, 567 unit tests green
-- [ ] 7.3 Propose to the maintainer: integration test for `CredentialMigrator` against real `core_config_data` (mock exchange via configurable `rest_auth_endpoint` pointed at a local stub), and an e2e admin test of Bearer-mode Test Connection — await confirmation before writing either
+- [x] 7.3 Maintainer approved both: integration test `Test/Integration/Model/CredentialMigratorTest` (real DB + local exchange stub, suite green at 52 tests) and e2e Bearer-mode spec in `admin-api-type-setting.spec.ts` (passed in CI incl. live exchange; stale pre-Bearer assertion fixed to expect the Connection ID message)
 - [x] 7.4 Update CHANGELOG.md (Unreleased: credential migration, Bearer auth mode, CLI command, skip variable)
