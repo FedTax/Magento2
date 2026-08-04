@@ -74,20 +74,22 @@ class ApiTypeTest extends TestCase
      * Each API generation must only show its own credential fields: the legacy
      * pair when soap is selected, the v3 pair when rest is. Magento's depends
      * also lifts required-entry on hidden fields, so the hidden set can't block
-     * saving. All four keep the enabled gate.
+     * saving. All four keep the enabled gate. rest_api_key is deliberately NOT
+     * required: a migrated (Bearer-mode) scope saves with the field empty and
+     * authenticates by exchanging its V1 credentials.
      */
     public function testCredentialFieldsAreGatedByApiType()
     {
         $systemXml = simplexml_load_file(__DIR__ . '/../../../../../etc/adminhtml/system.xml');
 
         $expected = [
-            'api_id' => ApiType::SOAP,
-            'api_key' => ApiType::SOAP,
-            'rest_api_key' => ApiType::REST,
-            'rest_connection_id' => ApiType::REST,
+            'api_id' => [ApiType::SOAP, 'required-entry'],
+            'api_key' => [ApiType::SOAP, 'required-entry'],
+            'rest_api_key' => [ApiType::REST, ''],
+            'rest_connection_id' => [ApiType::REST, 'required-entry'],
         ];
 
-        foreach ($expected as $fieldId => $apiType) {
+        foreach ($expected as $fieldId => [$apiType, $validate]) {
             $field = $systemXml->xpath(
                 '//section[@id="tax"]/group[@id="taxcloud"]/field[@id="' . $fieldId . '"]'
             );
@@ -102,8 +104,26 @@ class ApiTypeTest extends TestCase
                 $depends,
                 $fieldId . ' must be visible only when its API generation is selected'
             );
-            $this->assertSame('required-entry', (string) $field[0]->validate, $fieldId . ' must be required');
+            $this->assertSame(
+                $validate,
+                (string) $field[0]->validate,
+                $validate === ''
+                    ? $fieldId . ' must not be required (Bearer mode saves it empty)'
+                    : $fieldId . ' must be required'
+            );
         }
+    }
+
+    /**
+     * The optional-key promise only holds if the comment tells admins why the
+     * field may stay empty — otherwise a migrated install looks broken.
+     */
+    public function testRestApiKeyCommentExplainsTheBearerFallback()
+    {
+        $systemXml = simplexml_load_file(__DIR__ . '/../../../../../etc/adminhtml/system.xml');
+        $field = $systemXml->xpath('//section[@id="tax"]/group[@id="taxcloud"]/field[@id="rest_api_key"]');
+
+        $this->assertStringContainsString('Optional if V1 SOAP credentials', (string) $field[0]->comment);
     }
 
     /**

@@ -22,6 +22,7 @@ use Magento\Store\Model\Website;
 use Taxcloud\Magento2\Model\Config\Source\ApiType;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestClient;
+use Taxcloud\Magento2\Model\Gateway\Rest\RestConfigurationException;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestCredentials;
 use Taxcloud\Magento2\Model\Gateway\Soap\SoapPing;
 
@@ -115,24 +116,49 @@ class ConnectionTester
             $connectionId = (string) $this->config->getRestConnectionId($store);
         }
 
-        if ($apiKey === '') {
-            return $this->failure(__('Enter an API Key first (generate one under Developer → API in TaxCloud).'));
-        }
-        if ($connectionId === '') {
-            return $this->failure(
-                __('Enter a Connection ID first (find it under Integrations → Custom API in TaxCloud).')
-            );
+        if ($apiKey !== '') {
+            // Explicit X-API-KEY mode: entered (or saved) key wins.
+            if ($connectionId === '') {
+                return $this->failure(
+                    __('Enter a Connection ID first (find it under Integrations → Custom API in TaxCloud).')
+                );
+            }
+
+            $result = $this->restClient->ping(new RestCredentials($apiKey, $connectionId), $store);
+
+            return $this->mapRestOutcome($result, false);
         }
 
-        $result = $this->restClient->ping(new RestCredentials($apiKey, $connectionId), $store);
+        // No X-API-KEY anywhere: test the scope's own resolved auth — Bearer
+        // via the V1 pair for migrated scopes.
+        try {
+            $result = $this->restClient->pingForScope($store, $connectionId !== '' ? $connectionId : null);
+        } catch (RestConfigurationException $e) {
+            return $this->failure(__('%1', $e->getMessage()));
+        }
 
+        return $this->mapRestOutcome($result, true);
+    }
+
+    /**
+     * @param PingResult $result
+     * @param bool $bearerMode Whether the scope authenticated via the V1 exchange
+     * @return array{success: bool, message: \Magento\Framework\Phrase|string}
+     */
+    private function mapRestOutcome(PingResult $result, bool $bearerMode): array
+    {
         switch ($result->getOutcome()) {
             case PingResult::OK:
                 return $this->success(__('Connection successful — your V3 REST credentials are working.'));
             case PingResult::AUTH_FAILED:
-                return $this->failure(
-                    __('TaxCloud rejected the API Key (HTTP 401). Check the key generated under Developer → API.')
-                );
+                return $bearerMode
+                    ? $this->failure(__(
+                        'TaxCloud rejected the stored V1 API ID / API Key pair used for this scope.'
+                        . ' Check both values, or save a V3 API Key (Developer → API).'
+                    ))
+                    : $this->failure(
+                        __('TaxCloud rejected the API Key (HTTP 401). Check the key generated under Developer → API.')
+                    );
             case PingResult::UNKNOWN_CONNECTION:
                 return $this->failure(__(
                     'TaxCloud does not know this Connection ID (HTTP 404).'

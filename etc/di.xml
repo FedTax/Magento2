@@ -116,6 +116,20 @@
       <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
     </arguments>
   </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\TokenCache">
+    <arguments>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <type name="Magento\Framework\Console\CommandList">
+    <arguments>
+      <argument name="commands" xsi:type="array">
+        <item name="taxcloud_migrate_credentials" xsi:type="object">Taxcloud\Magento2\Console\Command\MigrateCredentialsCommand</item>
+      </argument>
+    </arguments>
+  </type>
+
   <type name="Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>

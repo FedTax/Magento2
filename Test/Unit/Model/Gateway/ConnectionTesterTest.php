@@ -163,22 +163,75 @@ class ConnectionTesterTest extends TestCase
     }
 
     /**
-     * Missing input must short-circuit with a validation message: no HTTP
-     * request may leave the box.
+     * With a key present but no Connection ID, validation short-circuits: no
+     * HTTP request may leave the box.
      */
-    public function testMissingRestCredentialsShortCircuitWithoutAnyOutboundCall()
+    public function testMissingConnectionIdShortCircuitsWithoutAnyOutboundCall()
     {
         $tester = $this->tester();
         $this->restClient->expects($this->never())->method('ping');
+        $this->restClient->expects($this->never())->method('pingForScope');
         $this->soapPing->expects($this->never())->method('ping');
-
-        $noKey = $tester->test(['api_type' => 'rest', 'rest_connection_id' => 'conn']);
-        $this->assertFalse($noKey['success']);
-        $this->assertStringContainsString('API Key', (string) $noKey['message']);
 
         $noConn = $tester->test(['api_type' => 'rest', 'rest_api_key' => 'key']);
         $this->assertFalse($noConn['success']);
         $this->assertStringContainsString('Connection ID', (string) $noConn['message']);
+    }
+
+    // ─── Bearer-mode fall-through (no X-API-KEY entered or saved) ────────────
+
+    /**
+     * A migrated scope (V1 creds, no rest_api_key) tests through the scope's
+     * own resolved auth — including an entered-but-unsaved Connection ID.
+     */
+    public function testBearerModeSuccessViaScopeResolvedPing()
+    {
+        $tester = $this->tester();
+
+        $this->restClient->expects($this->never())->method('ping');
+        $this->restClient->expects($this->once())
+            ->method('pingForScope')
+            ->with('7', 'entered-conn')
+            ->willReturn(new PingResult(PingResult::OK));
+
+        $outcome = $tester->test(
+            ['api_type' => 'rest', 'rest_connection_id' => 'entered-conn'],
+            null,
+            '7'
+        );
+
+        $this->assertTrue($outcome['success']);
+    }
+
+    public function testBearerAuthFailurePointsAtTheV1Pair()
+    {
+        $tester = $this->tester();
+        $this->restClient->method('pingForScope')->willReturn(new PingResult(PingResult::AUTH_FAILED));
+
+        $outcome = $tester->test(['api_type' => 'rest', 'rest_connection_id' => 'conn']);
+
+        $this->assertFalse($outcome['success']);
+        $this->assertStringContainsString('API ID / API Key', (string) $outcome['message']);
+    }
+
+    /**
+     * Unconfigured scope: the transport's local configuration error surfaces
+     * as the validation message, with no outbound call.
+     */
+    public function testUnconfiguredScopeSurfacesConfigurationErrorWithoutOutboundCall()
+    {
+        $tester = $this->tester();
+        $this->restClient->method('pingForScope')->willThrowException(
+            new \Taxcloud\Magento2\Model\Gateway\Rest\RestConfigurationException(
+                'No v3 REST credentials for this scope: save an API Key (Developer → API), or keep V1 credentials configured.'
+            )
+        );
+        $this->soapPing->expects($this->never())->method('ping');
+
+        $outcome = $tester->test(['api_type' => 'rest', 'rest_connection_id' => 'conn']);
+
+        $this->assertFalse($outcome['success']);
+        $this->assertStringContainsString('API Key', (string) $outcome['message']);
     }
 
     // ─── SOAP dispatch ───────────────────────────────────────────────────────

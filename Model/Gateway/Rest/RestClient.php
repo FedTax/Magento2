@@ -26,10 +26,11 @@ use Throwable;
  * Minimal transport for the TaxCloud v3 REST API.
  *
  * Deliberately connection-scoped only: it owns the HTTP/auth plumbing (base
- * URL, X-API-KEY header, connection-id paths, timeout) that the REST
- * migration will extend with tax operations, but its sole operation today is
- * ping(). Credentials are handed in per call — see {@see RestCredentials} —
- * never read from config here.
+ * URL, auth headers, connection-id paths, timeout) that the REST migration
+ * will extend with tax operations, but its sole operation today is ping —
+ * either with explicit credentials ({@see ping()}, used by the admin test
+ * button for unsaved input) or with the store's resolved configuration
+ * ({@see pingForScope()}, X-API-KEY or Bearer via {@see AuthProvider}).
  */
 class RestClient
 {
@@ -49,17 +50,24 @@ class RestClient
     private $config;
 
     /**
+     * @var AuthProvider
+     */
+    private $authProvider;
+
+    /**
      * @param CurlFactory    $curlFactory
      * @param TaxcloudConfig $config
+     * @param AuthProvider   $authProvider
      */
-    public function __construct(CurlFactory $curlFactory, TaxcloudConfig $config)
+    public function __construct(CurlFactory $curlFactory, TaxcloudConfig $config, AuthProvider $authProvider)
     {
         $this->curlFactory = $curlFactory;
         $this->config = $config;
+        $this->authProvider = $authProvider;
     }
 
     /**
-     * Verify a credential pair against GET /tax/connections/{id}/ping.
+     * Verify an explicit credential pair against GET /tax/connections/{id}/ping.
      *
      * The store argument scopes the endpoint and timeout (not the credentials,
      * which the caller already resolved): per project convention it must be
@@ -71,21 +79,106 @@ class RestClient
      */
     public function ping(RestCredentials $credentials, $store = null): PingResult
     {
+        try {
+            $status = $this->sendPing(
+                $credentials->getConnectionId(),
+                ['X-API-KEY' => $credentials->getApiKey()],
+                $store
+            );
+        } catch (Throwable $e) {
+            return new PingResult(
+                PingResult::TRANSPORT_ERROR,
+                $this->scrub($e->getMessage(), [$credentials->getApiKey(), $credentials->getConnectionId()])
+            );
+        }
+
+        return $this->mapStatus($status);
+    }
+
+    /**
+     * Verify the store's own resolved v3 configuration (X-API-KEY or Bearer).
+     *
+     * Bearer specifics: a 401 on a possibly-stale cached token invalidates it
+     * and retries exactly once with a fresh exchange; a second 401 is a real
+     * authentication failure. Exchange rejection maps to AUTH_FAILED so the
+     * caller can point at the V1 pair.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @param string|null $connectionIdOverride Unsaved form value taking precedence over config
+     * @return PingResult
+     * @throws RestConfigurationException When the scope has no usable credentials
+     */
+    public function pingForScope($store = null, ?string $connectionIdOverride = null): PingResult
+    {
+        $connectionId = $connectionIdOverride !== null && $connectionIdOverride !== ''
+            ? $connectionIdOverride
+            : (string) $this->config->getRestConnectionId($store);
+        if ($connectionId === '') {
+            throw new RestConfigurationException(
+                'No Connection ID configured for this scope (Integrations → Custom API in TaxCloud).'
+            );
+        }
+
+        try {
+            $auth = $this->authProvider->resolve($store);
+        } catch (TokenExchangeException $e) {
+            return $e->isRejected()
+                ? new PingResult(PingResult::AUTH_FAILED)
+                : new PingResult(PingResult::TRANSPORT_ERROR, $e->getMessage());
+        }
+
+        try {
+            $status = $this->sendPing($connectionId, $auth->getHeaders(), $store);
+
+            if ($status === 401 && $auth->isBearer()) {
+                // The cached token may have been revoked: exchange fresh, retry once.
+                $this->authProvider->invalidate($store);
+                try {
+                    $auth = $this->authProvider->resolve($store);
+                } catch (TokenExchangeException $e) {
+                    return $e->isRejected()
+                        ? new PingResult(PingResult::AUTH_FAILED)
+                        : new PingResult(PingResult::TRANSPORT_ERROR, $e->getMessage());
+                }
+                $status = $this->sendPing($connectionId, $auth->getHeaders(), $store);
+            }
+        } catch (Throwable $e) {
+            return new PingResult(
+                PingResult::TRANSPORT_ERROR,
+                $this->scrub($e->getMessage(), [$connectionId])
+            );
+        }
+
+        return $this->mapStatus($status);
+    }
+
+    /**
+     * @param string $connectionId
+     * @param array<string, string> $authHeaders
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return int HTTP status
+     */
+    private function sendPing(string $connectionId, array $authHeaders, $store): int
+    {
         $url = $this->config->getRestEndpoint($store)
-            . sprintf(self::PING_PATH, rawurlencode($credentials->getConnectionId()));
+            . sprintf(self::PING_PATH, rawurlencode($connectionId));
 
         $curl = $this->curlFactory->create();
         $curl->setTimeout($this->config->getSoapTimeout($store));
-        $curl->addHeader('X-API-KEY', $credentials->getApiKey());
-        $curl->addHeader('Accept', 'application/json');
-
-        try {
-            $curl->get($url);
-            $status = (int) $curl->getStatus();
-        } catch (Throwable $e) {
-            return new PingResult(PingResult::TRANSPORT_ERROR, $this->scrub($e->getMessage(), $credentials));
+        foreach ($authHeaders + ['Accept' => 'application/json'] as $name => $value) {
+            $curl->addHeader($name, $value);
         }
+        $curl->get($url);
 
+        return (int) $curl->getStatus();
+    }
+
+    /**
+     * @param int $status
+     * @return PingResult
+     */
+    private function mapStatus(int $status): PingResult
+    {
         if ($status >= 200 && $status < 300) {
             return new PingResult(PingResult::OK);
         }
@@ -105,15 +198,11 @@ class RestClient
      * which carries the connection id).
      *
      * @param string $message
-     * @param RestCredentials $credentials
+     * @param string[] $secrets
      * @return string
      */
-    private function scrub(string $message, RestCredentials $credentials): string
+    private function scrub(string $message, array $secrets): string
     {
-        return str_replace(
-            array_filter([$credentials->getApiKey(), $credentials->getConnectionId()]),
-            '***',
-            $message
-        );
+        return str_replace(array_values(array_filter($secrets)), '***', $message);
     }
 }

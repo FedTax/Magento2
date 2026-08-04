@@ -38,7 +38,10 @@ Depends on `PinSoapApiTypeForExistingInstalls`. Algorithm:
 ### D5. ConnectionTester in Bearer mode
 `testRest()` keeps its current explicit-key path; when both the entered key and the saved `rest_api_key` are absent, it asks `RestClient` for the scope-resolved ping (`pingForScope`), which lands in Bearer mode when V1 creds exist. New failure mapping: `TokenExchangeException(rejected)` → message pointing at the API ID / API Key pair.
 
-### D6. Naming and secrecy
+### D6. Optional API Key field
+*(Added after admin testing.)* `rest_api_key` loses its `required-entry` validation: with Bearer mode, an empty key is a valid, working configuration for a migrated scope, and Magento's form validation must not block saving. The field's comment now explains the emptiness ("optional if V1 SOAP credentials are configured — they are exchanged automatically"). `rest_connection_id` keeps `required-entry`; there is no Bearer fallback for it.
+
+### D7. Naming and secrecy
 Exchange request/response bodies are never logged verbatim (they contain the pair / a live token). Errors carry outcome + HTTP status only. The `BearerToken` value object's `__toString`/`__debugInfo` do not expose the token.
 
 ## Risks / Trade-offs

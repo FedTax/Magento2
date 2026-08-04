@@ -103,10 +103,9 @@
 
         <field id="rest_api_key" translate="label" type="obscure" sortOrder="52" showInDefault="1" showInWebsite="1" showInStore="1">
           <label>API Key</label>
-          <validate>required-entry</validate>
           <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
           <config_path>tax/taxcloud_settings/rest_api_key</config_path>
-          <comment>Generate this key in your TaxCloud dashboard under Developer &#8594; API.</comment>
+          <comment>Optional if V1 SOAP credentials are configured &#8212; they are exchanged automatically. Generate a key in your TaxCloud dashboard under Developer &#8594; API to use direct key authentication.</comment>
           <depends>
             <field id="enabled">1</field>
             <field id="api_type">rest</field>

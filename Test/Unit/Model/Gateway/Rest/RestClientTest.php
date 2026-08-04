@@ -46,8 +46,15 @@ class RestClientTest extends TestCase
 
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap($configMap);
+        $config = new TaxcloudConfig($scopeConfig);
 
-        return new RestClient($curlFactory, new TaxcloudConfig($scopeConfig));
+        $authProvider = new \Taxcloud\Magento2\Model\Gateway\Rest\AuthProvider(
+            $config,
+            $this->createMock(\Taxcloud\Magento2\Model\Gateway\Rest\TokenExchange::class),
+            $this->createMock(\Taxcloud\Magento2\Model\Gateway\Rest\TokenCache::class)
+        );
+
+        return new RestClient($curlFactory, $config, $authProvider);
     }
 
     private function credentials(): RestCredentials

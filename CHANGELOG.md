@@ -26,6 +26,21 @@ installs to their current API via a data patch.
   dispatch through a router keyed on the store's API Type, preparing the REST
   migration. Until REST tax operations ship, both selections transact over
   SOAP, so this release changes no tax behavior.
+- **Automatic V1 → V3 credential migration.** At `setup:upgrade`, every scope
+  (default / website / store view) storing its own V1 API ID / API Key pair is
+  validated against TaxCloud and its V3 Connection ID is filled in
+  automatically (the V1 API Key doubles as the v3 connection id). Invalid
+  credentials or an unreachable validation service abort the upgrade with a
+  message naming the scope to fix — set `TAXCLOUD_SKIP_CREDENTIAL_MIGRATION=1`
+  to defer, then run the new **`bin/magento taxcloud:migrate-credentials`**
+  command to complete the migration later. Already-configured scopes are never
+  overwritten.
+- **Bearer-token authentication for migrated scopes.** Scopes with V1
+  credentials but no saved V3 API Key authenticate v3 REST calls (including
+  the Test Connection button) with short-lived Bearer tokens exchanged from
+  the V1 pair — cached until shortly before expiry and refreshed
+  automatically — so migrated merchants get a working REST connection with no
+  portal action. A saved V3 API Key always takes precedence.
 
 ## 1.3.0
 

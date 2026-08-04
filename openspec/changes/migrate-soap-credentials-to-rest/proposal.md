@@ -22,6 +22,7 @@ Merchants upgrading with working V1 SOAP credentials should come out the other s
 
 ### Modified Capabilities
 - `connection-test` *(delta on the capability introduced by the in-flight `add-api-type-setting` change — ADDED requirement, since no main spec exists yet)*: the Test Connection button must also verify scopes that authenticate in Bearer mode.
+- `api-type-config`: the V3 API Key field is no longer required — a migrated (Bearer-mode) scope must be able to save the configuration with the field empty, and its comment must say so. Connection ID stays required. *(Found in admin testing: `required-entry` blocked saving for migrated scopes and made the intentionally-empty field look broken.)*
 
 ## Impact
 

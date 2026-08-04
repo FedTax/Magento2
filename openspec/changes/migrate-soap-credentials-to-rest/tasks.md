@@ -26,9 +26,14 @@
 
 - [x] 5.1 Extend `ConnectionTester::testRest()`: entered key → explicit X-API-KEY path (unchanged); no entered key and no saved key → `RestClient::pingForScope()` (entered Connection ID passed as override); map exchange-rejected → "check API ID / API Key pair" message + unit tests (Bearer-mode success, exchange-rejected message, entered-key precedence, config-error surfacing)
 
-## 6. Quality gates & proposals
+## 6. Optional API Key field (post-admin-testing fix)
 
-- [x] 6.1 Verify all new test code against the PHPUnit 9.5/10.5/12.5 matrix conventions; run `make lint` — clean (one annotated phpcs ignore for the deliberate getenv hatch)
-- [x] 6.2 Run `make phpstan` and the full unit suite; no new baseline entries — phpstan OK, 567 unit tests green
-- [ ] 6.3 Propose to the maintainer: integration test for `CredentialMigrator` against real `core_config_data` (mock exchange via configurable `rest_auth_endpoint` pointed at a local stub), and an e2e admin test of Bearer-mode Test Connection — await confirmation before writing either
-- [x] 6.4 Update CHANGELOG.md (Unreleased: credential migration, Bearer auth mode, CLI command, skip variable)
+- [x] 6.1 Create delta spec `specs/api-type-config/spec.md` (MODIFIED requirement "V3 credential fields shown only for REST"): API Key optional — saving with the field empty must work; scenario for a migrated scope saving without a key; Connection ID stays required
+- [x] 6.2 `etc/adminhtml/system.xml`: drop `required-entry` from `rest_api_key`; comment becomes "Optional if V1 SOAP credentials are configured — they are exchanged automatically. Generate a key under Developer → API to use direct key authentication." + update `ApiTypeTest` wiring assertions (required-entry now expected on `api_id`/`api_key`/`rest_connection_id` only)
+
+## 7. Quality gates & proposals
+
+- [x] 7.1 Verify all new test code against the PHPUnit 9.5/10.5/12.5 matrix conventions; run `make lint` — clean (one annotated phpcs ignore for the deliberate getenv hatch)
+- [x] 7.2 Run `make phpstan` and the full unit suite; no new baseline entries — phpstan OK, 567 unit tests green
+- [ ] 7.3 Propose to the maintainer: integration test for `CredentialMigrator` against real `core_config_data` (mock exchange via configurable `rest_auth_endpoint` pointed at a local stub), and an e2e admin test of Bearer-mode Test Connection — await confirmation before writing either
+- [x] 7.4 Update CHANGELOG.md (Unreleased: credential migration, Bearer auth mode, CLI command, skip variable)
