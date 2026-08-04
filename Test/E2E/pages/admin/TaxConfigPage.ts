@@ -34,10 +34,12 @@ export class TaxConfigPage {
     await this.page.goto('/admin/admin/system_config/edit/section/tax/');
     await this.saveButton.waitFor({ timeout: 40_000 });
     // The TaxCloud Settings group persists its open/closed state per session;
-    // expand it if the fields aren't already interactable.
-    if (!(await this.apiId.isVisible().catch(() => false))) {
+    // expand it if the fields aren't already interactable. The API Type select
+    // is the sentinel: unlike the credential fields, it is visible whichever
+    // API type is currently saved.
+    if (!(await this.apiType.isVisible().catch(() => false))) {
       await this.page.locator('#tax_taxcloud-head').click();
-      await expect(this.apiId).toBeVisible({ timeout: 10_000 });
+      await expect(this.apiType).toBeVisible({ timeout: 10_000 });
     }
   }
 

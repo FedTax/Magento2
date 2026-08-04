@@ -29,6 +29,9 @@ test('admin saves TaxCloud credentials and they persist', async ({ page }) => {
   await new AdminLoginPage(page).login();
   const config = new TaxConfigPage(page);
   await config.open();
+  // The V1 fields only render with SOAP selected; select it explicitly so the
+  // spec doesn't depend on what an earlier test left saved.
+  await config.selectApiType('soap');
 
   const original = await config.readCredentials();
 
