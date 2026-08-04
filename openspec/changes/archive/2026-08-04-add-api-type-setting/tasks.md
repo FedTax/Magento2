@@ -53,4 +53,4 @@
 ## 9. Maintainer-approved integration & e2e coverage
 
 - [x] 9.1 Integration test `Test/Integration/Setup/Patch/Data/PinSoapApiTypeForExistingInstallsTest`: pins on default- and store-scoped `api_id`, fresh-install no-op, blank-row no-op, saved-choice preserved — against real `core_config_data`; full integration suite green (49 tests; router added to the SOAP-mock eviction list)
-- [ ] 9.2 E2E spec `admin-api-type-setting.spec.ts` + `TaxConfigPage` extensions: API Type flips credential-field visibility; Test Connection returns SOAP sandbox success and REST validation short-circuit
+- [x] 9.2 E2E spec `admin-api-type-setting.spec.ts` + `TaxConfigPage` extensions: API Type flips credential-field visibility; Test Connection returns SOAP sandbox success and REST validation short-circuit (green; fixes en route: seed `api_type=soap` in seed-test-data.php, `dev/template/allow_symlink 1` in install script for the module's first .phtml)
