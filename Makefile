@@ -213,15 +213,15 @@ e2e-test:
 		echo "(If you changed the port, pass MAGENTO_BASE_URL=... to make as well.)"; \
 		exit 1; \
 	}
-	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test
+	@set -a; [ -f .env ] && . ./.env; set +a; cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test
 
 # Interactive UI mode — watch/step through tests in a GUI.
 e2e-test-ui:
-	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --ui
+	@set -a; [ -f .env ] && . ./.env; set +a; cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --ui
 
 # Headed run (visible browser) for debugging.
 e2e-test-headed:
-	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --headed
+	@set -a; [ -f .env ] && . ./.env; set +a; cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --headed
 
 # Open the trace viewer for the most recent failed test (traces are
 # retain-on-failure, so this only finds something after a failure).

@@ -41,6 +41,20 @@
   <preference for="Magento\Tax\Model\Sales\Total\Quote\Tax" type="Taxcloud\Magento2\Model\Tax" />
 
   <!--
+    The encryptor parameter is optional (unit tests construct the config
+    reader without one), and Magento's ObjectManager resolves optional
+    constructor parameters to their DEFAULT, never by auto-wiring — so
+    without this explicit argument the production instance gets a null
+    encryptor and getRestApiKey() returns the stored ciphertext, which the
+    v3 API rejects with 401.
+  -->
+  <type name="Taxcloud\Magento2\Model\Config\TaxcloudConfig">
+    <arguments>
+      <argument name="encryptor" xsi:type="object">Magento\Framework\Encryption\EncryptorInterface</argument>
+    </arguments>
+  </type>
+
+  <!--
     Reverse the TaxCloud sale when an order is cancelled. registerCancellation()
     is the one method every cancellation path reaches, so this is the whole of
     the module's cancellation wiring.
@@ -98,6 +112,44 @@
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Model\Gateway\ExemptionValidator">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <!--
+    REST transport collaborators: the same config-gated logger discipline as
+    their SOAP counterparts, and the module's own cache type for the
+    exemption-state cache.
+  -->
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestGateway">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <!--
+    The router receives the REST gateway as a proxy: a store fleet that never
+    selects "V3 REST" never instantiates the REST stack (auth provider, token
+    cache, curl client).
+  -->
+  <type name="Taxcloud\Magento2\Model\Gateway\Router">
+    <arguments>
+      <argument name="rest" xsi:type="object">Taxcloud\Magento2\Model\Gateway\Rest\RestGateway\Proxy</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestRequestBuilder">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestResponseMapper">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestExemptionValidator">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
       <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>

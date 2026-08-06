@@ -69,10 +69,11 @@ if ($magentoRoot === null) {
     exit(1);
 }
 
-$apiId  = getenv('TAXCLOUD_API_ID');
-$apiKey = getenv('TAXCLOUD_API_KEY');
-if (!$apiId || !$apiKey) {
-    fwrite(STDERR, "ERROR: TAXCLOUD_API_ID and TAXCLOUD_API_KEY must be set in the environment.\n");
+$apiId    = getenv('TAXCLOUD_API_ID');
+$apiKey   = getenv('TAXCLOUD_API_KEY');
+$apiV3Key = getenv('TAXCLOUD_API_V3_KEY');
+if (!$apiId || !$apiKey || !$apiV3Key) {
+    fwrite(STDERR, "ERROR: TAXCLOUD_API_ID, TAXCLOUD_API_KEY and TAXCLOUD_API_V3_KEY must be set in the environment.\n");
     exit(1);
 }
 
@@ -137,6 +138,10 @@ $configValues = [
     // credentials are seeded after setup:upgrade, so the patch saw a fresh
     // install and pinned nothing — seed the pin explicitly instead.
     'tax/taxcloud_settings/api_type'       => 'soap',
+    // v3 REST connection: the v1 apiKey IS the v3 connection ID (verified
+    // against the live API), so the REST transport is fully configured from
+    // the same credential pair. REST-path tests flip api_type per scope.
+    'tax/taxcloud_settings/rest_connection_id' => $apiKey,
     'tax/taxcloud_settings/default_tic'    => '20000',
 
     // Ship-from origin: 1401 Lavaca St, Austin TX 78701 (region 57 = Texas)
@@ -164,9 +169,21 @@ $configValues = [
     'cataloginventory/item_options/manage_stock' => '0',
 ];
 
+// Stored encrypted by the field's backend model (PreparedValueFactory
+// below honors it, exactly like an admin save). With a saved key the REST
+// path authenticates with X-API-KEY — the primary mode under test; the
+// Bearer-via-exchange fallback keeps only basic connectivity coverage.
+$configValues['tax/taxcloud_settings/rest_api_key'] = $apiV3Key;
+
 // Go through PreparedValueFactory (what `bin/magento config:set` uses) so any
 // backend model attached to a field (e.g. encrypted values) is honored.
 $preparedValueFactory = $om->get(\Magento\Config\Model\PreparedValueFactory::class);
+$secretPaths = [
+    'tax/taxcloud_settings/api_key',
+    'tax/taxcloud_settings/rest_api_key',
+    // Same value as api_key, so masked for the same reason.
+    'tax/taxcloud_settings/rest_connection_id',
+];
 foreach ($configValues as $path => $value) {
     $backendModel = $preparedValueFactory->create(
         $path,
@@ -176,7 +193,7 @@ foreach ($configValues as $path => $value) {
     if ($backendModel instanceof \Magento\Framework\App\Config\Value) {
         $backendModel->getResource()->save($backendModel);
     }
-    $shown = ($path === 'tax/taxcloud_settings/api_key') ? '***' : $value;
+    $shown = in_array($path, $secretPaths, true) ? '***' : $value;
     $step("config $path = $shown");
 }
 

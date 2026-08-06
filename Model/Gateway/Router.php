@@ -21,6 +21,7 @@ use Taxcloud\Magento2\Api\GatewayInterface;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Model\Config\Source\ApiType;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Gateway\Rest\RestGateway;
 
 /**
  * Store-aware transport dispatch for the TaxCloud gateway.
@@ -28,12 +29,8 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
  * di.xml binds every gateway interface here, so call sites stay
  * transport-unaware while the api_type setting — resolved for the store of
  * the entity in hand, never the ambient store — decides which implementation
- * handles each call.
- *
- * Pending migration: the REST transport implements no tax operations yet, so
- * both API types currently dispatch to the SOAP implementation and selecting
- * "V3 REST" changes no gateway behavior. When REST operations land, only
- * restTarget() and the injected REST gateway change — no call site does.
+ * handles each call: SOAP-selected stores dispatch to the v1 SOAP gateway,
+ * REST-selected stores to the v3 REST gateway.
  */
 class Router implements GatewayInterface
 {
@@ -43,17 +40,24 @@ class Router implements GatewayInterface
     private $soap;
 
     /**
+     * @var RestGateway
+     */
+    private $rest;
+
+    /**
      * @var TaxcloudConfig
      */
     private $config;
 
     /**
      * @param Api $soap
+     * @param RestGateway $rest Proxied in di.xml so SOAP-only requests never build the REST stack
      * @param TaxcloudConfig $config
      */
-    public function __construct(Api $soap, TaxcloudConfig $config)
+    public function __construct(Api $soap, RestGateway $rest, TaxcloudConfig $config)
     {
         $this->soap = $soap;
+        $this->rest = $rest;
         $this->config = $config;
     }
 
@@ -136,9 +140,6 @@ class Router implements GatewayInterface
      */
     private function restTarget(): GatewayInterface
     {
-        // Pending migration: no REST tax operations exist, so REST-selected
-        // stores transact over SOAP. Swap in the REST gateway here once its
-        // operations land.
-        return $this->soap;
+        return $this->rest;
     }
 }

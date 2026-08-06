@@ -30,6 +30,7 @@ services:
       MAGENTO_PRIVATE_KEY: "${MAGENTO_PRIVATE_KEY:-}"
       TAXCLOUD_API_ID: "${TAXCLOUD_API_ID:-}"
       TAXCLOUD_API_KEY: "${TAXCLOUD_API_KEY:-}"
+      TAXCLOUD_API_V3_KEY: "${TAXCLOUD_API_V3_KEY:-}"
     depends_on:
       db:
         condition: service_healthy

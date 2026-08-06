@@ -129,7 +129,7 @@ can also be pointed at any other installed Magento (a local dev install,
 say) to reproduce the same baseline:
 
 ```bash
-TAXCLOUD_API_ID=... TAXCLOUD_API_KEY=... \
+TAXCLOUD_API_ID=... TAXCLOUD_API_KEY=... TAXCLOUD_API_V3_KEY=... \
   php scripts/seed-test-data.php /path/to/magento
 ```
 
@@ -374,6 +374,7 @@ matrix — in a single CI run.
 | -------------------- | ---------------------------------------- | --------------------------- |
 | `TAXCLOUD_API_ID`    | Sandbox API ID                           | All rows                    |
 | `TAXCLOUD_API_KEY`   | Sandbox API key                          | All rows                    |
+| `TAXCLOUD_API_V3_KEY`| v3 REST key (Developer → API)            | All rows                    |
 | `MAGENTO_PUBLIC_KEY` | Marketplace public key (auth.json user)  | All rows                    |
 | `MAGENTO_PRIVATE_KEY`| Marketplace private key (auth.json pass) | All rows                    |
 
@@ -438,7 +439,7 @@ test.
 
 ## Troubleshooting
 
-### `ERROR: TAXCLOUD_API_ID and TAXCLOUD_API_KEY must be set`
+### `ERROR: TAXCLOUD_API_ID, TAXCLOUD_API_KEY and TAXCLOUD_API_V3_KEY must be set`
 
 You haven't filled in `.env` (locally) or set repo secrets (CI). See the
 "Prerequisites" section.

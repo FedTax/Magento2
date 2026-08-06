@@ -16,6 +16,7 @@ name: CI
 #   MAGENTO_PUBLIC_KEY, MAGENTO_PRIVATE_KEY  - Marketplace keys (repo.magento.com),
 #                                              needed by unit AND integration.
 #   TAXCLOUD_API_ID, TAXCLOUD_API_KEY        - sandbox creds, integration only.
+#   TAXCLOUD_API_V3_KEY                      - v3 REST key (Developer → API), integration + e2e.
 # Enterprise integration rows are skipped (not failed) when Marketplace keys are
 # absent, so forks without a Commerce contract still exercise the community rows.
 #
@@ -219,6 +220,7 @@ jobs:
       COMPOSER_CACHE_DIR: ${{ github.workspace }}/.composer-cache
       TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
       TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
+      TAXCLOUD_API_V3_KEY: ${{ secrets.TAXCLOUD_API_V3_KEY }}
       MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
       MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
 
@@ -253,6 +255,7 @@ jobs:
           missing=()
           [[ -z "$TAXCLOUD_API_ID"     ]] && missing+=(TAXCLOUD_API_ID)
           [[ -z "$TAXCLOUD_API_KEY"    ]] && missing+=(TAXCLOUD_API_KEY)
+          [[ -z "$TAXCLOUD_API_V3_KEY" ]] && missing+=(TAXCLOUD_API_V3_KEY)
           [[ -z "$MAGENTO_PUBLIC_KEY"  ]] && missing+=(MAGENTO_PUBLIC_KEY)
           [[ -z "$MAGENTO_PRIVATE_KEY" ]] && missing+=(MAGENTO_PRIVATE_KEY)
           if (( ${#missing[@]} > 0 )); then
@@ -344,6 +347,7 @@ jobs:
       MAGENTO_BASE_URL: 'http://localhost:8080'
       TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
       TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
+      TAXCLOUD_API_V3_KEY: ${{ secrets.TAXCLOUD_API_V3_KEY }}
       MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
       MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
 
@@ -378,6 +382,7 @@ jobs:
           missing=()
           [[ -z "$TAXCLOUD_API_ID"     ]] && missing+=(TAXCLOUD_API_ID)
           [[ -z "$TAXCLOUD_API_KEY"    ]] && missing+=(TAXCLOUD_API_KEY)
+          [[ -z "$TAXCLOUD_API_V3_KEY" ]] && missing+=(TAXCLOUD_API_V3_KEY)
           [[ -z "$MAGENTO_PUBLIC_KEY"  ]] && missing+=(MAGENTO_PUBLIC_KEY)
           [[ -z "$MAGENTO_PRIVATE_KEY" ]] && missing+=(MAGENTO_PRIVATE_KEY)
           if (( ${#missing[@]} > 0 )); then

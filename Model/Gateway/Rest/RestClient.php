@@ -23,14 +23,19 @@ use Taxcloud\Magento2\Model\Gateway\PingResult;
 use Throwable;
 
 /**
- * Minimal transport for the TaxCloud v3 REST API.
+ * Transport for the TaxCloud v3 REST API.
  *
- * Deliberately connection-scoped only: it owns the HTTP/auth plumbing (base
- * URL, auth headers, connection-id paths, timeout) that the REST migration
- * will extend with tax operations, but its sole operation today is ping —
- * either with explicit credentials ({@see ping()}, used by the admin test
- * button for unsaved input) or with the store's resolved configuration
- * ({@see pingForScope()}, X-API-KEY or Bearer via {@see AuthProvider}).
+ * {@see request()} is the general entry point every REST tax operation goes
+ * through: it owns the HTTP/auth plumbing — base URL, store-resolved auth
+ * headers via {@see AuthProvider}, connection-id path prefixing, timeout, the
+ * Bearer 401-invalidate-retry-once rule — and returns the HTTP outcome as a
+ * {@see RestResponse}. Failures before an HTTP response exist surface as
+ * {@see RestTransportException} with credential values scrubbed.
+ *
+ * The admin "Test Connection" flows remain as thin wrappers: {@see ping()}
+ * verifies an explicit credential pair (unsaved form input) and
+ * {@see pingForScope()} verifies the store's resolved configuration, both
+ * mapping onto {@see PingResult}.
  */
 class RestClient
 {
@@ -38,6 +43,11 @@ class RestClient
      * Path template of the connection ping endpoint, relative to the base URL.
      */
     private const PING_PATH = '/tax/connections/%s/ping';
+
+    /**
+     * Path prefix of connection-scoped operations, relative to the base URL.
+     */
+    private const CONNECTION_PATH = '/tax/connections/%s';
 
     /**
      * @var CurlFactory
@@ -67,6 +77,67 @@ class RestClient
     }
 
     /**
+     * Execute one authenticated v3 REST call for a store.
+     *
+     * $path is relative to the store's connection
+     * (`/tax/connections/{id}<path>`) when $connectionScoped, or to the bare
+     * base URL otherwise (account-level endpoints like /tax/verify-address).
+     * Query strings belong in $path; path segments the caller interpolates
+     * (order ids) must already be rawurlencoded.
+     *
+     * A 401 on a cached Bearer token invalidates it and retries exactly once
+     * with a fresh exchange — the same rule the connection test applies — so
+     * a revoked token never fails an operation that valid V1 credentials
+     * could have served. The second answer, whatever it is, is returned.
+     *
+     * The store must be the store of the entity being processed, never the
+     * ambient one; it scopes the endpoint, credentials, auth mode and timeout.
+     *
+     * @param string $method 'GET' or 'POST'
+     * @param string $path Leading-slash path, with query string if any
+     * @param array<string, mixed>|null $body JSON-encoded for POST; null for GET
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @param bool $connectionScoped Prefix the path with /tax/connections/{id}
+     * @return RestResponse
+     * @throws RestConfigurationException Connection id missing (when required) or no usable credentials
+     * @throws TokenExchangeException When the Bearer exchange fails
+     * @throws RestTransportException When no HTTP response was received
+     */
+    public function request(
+        string $method,
+        string $path,
+        ?array $body = null,
+        $store = null,
+        bool $connectionScoped = true
+    ): RestResponse {
+        $connectionId = '';
+        $prefix = '';
+        if ($connectionScoped) {
+            $connectionId = (string) $this->config->getRestConnectionId($store);
+            if ($connectionId === '') {
+                throw new RestConfigurationException(
+                    'No Connection ID configured for this scope (Integrations → Custom API in TaxCloud).'
+                );
+            }
+            $prefix = sprintf(self::CONNECTION_PATH, rawurlencode($connectionId));
+        }
+
+        $url = $this->config->getRestEndpoint($store) . $prefix . $path;
+        $auth = $this->authProvider->resolve($store);
+
+        $response = $this->send($method, $url, $body, $auth->getHeaders(), $store, [$connectionId]);
+
+        if ($response->isUnauthorized() && $auth->isBearer()) {
+            // The cached token may have been revoked: exchange fresh, retry once.
+            $this->authProvider->invalidate($store);
+            $auth = $this->authProvider->resolve($store);
+            $response = $this->send($method, $url, $body, $auth->getHeaders(), $store, [$connectionId]);
+        }
+
+        return $response;
+    }
+
+    /**
      * Verify an explicit credential pair against GET /tax/connections/{id}/ping.
      *
      * The store argument scopes the endpoint and timeout (not the credentials,
@@ -79,20 +150,23 @@ class RestClient
      */
     public function ping(RestCredentials $credentials, $store = null): PingResult
     {
+        $url = $this->config->getRestEndpoint($store)
+            . sprintf(self::PING_PATH, rawurlencode($credentials->getConnectionId()));
+
         try {
-            $status = $this->sendPing(
-                $credentials->getConnectionId(),
+            $response = $this->send(
+                'GET',
+                $url,
+                null,
                 ['X-API-KEY' => $credentials->getApiKey()],
-                $store
+                $store,
+                [$credentials->getApiKey(), $credentials->getConnectionId()]
             );
-        } catch (Throwable $e) {
-            return new PingResult(
-                PingResult::TRANSPORT_ERROR,
-                $this->scrub($e->getMessage(), [$credentials->getApiKey(), $credentials->getConnectionId()])
-            );
+        } catch (RestTransportException $e) {
+            return new PingResult(PingResult::TRANSPORT_ERROR, $e->getMessage());
         }
 
-        return $this->mapStatus($status);
+        return $this->mapStatus($response->getStatus());
     }
 
     /**
@@ -119,6 +193,9 @@ class RestClient
             );
         }
 
+        $url = $this->config->getRestEndpoint($store)
+            . sprintf(self::PING_PATH, rawurlencode($connectionId));
+
         try {
             $auth = $this->authProvider->resolve($store);
         } catch (TokenExchangeException $e) {
@@ -128,9 +205,9 @@ class RestClient
         }
 
         try {
-            $status = $this->sendPing($connectionId, $auth->getHeaders(), $store);
+            $response = $this->send('GET', $url, null, $auth->getHeaders(), $store, [$connectionId]);
 
-            if ($status === 401 && $auth->isBearer()) {
+            if ($response->isUnauthorized() && $auth->isBearer()) {
                 // The cached token may have been revoked: exchange fresh, retry once.
                 $this->authProvider->invalidate($store);
                 try {
@@ -140,37 +217,55 @@ class RestClient
                         ? new PingResult(PingResult::AUTH_FAILED)
                         : new PingResult(PingResult::TRANSPORT_ERROR, $e->getMessage());
                 }
-                $status = $this->sendPing($connectionId, $auth->getHeaders(), $store);
+                $response = $this->send('GET', $url, null, $auth->getHeaders(), $store, [$connectionId]);
             }
-        } catch (Throwable $e) {
-            return new PingResult(
-                PingResult::TRANSPORT_ERROR,
-                $this->scrub($e->getMessage(), [$connectionId])
-            );
+        } catch (RestTransportException $e) {
+            return new PingResult(PingResult::TRANSPORT_ERROR, $e->getMessage());
         }
 
-        return $this->mapStatus($status);
+        return $this->mapStatus($response->getStatus());
     }
 
     /**
-     * @param string $connectionId
+     * Perform one HTTP exchange and wrap the outcome.
+     *
+     * @param string $method
+     * @param string $url
+     * @param array<string, mixed>|null $body
      * @param array<string, string> $authHeaders
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
-     * @return int HTTP status
+     * @param string[] $secrets Values to scrub from transport error messages
+     * @return RestResponse
+     * @throws RestTransportException
      */
-    private function sendPing(string $connectionId, array $authHeaders, $store): int
+    private function send(string $method, string $url, ?array $body, array $authHeaders, $store, array $secrets)
     {
-        $url = $this->config->getRestEndpoint($store)
-            . sprintf(self::PING_PATH, rawurlencode($connectionId));
-
         $curl = $this->curlFactory->create();
         $curl->setTimeout($this->config->getSoapTimeout($store));
-        foreach ($authHeaders + ['Accept' => 'application/json'] as $name => $value) {
+
+        $headers = $authHeaders + ['Accept' => 'application/json'];
+        if ($body !== null) {
+            $headers += ['Content-Type' => 'application/json'];
+        }
+        foreach ($headers as $name => $value) {
             $curl->addHeader($name, $value);
         }
-        $curl->get($url);
 
-        return (int) $curl->getStatus();
+        try {
+            if ($method === 'POST') {
+                $curl->post($url, $body !== null ? (string) json_encode($body) : '');
+            } elseif ($method === 'GET') {
+                $curl->get($url);
+            } else {
+                throw new \InvalidArgumentException('Unsupported HTTP method: ' . $method);
+            }
+
+            return new RestResponse((int) $curl->getStatus(), (string) $curl->getBody());
+        } catch (\InvalidArgumentException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new RestTransportException($this->scrub($e->getMessage(), $secrets), 0, $e);
+        }
     }
 
     /**
@@ -185,7 +280,10 @@ class RestClient
         if ($status === 401) {
             return new PingResult(PingResult::AUTH_FAILED);
         }
-        if ($status === 404) {
+        // 404 per TaxCloud's docs; observed live behavior (2026-08-04) is 400
+        // for a well-formed connection id the account doesn't own and 422 for
+        // a malformed one. All three mean "this Connection ID is not usable".
+        if ($status === 400 || $status === 404 || $status === 422) {
             return new PingResult(PingResult::UNKNOWN_CONNECTION);
         }
 

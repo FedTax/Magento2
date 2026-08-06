@@ -41,4 +41,13 @@
     <observer name="addressVerify" instance="Taxcloud\Magento2\Observer\Sales\Address"/>
   </event>
 
+  <!--
+    Same observer on the REST lookup's before-event: it detects the v3 cart
+    payload shape and verifies each cart's destination, so in-quote address
+    verification works identically on both transports.
+  -->
+  <event name="taxcloud_rest_lookup_before">
+    <observer name="addressVerify" instance="Taxcloud\Magento2\Observer\Sales\Address"/>
+  </event>
+
 </config>

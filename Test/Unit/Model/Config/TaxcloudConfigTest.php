@@ -510,4 +510,27 @@ class TaxcloudConfigTest extends TestCase
             'admin field config_path must match the path TaxcloudConfig reads'
         );
     }
+
+    /**
+     * The encryptor constructor parameter is optional, and Magento's
+     * ObjectManager resolves optional parameters to their default — it never
+     * auto-wires them. Without an explicit di.xml argument the production
+     * instance silently gets a null encryptor and getRestApiKey() returns the
+     * stored ciphertext, which the v3 API rejects with 401 (observed live).
+     */
+    public function testDiXmlWiresTheEncryptorExplicitly()
+    {
+        $diXml = simplexml_load_file(__DIR__ . '/../../../../etc/di.xml');
+        $this->assertNotFalse($diXml, 'etc/di.xml must be parseable');
+
+        $argument = $diXml->xpath(
+            '//type[@name="Taxcloud\Magento2\Model\Config\TaxcloudConfig"]/arguments/argument[@name="encryptor"]'
+        );
+        $this->assertCount(1, $argument, 'TaxcloudConfig must receive the encryptor via di.xml');
+        $this->assertSame(
+            \Magento\Framework\Encryption\EncryptorInterface::class,
+            trim((string) $argument[0]),
+            'the encryptor argument must be the framework EncryptorInterface'
+        );
+    }
 }

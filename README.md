@@ -124,7 +124,12 @@ Integration tests live in their own pipeline — they boot the full Magento
 application against a real database and run via PHPUnit. They are expensive
 and run on demand (or on release tags), not on every push. See
 [docs/INTEGRATION_TESTS.md](docs/INTEGRATION_TESTS.md) for the 5-minute
-local setup and the matrix of supported editions/versions.
+local setup and the matrix of supported editions/versions. The suite
+includes live v3 REST API contract checks (`Test/Integration/Rest/`), which
+is why `TAXCLOUD_API_V3_KEY` (a real key from Developer → API) is required
+alongside the V1 sandbox pair; the E2E suite additionally re-runs every
+checkout journey with the store switched to V3 REST (see
+[docs/E2E_TESTS.md](docs/E2E_TESTS.md)).
 
 ### Coding standard
 
@@ -197,8 +202,11 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 
   In every mode your TaxCloud `apiLoginID` and `apiKey` are redacted: the field names still appear (in both the params dumps and the raw XML), but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.). The log file location is configurable — see [Changing the log file location](#changing-the-log-file-location).
 * **Verify Address** - Select `Enabled` to turn on TaxCloud's address verification API calls. You may want to disable this if you have another module that validates shipping addresses.
-* **API ID** - Enter your API ID from your TaxCloud account.
-* **API Key** - Enter your API Key from your TaxCloud account.
+* **API Type** - Which TaxCloud API generation the store transacts over: `V1 SOAP (legacy)` or `V3 REST`. Store-scoped, so different store views can run different transports side by side. Fresh installs default to `V3 REST`; installs upgraded with existing V1 credentials are pinned to `V1 SOAP` until you switch explicitly. See [Switching to the V3 REST API](#switching-to-the-v3-rest-api) before changing this on a live store.
+* **API ID** - Enter your API ID from your TaxCloud account (V1 SOAP).
+* **API Key** - Enter your API Key from your TaxCloud account (V1 SOAP). With API Type = `V3 REST`, this credential pair is also accepted: it is exchanged automatically for a v3 Bearer token.
+* **API Key (Developer → API)** - *V3 REST.* Optional direct v3 key, generated in your TaxCloud dashboard under Developer → API. When present it takes precedence over the exchanged V1 pair.
+* **Connection ID** - *V3 REST.* The UUID of your Custom API connection, found under Integrations → Custom API. The connection determines whether requests are processed as test or production.
 * **Guest Customer ID** - Enter the customer ID to send to TaxCloud during a guest checkout. Unless there is a special reason to change this for your store, use the default value of `-1`.
 * **Default TIC** - Enter the Taxability Information Code you would like to use for products where no TIC has been specified on the product or on any of its categories. See [How a TIC is chosen](#how-a-tic-is-chosen).
 * **Shipping TIC** - Enter the Taxability Information Code you would like to use for shipping costs. Use `11010` if you charge only postage, and `11000` for shipping & handling.
@@ -403,6 +411,29 @@ Each of these situations can be accomplished using an event observer. For every 
 | `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created or when a canceled unpaid order is reversed | `$result`, `$order`, `$items`, `$creditmemo` |
 
 For order cancellation, `$creditmemo` is null and `$items` are the order items.
+
+The events above fire only on stores whose **API Type** is `V1 SOAP (legacy)`, and their `$params`/`$result` payloads are the v1 SOAP shapes. Stores switched to `V3 REST` fire a parallel set of events instead, carrying the v3 JSON request/response shapes:
+
+| V3 REST Event Name | Fires instead of | Payload (`$obj` params / result) |
+| ----- | ---- | --- |
+| `taxcloud_rest_lookup_before` / `_after` | `taxcloud_lookup_before` / `_after` | The v3 `POST /carts` payload (`items[]` with `cartId`, `lineItems[]` of `index`/`itemId`/`tic`/`price`/`quantity`, `origin`/`destination` as `line1`/`city`/`state`/`zip`) / the v3 cart response with per-line `tax {amount, rate}` |
+| `taxcloud_rest_capture_before` / `_after` | `taxcloud_authorized_with_capture_before` / `_after` | The v3 `POST /orders` payload (order id, dates, line items with supplied tax) / the v3 order response |
+| `taxcloud_rest_refund_before` / `_after` | `taxcloud_returned_before` / `_after` | The v3 refund payload (`items[]` of `itemId` + `quantity`; empty = full refund) / the v3 refund response |
+| `taxcloud_rest_verify_address_before` / `_after` | `taxcloud_verify_address_before` / `_after` | The v3 verify-address payload / the verified address in the module's `Address1`/…/`Zip4` shape |
+
+The context objects (`$customer`, `$quote`, `$order`, `$creditmemo`, …) are the same as on the corresponding SOAP events. Unlike the SOAP params, v3 payloads never contain credentials — authentication is sent in HTTP headers.
+
+**If you maintain observers on the SOAP events and switch a store to V3 REST, those observers stop applying to that store** — subscribe to the REST events and handle the v3 payload shapes. (The module's own in-quote address verification already handles both.)
+
+### Switching to the V3 REST API
+
+Setting **API Type** to `V3 REST` moves all seven TaxCloud operations of that store — tax lookup, order capture, credit-memo refunds, cancellation reversal, order details, address verification, and exemption-certificate validation — onto TaxCloud's v3 REST API. Behavior is designed to be equivalent; the differences that matter:
+
+* **Orders and refunds live in v3.** An order captured over SOAP (v1) cannot be refunded over REST — the v3 refund reports "order not found" and the credit memo's TaxCloud reversal fails (it is logged, nothing is double-booked). The reverse is also true. **Switch during a quiet window**, and if you need to refund a pre-switch order, temporarily set the store back to the other API Type.
+* **Refund amounts are derived by TaxCloud** from the filed order (the module sends item quantities, fractional where needed), instead of the module sending prices.
+* **Custom observers** on `taxcloud_*` events need REST counterparts — see the event table above.
+
+Switching back is just as safe: set API Type back to `V1 SOAP (legacy)`; no data migration happens in either direction.
 
 ### Changing the log file location
 

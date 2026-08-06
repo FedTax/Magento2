@@ -55,9 +55,38 @@ export default defineConfig({
   },
 
   // Chromium only for the initial pass; Firefox/WebKit can be added later.
+  //
+  // The `*-rest` projects run the SAME customer journeys a second time with
+  // the store switched to the V3 REST transport (real v3 key, seeded by
+  // scripts/seed-test-data.php): rest-setup flips api_type and proves the
+  // switched mode authenticates, checkout-rest re-runs the checkout journeys
+  // plus the credit-memo refund against v3, and rest-teardown restores SOAP
+  // afterwards no matter what. Identical golden values across both passes are
+  // the SOAP/REST interchangeability claim itself. (Workers default to 1, so
+  // the passes never interleave.)
   projects: [
     {
       name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'rest-setup',
+      testMatch: /rest-mode\.setup\.ts/,
+      teardown: 'rest-teardown',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'checkout-rest',
+      testMatch: [
+        /specs\/checkout\/.*\.spec\.ts/,
+        /specs\/admin\/admin-creditmemo-triggers-refund\.spec\.ts/,
+      ],
+      dependencies: ['rest-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'rest-teardown',
+      testMatch: /rest-mode\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
   ],

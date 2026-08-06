@@ -131,7 +131,9 @@ class RestClientTest extends TestCase
         return [
             '200 is success' => [200, PingResult::OK, ''],
             '401 is a bad key' => [401, PingResult::AUTH_FAILED, ''],
-            '404 is an unknown connection' => [404, PingResult::UNKNOWN_CONNECTION, ''],
+            '404 is an unknown connection (documented)' => [404, PingResult::UNKNOWN_CONNECTION, ''],
+            '400 is an unknown connection (observed live)' => [400, PingResult::UNKNOWN_CONNECTION, ''],
+            '422 is an unknown connection (malformed id)' => [422, PingResult::UNKNOWN_CONNECTION, ''],
             '500 is a transport error with the code' => [500, PingResult::TRANSPORT_ERROR, 'HTTP 500'],
             '429 is a transport error with the code' => [429, PingResult::TRANSPORT_ERROR, 'HTTP 429'],
         ];

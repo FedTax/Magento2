@@ -34,7 +34,7 @@ The test SHALL use the credential values currently entered in the form, even if 
 
 ### Requirement: Failure modes are distinguished
 The test SHALL map failures to distinct, actionable admin messages:
-- REST: an authentication failure (HTTP 401) SHALL indicate the API Key is invalid or missing (generated under Developer → API); an unknown connection (HTTP 404) SHALL indicate the Connection ID is wrong or belongs to another account (Integrations → Custom API).
+- REST: an authentication failure (HTTP 401) SHALL indicate the API Key is invalid or missing (generated under Developer → API); an unknown or malformed connection (HTTP 404 per TaxCloud’s documentation; 400 and 422 observed from the live API) SHALL indicate the Connection ID is wrong or belongs to another account (Integrations → Custom API).
 - SOAP: a Ping failure response SHALL indicate the API ID / API Key pair is invalid.
 - Both: network errors, timeouts, and other non-success responses SHALL produce a generic failure message that includes the underlying reason.
 Credential values SHALL never appear in messages or logs.
@@ -44,7 +44,7 @@ Credential values SHALL never appear in messages or logs.
 - **THEN** the admin sees a message pointing at the API Key
 
 #### Scenario: Unknown REST connection ID
-- **WHEN** the REST ping endpoint responds 404
+- **WHEN** the REST ping endpoint responds 404, 400, or 422
 - **THEN** the admin sees a message pointing at the Connection ID
 
 #### Scenario: Invalid SOAP credentials

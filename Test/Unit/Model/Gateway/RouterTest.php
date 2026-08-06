@@ -16,13 +16,14 @@ use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Api\GatewayInterface;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Gateway\Rest\RestGateway;
 use Taxcloud\Magento2\Model\Gateway\Router;
 
 /**
  * The transport-dispatch seam: every gateway operation must resolve api_type
- * for the store of the entity in hand (never the ambient store) and — while
- * REST tax operations don't exist — reach the SOAP implementation for both
- * API types, unchanged.
+ * for the store of the entity in hand (never the ambient store), dispatching
+ * soap-selected stores to the SOAP gateway and rest-selected stores to the
+ * REST gateway.
  */
 #[AllowMockObjectsWithoutExpectations]
 class RouterTest extends TestCase
@@ -32,14 +33,20 @@ class RouterTest extends TestCase
      */
     private $soap;
 
+    /**
+     * @var RestGateway&\PHPUnit\Framework\MockObject\MockObject
+     */
+    private $rest;
+
     private function router(array $configMap = []): Router
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap($configMap);
 
         $this->soap = $this->createMock(Api::class);
+        $this->rest = $this->createMock(RestGateway::class);
 
-        return new Router($this->soap, new TaxcloudConfig($scopeConfig));
+        return new Router($this->soap, $this->rest, new TaxcloudConfig($scopeConfig));
     }
 
     public function testImplementsTheAggregateGatewayContract()
@@ -49,11 +56,17 @@ class RouterTest extends TestCase
 
     /**
      * All seven operations must forward their exact arguments to the SOAP
-     * implementation and hand back its return value.
+     * implementation and hand back its return value, with the REST gateway
+     * untouched. (Unset api_type resolves to rest by design — fresh installs
+     * are REST; upgrades with V1 credentials are pinned to soap by the setup
+     * patch — so soap is configured explicitly here.)
      */
     public function testEveryOperationDelegatesToSoapWithArgumentsAndResultIntact()
     {
-        $router = $this->router();
+        $router = $this->router([
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, null, 'soap'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 7, 'soap'],
+        ]);
 
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $order = $this->createMock(\Magento\Sales\Model\Order::class);
@@ -76,6 +89,8 @@ class RouterTest extends TestCase
             ->with($order)->willReturn(true);
         $this->soap->expects($this->once())->method('verifyAddress')
             ->with($address, 7)->willReturn(['verified']);
+
+        $this->rest->expects($this->never())->method($this->anything());
 
         $this->assertSame(['taxes'], $router->lookupTaxes($itemsByType, $shippingAssignment, $quote));
         $this->assertSame('cert-1', $router->getValidatedCertificateID('cert-1', 'cust-1', 'NY', 7));
@@ -100,7 +115,8 @@ class RouterTest extends TestCase
             ->willReturn('soap');
 
         $this->soap = $this->createMock(Api::class);
-        $router = new Router($this->soap, new TaxcloudConfig($scopeConfig));
+        $this->rest = $this->createMock(RestGateway::class);
+        $router = new Router($this->soap, $this->rest, new TaxcloudConfig($scopeConfig));
 
         $order = $this->createMock(\Magento\Sales\Model\Order::class);
         $order->method('getStoreId')->willReturn(7);
@@ -111,15 +127,13 @@ class RouterTest extends TestCase
     }
 
     /**
-     * Transitional rule (design D3): while REST implements no tax operations,
-     * a rest-selected store transacts over SOAP exactly like a soap-selected
-     * one — selecting "V3 REST" must not change gateway behavior.
+     * A rest-selected store dispatches every gateway operation to the REST
+     * implementation; the SOAP gateway is never touched.
      */
-    public function testRestSelectedStoreStillReachesSoapForEveryOperation()
+    public function testRestSelectedStoreDispatchesEveryOperationToRest()
     {
         $router = $this->router([
             [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 7, 'rest'],
-            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, null, 'rest'],
         ]);
 
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
@@ -129,26 +143,53 @@ class RouterTest extends TestCase
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $creditmemo->method('getStoreId')->willReturn(7);
 
-        $this->soap->expects($this->once())->method('lookupTaxes');
-        $this->soap->expects($this->once())->method('getValidatedCertificateID');
-        $this->soap->expects($this->once())->method('authorizeCapture');
-        $this->soap->expects($this->once())->method('returnOrder');
-        $this->soap->expects($this->once())->method('getOrderDetails');
-        $this->soap->expects($this->once())->method('returnOrderCancellation');
-        $this->soap->expects($this->once())->method('verifyAddress');
+        $this->rest->expects($this->once())->method('lookupTaxes')->willReturn(['taxes']);
+        $this->rest->expects($this->once())->method('getValidatedCertificateID')->willReturn('cert-1');
+        $this->rest->expects($this->once())->method('authorizeCapture')->willReturn(true);
+        $this->rest->expects($this->once())->method('returnOrder')->willReturn(true);
+        $this->rest->expects($this->once())->method('getOrderDetails')->willReturn(['details']);
+        $this->rest->expects($this->once())->method('returnOrderCancellation')->willReturn(true);
+        $this->rest->expects($this->once())->method('verifyAddress')->willReturn(['verified']);
 
-        $router->lookupTaxes([], [], $quote);
-        $router->getValidatedCertificateID('c', 'u', 'NY', 7);
-        $router->authorizeCapture($order);
-        $router->returnOrder($creditmemo);
-        $router->getOrderDetails($order);
-        $router->returnOrderCancellation($order);
-        $router->verifyAddress([], 7);
+        $this->soap->expects($this->never())->method($this->anything());
+
+        $this->assertSame(['taxes'], $router->lookupTaxes([], [], $quote));
+        $this->assertSame('cert-1', $router->getValidatedCertificateID('c', 'u', 'NY', 7));
+        $this->assertTrue($router->authorizeCapture($order));
+        $this->assertTrue($router->returnOrder($creditmemo));
+        $this->assertSame(['details'], $router->getOrderDetails($order));
+        $this->assertTrue($router->returnOrderCancellation($order));
+        $this->assertSame(['verified'], $router->verifyAddress([], 7));
+    }
+
+    /**
+     * Mixed fleet: store 7 selects rest, store 8 selects soap — operations for
+     * entities of each store reach their own transport in one process.
+     */
+    public function testMixedFleetRoutesPerEntityStore()
+    {
+        $router = $this->router([
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 7, 'rest'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 8, 'soap'],
+        ]);
+
+        $restOrder = $this->createMock(\Magento\Sales\Model\Order::class);
+        $restOrder->method('getStoreId')->willReturn(7);
+        $soapOrder = $this->createMock(\Magento\Sales\Model\Order::class);
+        $soapOrder->method('getStoreId')->willReturn(8);
+
+        $this->rest->expects($this->once())->method('authorizeCapture')->with($restOrder)->willReturn(true);
+        $this->soap->expects($this->once())->method('authorizeCapture')->with($soapOrder)->willReturn(true);
+
+        $this->assertTrue($router->authorizeCapture($restOrder));
+        $this->assertTrue($router->authorizeCapture($soapOrder));
     }
 
     /**
      * di.xml must bind all five gateway contracts to the router — a stale
-     * preference would silently bypass the dispatch seam.
+     * preference would silently bypass the dispatch seam — and must hand the
+     * router its REST gateway as a proxy so SOAP-only fleets never build the
+     * REST stack.
      */
     public function testDiXmlBindsEveryGatewayContractToTheRouter()
     {
@@ -172,5 +213,15 @@ class RouterTest extends TestCase
                 $contract . ' must be bound to the router'
             );
         }
+
+        $restArg = $diXml->xpath(
+            '//type[@name="Taxcloud\Magento2\Model\Gateway\Router"]/arguments/argument[@name="rest"]'
+        );
+        $this->assertCount(1, $restArg, 'the router must receive an explicit rest argument');
+        $this->assertSame(
+            RestGateway::class . '\Proxy',
+            trim((string) $restArg[0]),
+            'the REST gateway must be injected as a proxy'
+        );
     }
 }
