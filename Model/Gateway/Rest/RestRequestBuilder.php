@@ -212,7 +212,9 @@ class RestRequestBuilder
         }
 
         if ($lineItems === []) {
-            $this->logger->error('Order ' . $order->getIncrementId() . ' has no billable lines - cannot build v3 order');
+            $this->logger->error(
+                'Order ' . $order->getIncrementId() . ' has no billable lines - cannot build v3 order'
+            );
             return null;
         }
 

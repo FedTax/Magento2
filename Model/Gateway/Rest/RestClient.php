@@ -240,6 +240,12 @@ class RestClient
      */
     private function send(string $method, string $url, ?array $body, array $authHeaders, $store, array $secrets)
     {
+        // Programming error, not a transport outcome — reject before the
+        // try so it can never be wrapped as a RestTransportException.
+        if ($method !== 'POST' && $method !== 'GET') {
+            throw new \InvalidArgumentException('Unsupported HTTP method: ' . $method);
+        }
+
         $curl = $this->curlFactory->create();
         $curl->setTimeout($this->config->getSoapTimeout($store));
 
@@ -254,15 +260,11 @@ class RestClient
         try {
             if ($method === 'POST') {
                 $curl->post($url, $body !== null ? (string) json_encode($body) : '');
-            } elseif ($method === 'GET') {
-                $curl->get($url);
             } else {
-                throw new \InvalidArgumentException('Unsupported HTTP method: ' . $method);
+                $curl->get($url);
             }
 
             return new RestResponse((int) $curl->getStatus(), (string) $curl->getBody());
-        } catch (\InvalidArgumentException $e) {
-            throw $e;
         } catch (Throwable $e) {
             throw new RestTransportException($this->scrub($e->getMessage(), $secrets), 0, $e);
         }

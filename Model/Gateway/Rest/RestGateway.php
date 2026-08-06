@@ -262,7 +262,7 @@ class RestGateway implements GatewayInterface
 
         $this->tclogger->info('Calling lookupTaxes LIVE API (v3 carts)');
         $this->tclogger->debug('lookupTaxes PAYLOAD:');
-        $this->tclogger->debug(print_r($payload, true));
+        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             $response = $this->retryPolicy->executeForResponse(function () use ($payload, $storeId) {
@@ -468,7 +468,7 @@ class RestGateway implements GatewayInterface
 
         $this->tclogger->info('Calling verifyAddress LIVE API (v3)');
         $this->tclogger->debug('verifyAddress PAYLOAD:');
-        $this->tclogger->debug(print_r($payload, true));
+        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             $response = $this->retryPolicy->executeForResponse(function () use ($payload, $store) {
@@ -542,7 +542,7 @@ class RestGateway implements GatewayInterface
         ]);
 
         $this->tclogger->debug($operation . ' PAYLOAD:');
-        $this->tclogger->debug(print_r($payload, true));
+        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             // Order creation is not idempotent in a way we can prove — only a
@@ -608,7 +608,7 @@ class RestGateway implements GatewayInterface
         }
 
         $this->tclogger->debug($operation . ' PAYLOAD:');
-        $this->tclogger->debug(print_r($payload, true));
+        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             // Refunds are not idempotent — only retry a failure that never
@@ -628,7 +628,7 @@ class RestGateway implements GatewayInterface
             );
         } catch (Throwable $e) {
             $this->tclogger->error('Error encountered during ' . $operation . ': ' . $e->getMessage());
-            $this->tclogger->debug('Payload that failed: ' . print_r($payload, true));
+            $this->tclogger->debug('Payload that failed: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
             return false;
         }
 
