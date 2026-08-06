@@ -15,13 +15,17 @@ All TaxCloud gateway operations (lookup, order capture/return, address verificat
 - **WHEN** the set of available transports changes (e.g. REST operations are added in a later release)
 - **THEN** no call site outside the routing layer requires modification
 
-### Requirement: SOAP-only dispatch until REST operations exist
-While the REST transport implements no tax operations, the routing layer SHALL dispatch all gateway operations to the SOAP implementation regardless of the selected `api_type`, so that selecting "V3 REST" causes no behavior change in tax calculation, capture, returns, address verification, or exemptions.
+### Requirement: REST-selected stores dispatch to the REST transport
+When `api_type` resolves to `rest` for the store of the entity being processed, the routing layer SHALL dispatch every gateway operation (lookup, order capture, credit-memo refund, cancellation reversal, order details, address verification, exemption validation) to the REST implementation. When `api_type` resolves to `soap`, dispatch to the SOAP implementation SHALL remain byte-for-byte unchanged.
 
-#### Scenario: REST-selected store still transacts over SOAP
-- **WHEN** `api_type` resolves to `rest` for a store and a tax lookup or capture is performed for that store
-- **THEN** the operation is executed by the SOAP implementation, identically to a `soap`-selected store
+#### Scenario: REST store transacts over v3
+- **WHEN** `api_type` resolves to `rest` for a store and any gateway operation is performed for an entity of that store
+- **THEN** the operation executes over the v3 REST API
 
-#### Scenario: No regression for SOAP stores
+#### Scenario: SOAP store is unaffected
 - **WHEN** `api_type` resolves to `soap` for a store
 - **THEN** every gateway operation behaves exactly as before this change
+
+#### Scenario: Mixed fleet routes per entity store
+- **WHEN** store A selects `soap` and store B selects `rest`, and operations are performed for entities of both stores in one request
+- **THEN** store A's operations execute over SOAP and store B's over REST, each resolved from the entity's store, never the ambient one
