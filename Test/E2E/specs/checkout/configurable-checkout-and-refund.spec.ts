@@ -75,6 +75,12 @@ test('configurable variant checks out with tax and refunds cleanly', async ({ pa
   const order = new AdminOrderPage(page);
   await order.openByIncrement(orderNo);
   await order.createInvoice();
+  // TaxCloud records captures asynchronously: a Returned/refund fired within
+  // seconds of the capture can answer "order ... has not been captured yet"
+  // (observed live in CI 2026-08-07 — previously masked by orderId collisions
+  // with long-captured stale orders). Give the sandbox a grace period between
+  // the capture (order placement) and the refund.
+  await page.waitForTimeout(15_000);
   await order.refundOffline();
 
   await expect(page.locator('.message-success').first()).toContainText('created the credit memo');

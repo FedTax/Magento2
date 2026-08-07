@@ -288,6 +288,33 @@ class RestRequestBuilderTest extends TestCase
         $this->assertStringNotContainsString('apiKey', $json);
     }
 
+    /**
+     * Capture fires before the order is saved: composite children have no
+     * parent_item_id yet, so getAllVisibleItems() lets them through — the
+     * builder must drop them on the in-memory parent_item object (observed
+     * live 2026-08-07: a configurable filed its zero-priced child as a
+     * duplicate v3 line, which then poisoned every refund of the order).
+     */
+    public function testOrderPayloadSkipsCompositeChildRowsOnUnsavedOrders()
+    {
+        $builder = $this->builder();
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('0');
+
+        $parent = $this->orderItem('test-variant-blue', 1.0, 10.0, 0.0, 0.83, 8.25);
+
+        $child = $this->orderItem('test-variant-blue', 1.0, 0.0, 0.0, 0.0, 0.0);
+        $child->method('getParentItem')->willReturn($parent);
+        // Unsaved order: parent_item_id not assigned yet (mock defaults null).
+
+        $payload = $builder->buildOrderPayload($this->order([$parent, $child]));
+
+        $itemIds = array_column($payload['lineItems'], 'itemId');
+        $this->assertSame(['test-variant-blue'], $itemIds, 'the child row must not file as a duplicate line');
+        $this->assertSame(10.0, $payload['lineItems'][0]['price']);
+    }
+
     public function testOrderPayloadExemptRecreateZeroesTaxAndOverridesId()
     {
         $builder = $this->builder();

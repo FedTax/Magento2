@@ -72,6 +72,12 @@ export default defineConfig({
     {
       name: 'rest-setup',
       testMatch: /rest-mode\.setup\.ts/,
+      // Depending on chromium pins the pass order: chromium (SOAP) →
+      // rest-setup → checkout-rest → rest-teardown. Without it Playwright may
+      // schedule this first, and the Bearer-mode admin spec (which restores
+      // SOAP in its finally) would silently undo the REST switch before the
+      // checkout-rest pass runs — observed live in CI on 2026-08-07.
+      dependencies: ['chromium'],
       teardown: 'rest-teardown',
       use: { ...devices['Desktop Chrome'] },
     },

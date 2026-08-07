@@ -30,11 +30,15 @@ For a REST-selected store, a tax lookup for a quote SHALL be performed by creati
 
 ### Requirement: Order capture creates a v3 order directly
 
-For a REST-selected store, capturing an order SHALL create a v3 order on the store's connection directly from the Magento order data — line items with their store-resolved TICs, effective prices, quantities, and each line's tax amount and rate as recorded on the Magento order — with the transaction date taken from the order's placement time and the completed date set at capture time. Capture is whole-order: the operation SHALL NOT support partial capture. The result SHALL be reported as success only when the order is created or already exists in TaxCloud.
+For a REST-selected store, capturing an order SHALL create a v3 order on the store's connection directly from the Magento order data — line items with their store-resolved TICs, effective prices, quantities, and each line's tax amount and rate as recorded on the Magento order — with the transaction date taken from the order's placement time and the completed date set at capture time. Composite products (configurable, bundle) SHALL file as their purchasable parent line only: child rows SHALL never file as additional lines, including when capture runs before the order is persisted and child rows are not yet linked to their parent by ID. Capture is whole-order: the operation SHALL NOT support partial capture. The result SHALL be reported as success only when the order is created or already exists in TaxCloud.
 
 #### Scenario: Successful capture
 - **WHEN** an order on a REST-selected store is captured per the store's capture trigger
 - **THEN** a v3 order is created carrying the order's stored per-line tax, marked completed, and the operation reports success
+
+#### Scenario: Composite product files a single line
+- **WHEN** an order containing a configurable (or bundle) product is captured at order placement, before the order has been persisted
+- **THEN** the v3 order carries exactly one line for the composite item — the priced parent — and no zero-priced child line, so later refunds by item reference are unambiguous
 
 #### Scenario: Duplicate capture is benign
 - **WHEN** capture is invoked for an order that was already captured (the v3 API reports the order identifier already exists)

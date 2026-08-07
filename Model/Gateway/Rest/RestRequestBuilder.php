@@ -177,6 +177,15 @@ class RestRequestBuilder
         $lineItems = [];
         $index = 0;
         foreach ($order->getAllVisibleItems() as $item) {
+            // Capture fires on sales_order_place_after, BEFORE the order is
+            // saved — at that point composite children have no parent_item_id
+            // yet, so getAllVisibleItems() lets them through and a configurable
+            // would file its zero-priced child as a duplicate line (observed
+            // live 2026-08-07). The in-memory parent_item object IS set
+            // pre-save; skip on either signal.
+            if ($item->getParentItem() || $item->getParentItemId()) {
+                continue;
+            }
             $qty = (float) $item->getQtyOrdered();
             if ($qty <= 0) {
                 continue;

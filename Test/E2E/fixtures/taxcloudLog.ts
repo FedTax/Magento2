@@ -90,12 +90,16 @@ export const test = base.extend<TaxcloudLogFixtures>({
       await use();
 
       const errors = newErrorLines(logFile, before);
-      expect(
-        errors,
-        'TaxCloud logged gateway ERRORs during this journey — the flow completed in the UI ' +
-          'because the module never blocks checkout on gateway failures, but the operation ' +
-          `failed:\n${errors.join('\n')}`
-      ).toEqual([]);
+      if (errors.length > 0) {
+        // A plain throw rather than expect(): an assertion inside fixture
+        // teardown makes Playwright emit "Internal error: step id not found"
+        // noise in reporters.
+        throw new Error(
+          'TaxCloud logged gateway ERRORs during this journey — the flow completed in the UI ' +
+            'because the module never blocks checkout on gateway failures, but the operation ' +
+            `failed:\n${errors.join('\n')}`
+        );
+      }
     },
     { auto: true },
   ],
