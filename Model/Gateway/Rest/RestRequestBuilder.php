@@ -265,31 +265,61 @@ class RestRequestBuilder
         }
 
         $order = $creditmemo->getOrder();
-        $items = [];
+
+        // A full refund is signalled by the v1 builder returning no rows
+        // (tax-only refunds, distributor full-return) — decided BEFORE the
+        // conversion below, so dropped zero-charge rows can never be mistaken
+        // for a refund-everything instruction.
+        $fullRefund = $built['cartItems'] === [];
+
+        // v3 refunds are itemId-keyed and reject duplicate references, but
+        // composite credit memos carry the same SKU twice (the configurable
+        // parent row priced, its child row zero-priced). Group the rows per
+        // reference, amount-preservingly: quantity sent = total refunded
+        // amount ÷ the filed unit price (the highest row price — the parent's;
+        // the order's shipping amount for the shipping line).
+        $groups = [];
         foreach ($built['cartItems'] as $cartItem) {
-            $quantity = (float) $cartItem['Qty'];
-            if ($cartItem['ItemID'] === 'shipping') {
-                $filedShipping = (float) $order->getShippingAmount();
-                if ($filedShipping <= 0) {
-                    continue;
-                }
-                $refundedAmount = (float) $cartItem['Price'] * $quantity;
-                $quantity = min(1.0, round($refundedAmount / $filedShipping, 4));
-                if ($quantity <= 0) {
-                    continue;
-                }
+            $itemId = (string) $cartItem['ItemID'];
+            if (!isset($groups[$itemId])) {
+                $groups[$itemId] = ['amount' => 0.0, 'rowPrice' => 0.0];
             }
-            $items[] = [
-                'itemId' => (string) $cartItem['ItemID'],
-                'quantity' => $quantity,
-            ];
+            $groups[$itemId]['amount'] += (float) $cartItem['Price'] * (float) $cartItem['Qty'];
+            $groups[$itemId]['rowPrice'] = max($groups[$itemId]['rowPrice'], (float) $cartItem['Price']);
+        }
+
+        $items = [];
+        foreach ($groups as $itemId => $group) {
+            $filedUnit = $itemId === 'shipping'
+                ? (float) $order->getShippingAmount()
+                : $group['rowPrice'];
+            if ($filedUnit <= 0) {
+                // Nothing was charged for this reference — nothing to refund.
+                continue;
+            }
+            $quantity = round($group['amount'] / $filedUnit, 4);
+            if ($itemId === 'shipping') {
+                $quantity = min(1.0, $quantity);
+            }
+            if ($quantity <= 0) {
+                continue;
+            }
+            $items[] = ['itemId' => $itemId, 'quantity' => $quantity];
+        }
+
+        if (!$fullRefund && $items === []) {
+            // Every row was zero-charge (e.g. a free item refunded alone):
+            // nothing meaningful to send — succeed without an API call rather
+            // than submitting an empty list v3 would read as a full refund.
+            $this->logger->info('buildRefundItems: only zero-charge rows to refund; skipping TaxCloud call');
+            return ['items' => [], 'wasTaxOnlyRefund' => false, 'skip' => true, 'fullRefund' => false];
         }
 
         return [
             'items' => $items,
             'wasTaxOnlyRefund' => $built['wasTaxOnlyRefund'],
             'skip' => false,
-            'fullRefund' => $items === [],
+            'fullRefund' => $fullRefund,
         ];
     }
 

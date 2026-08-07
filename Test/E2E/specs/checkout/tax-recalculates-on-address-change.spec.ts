@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/taxcloudLog';
 import { ProductPage } from '../../pages/storefront/ProductPage';
 import { CheckoutPage, type GuestAddress } from '../../pages/storefront/CheckoutPage';
 

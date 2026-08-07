@@ -32,4 +32,14 @@ export class ProductPage {
     await this.addToCartButton.click();
     await expect(this.successMessage).toBeVisible({ timeout: 30_000 });
   }
+
+  /**
+   * Choose a configurable option by its label (the seeded configurable's
+   * color attribute renders as a plain dropdown).
+   */
+  async selectConfigurableOption(label: string): Promise<void> {
+    const select = this.page.locator('.product-options-wrapper select.super-attribute-select').first();
+    await expect(select).toBeVisible({ timeout: 30_000 });
+    await select.selectOption({ label });
+  }
 }

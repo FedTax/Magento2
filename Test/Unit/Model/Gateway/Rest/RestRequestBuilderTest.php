@@ -428,6 +428,73 @@ class RestRequestBuilderTest extends TestCase
         $this->assertTrue($result['fullRefund']);
     }
 
+    /**
+     * The live 2026-08-07 regression: a configurable credit memo carries the
+     * parent row (priced) and its child row (zero-priced), both under the
+     * child's SKU. v3 rejects duplicate item references, so they must collapse
+     * to ONE entry with the parent's quantity — never doubled.
+     */
+    public function testRefundItemsCombineConfigurableParentAndChildRows()
+    {
+        $builder = $this->builder();
+        $order = $this->order([], 10.0);
+        $this->requestBuilder->method('buildReturnCartItems')->willReturn([
+            'cartItems' => [
+                ['ItemID' => 'test-variant-red', 'Index' => 0, 'TIC' => '0', 'Price' => 10.0, 'Qty' => 1],
+                ['ItemID' => 'test-variant-red', 'Index' => 1, 'TIC' => '0', 'Price' => 0.0, 'Qty' => 1],
+                ['ItemID' => 'shipping', 'Index' => 2, 'TIC' => '11010', 'Price' => 5.0, 'Qty' => 1],
+            ],
+            'wasTaxOnlyRefund' => false,
+            'skip' => false,
+        ]);
+
+        $result = $builder->buildRefundItems($this->creditmemoFor($order));
+
+        $this->assertSame([
+            ['itemId' => 'test-variant-red', 'quantity' => 1.0],
+            ['itemId' => 'shipping', 'quantity' => 0.5],
+        ], $result['items']);
+    }
+
+    public function testRefundItemsSumQuantitiesForDistinctLinesSharingASku()
+    {
+        $builder = $this->builder();
+        $order = $this->order([], 10.0);
+        $this->requestBuilder->method('buildReturnCartItems')->willReturn([
+            'cartItems' => [
+                ['ItemID' => 'sku-1', 'Index' => 0, 'TIC' => '0', 'Price' => 45.0, 'Qty' => 2],
+                ['ItemID' => 'sku-1', 'Index' => 1, 'TIC' => '0', 'Price' => 45.0, 'Qty' => 1],
+            ],
+            'wasTaxOnlyRefund' => false,
+            'skip' => false,
+        ]);
+
+        $result = $builder->buildRefundItems($this->creditmemoFor($order));
+
+        $this->assertSame([['itemId' => 'sku-1', 'quantity' => 3.0]], $result['items']);
+    }
+
+    public function testRefundItemsWithOnlyZeroChargeRowsSkipInsteadOfFullRefund()
+    {
+        // A free item refunded alone must NOT become an empty items list —
+        // v3 reads that as "refund the whole order".
+        $builder = $this->builder();
+        $order = $this->order([], 10.0);
+        $this->requestBuilder->method('buildReturnCartItems')->willReturn([
+            'cartItems' => [
+                ['ItemID' => 'free-gift', 'Index' => 0, 'TIC' => '0', 'Price' => 0.0, 'Qty' => 1],
+            ],
+            'wasTaxOnlyRefund' => false,
+            'skip' => false,
+        ]);
+
+        $result = $builder->buildRefundItems($this->creditmemoFor($order));
+
+        $this->assertTrue($result['skip']);
+        $this->assertFalse($result['fullRefund']);
+        $this->assertSame([], $result['items']);
+    }
+
     public function testVerifyAddressPayloadUsesV3Shape()
     {
         $builder = $this->builder();

@@ -611,6 +611,29 @@ $step('config tax/taxcloud_settings/enabled = 0 (scope stores/' . SECOND_STORE_C
 // the second store needs its own customer record for logged-in test flows.
 $ensureCustomer($secondStore);
 
+// --- 4e. Unique order increment prefix per seed run --------------------------
+//
+// The TaxCloud sandbox account is persistent while every fresh install (and
+// every reinstalled matrix row) restarts order increment ids at 000000001 —
+// so e2e captures collide with orders a previous install already filed
+// ("This transaction has already been captured") and refunds hit the OLD
+// order's amounts. Prefixing the order sequence with a per-seed-run timestamp
+// gives every run its own orderId namespace on the shared account. Digits
+// only: the e2e specs assert /^\d+$/ on the order number, and TaxCloud gets a
+// plain numeric string. Orders only — no other increment id reaches TaxCloud.
+$orderPrefix = date('ymdHis');
+$connection = $om->get(\Magento\Framework\App\ResourceConnection::class)->getConnection('sales');
+$profileTable = $connection->getTableName('sales_sequence_profile');
+$metaTable = $connection->getTableName('sales_sequence_meta');
+$updated = $connection->update(
+    $profileTable,
+    ['prefix' => $orderPrefix],
+    ['meta_id IN (?)' => $connection->select()
+        ->from($metaTable, ['meta_id'])
+        ->where('entity_type = ?', 'order')]
+);
+$step("order increment prefix = $orderPrefix ($updated sequence profile(s), all stores)");
+
 // --- 5. Reindex + cache flush --------------------------------------------------
 
 $indexers = $om->create(\Magento\Indexer\Model\Indexer\CollectionFactory::class)
