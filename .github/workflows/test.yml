@@ -447,6 +447,14 @@ jobs:
           mkdir -p ./debug-logs
           docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --no-color \
             > ./debug-logs/docker-compose-e2e.log 2>&1 || true
+          # The module's own log is the only record of what each gateway call
+          # sent and got back. The e2e journeys never fail on a gateway error
+          # by themselves (the module doesn't block checkout on one), so when
+          # the log-watcher fixture does fail a run, this file is the entire
+          # diagnosis — without it, a CI-only failure cannot be investigated.
+          cp "$MAGENTO_INSTALL_DIR/var/log/taxcloud.log" ./debug-logs/taxcloud.log 2>/dev/null || true
+          cp "$MAGENTO_INSTALL_DIR/var/log/exception.log" ./debug-logs/exception.log 2>/dev/null || true
+          cp "$MAGENTO_INSTALL_DIR/var/log/system.log" ./debug-logs/system.log 2>/dev/null || true
 
       - name: Upload Docker logs
         if: failure() && steps.gate.outputs.skip != 'true'
