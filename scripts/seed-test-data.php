@@ -634,6 +634,21 @@ $updated = $connection->update(
 );
 $step("order increment prefix = $orderPrefix ($updated sequence profile(s), all stores)");
 
+// Same collision, second identifier: v1 AuthorizedWithCapture dedupes on
+// cartID — the Magento QUOTE id — not on orderID. A fresh install restarts
+// quote ids at 1, so captures answer "Duplicate transaction" for carts a
+// previous install already authorized on the shared sandbox account; the
+// module reads that as benign success, nothing files under the new orderID,
+// and every later refund fails "could not be found or has not been captured
+// yet" (diagnosed from CI 2026-08-07, 2.4.8-p5). Start the quote sequence at
+// the current unix timestamp: unique per run and well inside quote.entity_id's
+// unsigned-int range.
+$quoteStart = time();
+$connection->query(
+    'ALTER TABLE ' . $connection->getTableName('quote') . ' AUTO_INCREMENT = ' . (int) $quoteStart
+);
+$step("quote id sequence starts at $quoteStart (unique cartID namespace per run)");
+
 // --- 5. Reindex + cache flush --------------------------------------------------
 
 $indexers = $om->create(\Magento\Indexer\Model\Indexer\CollectionFactory::class)
