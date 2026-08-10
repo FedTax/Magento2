@@ -23,6 +23,7 @@ use Taxcloud\Magento2\Model\Gateway\Rest\RestConfigurationException;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestTransportException;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenCache;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchange;
+use Taxcloud\Magento2\Test\Unit\BuildsUserAgent;
 
 /**
  * The generic request() entry point: URL and header construction for
@@ -32,6 +33,8 @@ use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchange;
 #[AllowMockObjectsWithoutExpectations]
 class RestClientRequestTest extends TestCase
 {
+    use BuildsUserAgent;
+
     private const CONN = '25eb9b97-5acb-492d-b720-c03e79cf715a';
 
     /**
@@ -62,7 +65,12 @@ class RestClientRequestTest extends TestCase
         $this->exchange = $this->createMock(TokenExchange::class);
         $this->cache = $this->createMock(TokenCache::class);
 
-        return new RestClient($curlFactory, $config, new AuthProvider($config, $this->exchange, $this->cache));
+        return new RestClient(
+            $curlFactory,
+            $config,
+            new AuthProvider($config, $this->exchange, $this->cache),
+            $this->userAgent()
+        );
     }
 
     private static function value(string $path, $value): array
@@ -111,6 +119,29 @@ class RestClientRequestTest extends TestCase
         $this->assertSame('rest-api-key', $headers['X-API-KEY']);
         $this->assertSame('application/json', $headers['Content-Type']);
         $this->assertSame('application/json', $headers['Accept']);
+        $this->assertSame($this->expectedUserAgent(), $headers['User-Agent']);
+    }
+
+    /**
+     * request() is the single method every v3 operation funnels through, so
+     * identifying it here is what makes the coverage structural rather than a
+     * per-operation checklist — including on account-level paths, which skip
+     * the connection prefix and could plausibly have taken another route.
+     */
+    public function testAccountLevelRequestCarriesTheUserAgent()
+    {
+        $client = $this->client(self::apiKeyScopeConfig());
+
+        $headers = [];
+        $this->curl->method('addHeader')->willReturnCallback(static function ($n, $v) use (&$headers) {
+            $headers[$n] = $v;
+        });
+        $this->curl->method('getStatus')->willReturn(200);
+        $this->curl->method('getBody')->willReturn('{}');
+
+        $client->request('GET', '/tax/verify-address', null, null, false);
+
+        $this->assertSame($this->expectedUserAgent(), $headers['User-Agent'] ?? null);
     }
 
     public function testGetOnAccountLevelPathSkipsConnectionPrefixAndBody()

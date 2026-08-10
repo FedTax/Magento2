@@ -2,7 +2,7 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
-## Unreleased
+## 1.4.0
 
 Run `bin/magento setup:upgrade` after updating: this release pins existing
 installs to their current API via a data patch.
@@ -41,6 +41,17 @@ installs to their current API via a data patch.
   the V1 pair — cached until shortly before expiry and refreshed
   automatically — so migrated merchants get a working REST connection with no
   portal action. A saved V3 API Key always takes precedence.
+- **Requests now identify the extension, Magento and PHP versions.** Every
+  call to TaxCloud — on both API generations, including address verification,
+  order capture and returns, the Test Connection button, the credential
+  exchange and the V1 WSDL fetch — carries a `User-Agent` such as
+  `TaxCloud-Magento2/1.4.0 Magento/2.4.7-p3 (Community) PHP/8.3.14`, so
+  TaxCloud support can tell which versions produced a request without asking.
+  A version that cannot be determined is reported as `unknown` rather than
+  breaking the header. The value is identical across every request from an
+  installation and carries no credential, connection id, store id or customer
+  data — it is safe to share in full when sending logs to support. There is no
+  setting to change it, and nothing else about your requests changes.
 
 ## 1.3.0
 

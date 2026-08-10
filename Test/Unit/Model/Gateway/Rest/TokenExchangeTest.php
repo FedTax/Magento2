@@ -18,6 +18,7 @@ use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchange;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchangeException;
+use Taxcloud\Magento2\Test\Unit\BuildsUserAgent;
 
 /**
  * The v1→v3 exchange call: request construction against the documented-by-woo
@@ -27,6 +28,8 @@ use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchangeException;
 #[AllowMockObjectsWithoutExpectations]
 class TokenExchangeTest extends TestCase
 {
+    use BuildsUserAgent;
+
     private const API_ID = 'legacy-login';
     private const API_KEY = 'fb3e8a3a-057b-4628-a743-c89b4e37dfa8';
 
@@ -45,7 +48,31 @@ class TokenExchangeTest extends TestCase
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap($configMap);
 
-        return new TokenExchange($curlFactory, new TaxcloudConfig($scopeConfig));
+        return new TokenExchange($curlFactory, new TaxcloudConfig($scopeConfig), $this->userAgent());
+    }
+
+    /**
+     * The exchange runs during setup:upgrade as well as at runtime, so it is
+     * often the first request a migrating install makes — exactly the traffic
+     * support wants attributable.
+     */
+    public function testExchangeCarriesTheUserAgent()
+    {
+        $exchange = $this->exchange();
+
+        $headers = [];
+        $this->curl->method('addHeader')->willReturnCallback(static function ($n, $v) use (&$headers) {
+            $headers[$n] = $v;
+        });
+        $this->curl->method('getStatus')->willReturn(200);
+        $this->curl->method('getBody')->willReturn(json_encode([
+            'access_token' => 'jwt-abc',
+            'access_token_validTo' => gmdate('Y-m-d\TH:i:s\Z', time() + 86400),
+        ]));
+
+        $exchange->exchange(self::API_ID, self::API_KEY);
+
+        $this->assertSame($this->expectedUserAgent(), $headers['User-Agent'] ?? null);
     }
 
     public function testSuccessfulExchangePostsThePairAndParsesTokenAndValidity()

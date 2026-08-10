@@ -20,6 +20,7 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\PingResult;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestClient;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestCredentials;
+use Taxcloud\Magento2\Test\Unit\BuildsUserAgent;
 
 /**
  * The v3 ping transport: URL/header construction against the documented
@@ -29,6 +30,8 @@ use Taxcloud\Magento2\Model\Gateway\Rest\RestCredentials;
 #[AllowMockObjectsWithoutExpectations]
 class RestClientTest extends TestCase
 {
+    use BuildsUserAgent;
+
     private const API_KEY = 'test-api-key-value';
     private const CONNECTION_ID = '25eb9b97-5acb-492d-b720-c03e79cf715a';
 
@@ -54,7 +57,7 @@ class RestClientTest extends TestCase
             $this->createMock(\Taxcloud\Magento2\Model\Gateway\Rest\TokenCache::class)
         );
 
-        return new RestClient($curlFactory, $config, $authProvider);
+        return new RestClient($curlFactory, $config, $authProvider, $this->userAgent());
     }
 
     private function credentials(): RestCredentials
@@ -84,9 +87,32 @@ class RestClientTest extends TestCase
 
         $this->assertTrue($result->isSuccess());
         $this->assertSame(
-            ['X-API-KEY' => self::API_KEY, 'Accept' => 'application/json'],
+            [
+                'X-API-KEY' => self::API_KEY,
+                'Accept' => 'application/json',
+                'User-Agent' => $this->expectedUserAgent(),
+            ],
             $headers
         );
+    }
+
+    /**
+     * Both admin verification paths are real API traffic, so support must be
+     * able to attribute them like any other request.
+     */
+    public function testPingCarriesTheUserAgent()
+    {
+        $client = $this->client();
+
+        $headers = [];
+        $this->curl->method('addHeader')->willReturnCallback(static function ($name, $value) use (&$headers) {
+            $headers[$name] = $value;
+        });
+        $this->curl->method('getStatus')->willReturn(200);
+
+        $client->ping($this->credentials());
+
+        $this->assertSame($this->expectedUserAgent(), $headers['User-Agent'] ?? null);
     }
 
     /**

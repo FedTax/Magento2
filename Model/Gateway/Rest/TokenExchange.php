@@ -19,6 +19,7 @@ namespace Taxcloud\Magento2\Model\Gateway\Rest;
 
 use Magento\Framework\HTTP\Client\CurlFactory;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Gateway\UserAgent;
 use Throwable;
 
 /**
@@ -48,13 +49,20 @@ class TokenExchange
     private $config;
 
     /**
+     * @var UserAgent
+     */
+    private $userAgent;
+
+    /**
      * @param CurlFactory    $curlFactory
      * @param TaxcloudConfig $config
+     * @param UserAgent      $userAgent
      */
-    public function __construct(CurlFactory $curlFactory, TaxcloudConfig $config)
+    public function __construct(CurlFactory $curlFactory, TaxcloudConfig $config, UserAgent $userAgent)
     {
         $this->curlFactory = $curlFactory;
         $this->config = $config;
+        $this->userAgent = $userAgent;
     }
 
     /**
@@ -77,6 +85,7 @@ class TokenExchange
         $curl->setTimeout($this->config->getSoapTimeout($store));
         $curl->addHeader('Content-Type', 'application/json');
         $curl->addHeader('Accept', 'application/json');
+        $curl->addHeader('User-Agent', $this->userAgent->get());
 
         try {
             $curl->post($url, json_encode(['apiLoginID' => $apiLoginId, 'apiKey' => $apiKey]));

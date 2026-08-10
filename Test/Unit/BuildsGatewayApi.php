@@ -40,6 +40,8 @@ use Taxcloud\Magento2\Model\Logging\GatewayLogger;
  */
 trait BuildsGatewayApi
 {
+    use BuildsUserAgent;
+
     /**
      * @param array $leaf
      * @return array Constructor arguments for Model\Api, in order.
@@ -47,7 +49,12 @@ trait BuildsGatewayApi
     private function gatewayApiCollaborators(array $leaf): array
     {
         $config = new TaxcloudConfig($leaf['scopeConfig']);
-        $soapGateway = new SoapGateway($leaf['soapClientFactory'], $config, new NullLogger());
+        $soapGateway = new SoapGateway(
+            $leaf['soapClientFactory'],
+            $config,
+            $this->userAgent(),
+            new NullLogger()
+        );
         $requestBuilder = new RequestBuilder(
             $config,
             $leaf['scopeConfig'],

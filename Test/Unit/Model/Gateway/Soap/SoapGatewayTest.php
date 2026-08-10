@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway;
+use Taxcloud\Magento2\Test\Unit\BuildsUserAgent;
 use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 
 /**
@@ -25,6 +26,8 @@ use Taxcloud\Magento2\Test\Unit\Double\SoapClientDouble;
 #[AllowMockObjectsWithoutExpectations]
 class SoapGatewayTest extends TestCase
 {
+    use BuildsUserAgent;
+
     private $soapClientFactory;
     private $config;
 
@@ -38,7 +41,7 @@ class SoapGatewayTest extends TestCase
 
     private function gateway(): SoapGateway
     {
-        return new SoapGateway($this->soapClientFactory, $this->config, new NullLogger());
+        return new SoapGateway($this->soapClientFactory, $this->config, $this->userAgent(), new NullLogger());
     }
 
     public function testBuildSoapOptionsUsesConfiguredTimeout()
@@ -52,6 +55,38 @@ class SoapGatewayTest extends TestCase
         $this->assertSame(WSDL_CACHE_BOTH, $options['cache_wsdl']);
         $this->assertTrue($options['keep_alive']);
         $this->assertIsResource($options['stream_context']);
+    }
+
+    /**
+     * The WSDL fetch is a separate HTTP request from the SOAP calls, and both
+     * must be attributable. PHP 8.1–8.4 were measured to identify both from
+     * either placement alone, so this pins the belt-and-braces arrangement we
+     * ship rather than a necessity: both present, and equal, from one source.
+     */
+    public function testBuildSoapOptionsIdentifiesBothTheSoapCallAndTheWsdlFetch()
+    {
+        $options = $this->gateway()->buildSoapOptions();
+
+        $this->assertSame($this->expectedUserAgent(), $options['user_agent']);
+
+        $context = stream_context_get_options($options['stream_context']);
+        $this->assertSame($this->expectedUserAgent(), $context['http']['user_agent'] ?? null);
+        $this->assertSame($options['user_agent'], $context['http']['user_agent']);
+    }
+
+    /**
+     * The existing transport options must survive the addition untouched.
+     */
+    public function testBuildSoapOptionsKeepsTimeoutsAlongsideTheUserAgent()
+    {
+        $options = $this->gateway()->buildSoapOptions();
+        $context = stream_context_get_options($options['stream_context']);
+
+        $this->assertSame(10, $options['connection_timeout']);
+        $this->assertSame(WSDL_CACHE_BOTH, $options['cache_wsdl']);
+        $this->assertTrue($options['keep_alive']);
+        $this->assertSame(10, $context['http']['timeout']);
+        $this->assertSame(10, $context['ssl']['timeout']);
     }
 
     /**

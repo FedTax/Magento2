@@ -20,6 +20,7 @@ namespace Taxcloud\Magento2\Model\Gateway\Rest;
 use Magento\Framework\HTTP\Client\CurlFactory;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\PingResult;
+use Taxcloud\Magento2\Model\Gateway\UserAgent;
 use Throwable;
 
 /**
@@ -65,15 +66,26 @@ class RestClient
     private $authProvider;
 
     /**
+     * @var UserAgent
+     */
+    private $userAgent;
+
+    /**
      * @param CurlFactory    $curlFactory
      * @param TaxcloudConfig $config
      * @param AuthProvider   $authProvider
+     * @param UserAgent      $userAgent
      */
-    public function __construct(CurlFactory $curlFactory, TaxcloudConfig $config, AuthProvider $authProvider)
-    {
+    public function __construct(
+        CurlFactory $curlFactory,
+        TaxcloudConfig $config,
+        AuthProvider $authProvider,
+        UserAgent $userAgent
+    ) {
         $this->curlFactory = $curlFactory;
         $this->config = $config;
         $this->authProvider = $authProvider;
+        $this->userAgent = $userAgent;
     }
 
     /**
@@ -249,7 +261,10 @@ class RestClient
         $curl = $this->curlFactory->create();
         $curl->setTimeout($this->config->getSoapTimeout($store));
 
-        $headers = $authHeaders + ['Accept' => 'application/json'];
+        $headers = $authHeaders + [
+            'Accept' => 'application/json',
+            'User-Agent' => $this->userAgent->get(),
+        ];
         if ($body !== null) {
             $headers += ['Content-Type' => 'application/json'];
         }

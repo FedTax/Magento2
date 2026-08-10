@@ -24,6 +24,7 @@ use Taxcloud\Magento2\Model\Gateway\Rest\RestConfigurationException;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenCache;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchange;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchangeException;
+use Taxcloud\Magento2\Test\Unit\BuildsUserAgent;
 
 /**
  * pingForScope: the store's own resolved credentials drive the ping — Bearer
@@ -33,6 +34,8 @@ use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchangeException;
 #[AllowMockObjectsWithoutExpectations]
 class RestClientScopePingTest extends TestCase
 {
+    use BuildsUserAgent;
+
     private const CONN = '25eb9b97-5acb-492d-b720-c03e79cf715a';
 
     /**
@@ -63,7 +66,12 @@ class RestClientScopePingTest extends TestCase
         $this->exchange = $this->createMock(TokenExchange::class);
         $this->cache = $this->createMock(TokenCache::class);
 
-        return new RestClient($curlFactory, $config, new AuthProvider($config, $this->exchange, $this->cache));
+        return new RestClient(
+            $curlFactory,
+            $config,
+            new AuthProvider($config, $this->exchange, $this->cache),
+            $this->userAgent()
+        );
     }
 
     private static function value(string $path, $value): array
