@@ -173,6 +173,26 @@
       <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
     </arguments>
   </type>
+  <type name="Taxcloud\Magento2\Model\Tic\TicCache">
+    <arguments>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <!--
+    TIC lookup follows the gateway's own rule: the store's api_type decides
+    which API answers, so the picker can never disagree with the transport the
+    same store transacts over. Both backends are proxied, so a fleet that only
+    ever selects one API never builds the other's stack.
+  -->
+  <preference for="Taxcloud\Magento2\Api\TicLookupInterface"
+              type="Taxcloud\Magento2\Model\Tic\TicLookupRouter" />
+  <type name="Taxcloud\Magento2\Model\Tic\TicLookupRouter">
+    <arguments>
+      <argument name="soap" xsi:type="object">Taxcloud\Magento2\Model\Tic\SoapTicLookup\Proxy</argument>
+      <argument name="rest" xsi:type="object">Taxcloud\Magento2\Model\Tic\RestTicLookup\Proxy</argument>
+    </arguments>
+  </type>
 
   <type name="Magento\Framework\Console\CommandList">
     <arguments>
