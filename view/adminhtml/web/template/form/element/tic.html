@@ -1,0 +1,67 @@
+<div class="taxcloud-tic-field" data-bind="css: {'_open': open}">
+    <input class="admin__control-text taxcloud-tic-input"
+           type="text"
+           data-bind="
+                attr: {
+                    name: inputName,
+                    placeholder: $t('Search a product type, or type a TIC code'),
+                    id: uid,
+                    disabled: disabled,
+                    autocomplete: 'off'
+                },
+                value: value,
+                valueUpdate: 'input',
+                hasFocus: focused,
+                event: {
+                    keyup: onKeyInput,
+                    keydown: onKeyDown,
+                    blur: onBlur
+                }"/>
+
+    <!-- ko if: loading -->
+    <span class="taxcloud-tic-spinner"
+          role="status"
+          data-bind="attr: {'aria-label': $t('Searching TaxCloud')}"></span>
+    <!-- /ko -->
+
+    <ul class="taxcloud-tic-suggestions" data-bind="visible: open, foreach: suggestions">
+        <li class="taxcloud-tic-suggestion"
+            data-bind="
+                css: {'_active': $parent.isHighlighted($index())},
+                click: function () { $parent.select($data); },
+                event: {mouseover: function () { $parent.highlighted = $index(); }}">
+            <span class="taxcloud-tic-code" data-bind="text: $data.code"></span>
+            <span class="taxcloud-tic-body">
+                <span class="taxcloud-tic-label" data-bind="text: $data.label"></span>
+                <!-- ko if: $data.detail -->
+                <span class="taxcloud-tic-detail" data-bind="text: $data.detail"></span>
+                <!-- /ko -->
+            </span>
+            <!-- ko if: $parent.relevance($data) -->
+            <span class="taxcloud-tic-score" data-bind="text: $parent.relevance($data)"></span>
+            <!-- /ko -->
+        </li>
+    </ul>
+
+    <!-- ko if: state === 'resolved' && resolvedLabel -->
+    <p class="taxcloud-tic-note _resolved">
+        <span data-bind="text: resolvedLabel"></span>
+    </p>
+    <!-- /ko -->
+
+    <!-- ko if: state === 'notfound' -->
+    <p class="taxcloud-tic-note _notfound" data-bind="text: notFoundText()"></p>
+    <!-- /ko -->
+
+    <!-- ko if: state === 'nomatch' -->
+    <p class="taxcloud-tic-note _muted" data-bind="text: $t('No TICs match that search. Try other words, or enter a code.')"></p>
+    <!-- /ko -->
+
+    <!-- ko if: state === 'unavailable' -->
+    <p class="taxcloud-tic-note _unavailable" data-bind="text: unavailableText()"></p>
+    <!-- /ko -->
+
+    <!-- ko if: state === 'idle' && !value() && fallbackHint -->
+    <p class="taxcloud-tic-note _muted" data-bind="text: fallbackHint"></p>
+    <!-- /ko -->
+</div>

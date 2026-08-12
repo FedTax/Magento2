@@ -2,7 +2,8 @@
 
 Lets an administrator find the right Taxability Information Code by describing what they are selling, instead of having to already know its number — in every place a TIC can be set, without ever preventing them from entering a code the system does not recognise.
 
-## ADDED Requirements
+## Requirements
+
 
 ### Requirement: TIC lookup is available wherever a TIC is set
 
@@ -41,6 +42,24 @@ Where the underlying source provides further detail about a candidate — longer
 #### Scenario: Nothing matches
 - **WHEN** a search returns no candidates
 - **THEN** the administrator is told plainly, and whatever they have typed remains in the field untouched
+
+### Requirement: A lookup in progress is visible
+
+While a lookup is being performed the field SHALL show that it is working, and that indication SHALL clear once the lookup finishes, whatever its outcome.
+
+A lookup that has been superseded or abandoned — because the query changed, because the administrator chose a suggestion, or because they cleared the field — SHALL NOT continue to appear in progress, and its late answer SHALL NOT be applied.
+
+#### Scenario: Searching shows progress
+- **WHEN** a lookup is underway
+- **THEN** the field indicates that it is working
+
+#### Scenario: Progress clears on completion
+- **WHEN** a lookup returns results, returns nothing, or fails
+- **THEN** the field no longer indicates that it is working
+
+#### Scenario: A superseded lookup is abandoned
+- **WHEN** an administrator picks a suggestion, or shortens the query below the length that triggers a search, while a lookup is still underway
+- **THEN** that lookup's answer is discarded rather than repopulating the field, and the progress indication clears
 
 ### Requirement: Lookup follows the store's configured API
 

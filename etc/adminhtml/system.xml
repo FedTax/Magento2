@@ -143,6 +143,7 @@
 
         <field id="default_tic" translate="label" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Default TIC</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/default_tic</config_path>
           <tooltip>Default TIC if not specified per product (Default 00000)</tooltip>
@@ -153,6 +154,7 @@
 
         <field id="shipping_tic" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Shipping TIC</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/shipping_tic</config_path>
           <tooltip>Shipping TIC (Use 11010 if you charge only postage, and 11000 for shipping &amp; handling)</tooltip>

@@ -1,0 +1,133 @@
+//
+//  Taxcloud_Magento2 — admin styles
+//  _module.less is collected automatically into the adminhtml theme, so these
+//  reach every page a TIC field appears on (product form, category form and
+//  Stores → Configuration) without per-page layout wiring.
+//  _____________________________________________
+
+.taxcloud-tic-field {
+    position: relative;
+
+    .taxcloud-tic-input {
+        font-family: @font-family__monospace, monospace;
+    }
+}
+
+//  Sits inside the field, over the right-hand end of the input, so it reads as
+//  "this field is working" rather than as page chrome. Dimensions are explicit
+//  for the same reason the text sizes are: the configuration form zeroes the
+//  inherited font-size, and anything sized in em would collapse.
+.taxcloud-tic-spinner {
+    animation: taxcloud-tic-spin 700ms linear infinite;
+    border: 2px solid @color-gray89;
+    border-radius: 50%;
+    border-top-color: @color-gray60;
+    display: block;
+    height: 14px;
+    position: absolute;
+    right: 1rem;
+    top: 1rem;
+    width: 14px;
+}
+
+@keyframes taxcloud-tic-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.taxcloud-tic-suggestions {
+    background: @color-white;
+    border: 1px solid @color-gray68;
+    border-top: 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+    list-style: none;
+    margin: 0;
+    max-height: 22rem;
+    overflow-y: auto;
+    padding: 0;
+    position: absolute;
+    width: 100%;
+    z-index: 500;
+}
+
+.taxcloud-tic-suggestion {
+    border-top: 1px solid @color-gray89;
+    //  Both explicit, never inherited. The configuration form sets
+    //  `font-size: 0` on its field containers — the old trick for removing
+    //  whitespace between inline-blocks — and expects every child to declare
+    //  its own size. Anything here that inherits collapses to zero height and
+    //  vanishes, while explicitly-sized siblings in the same row keep
+    //  rendering, which is exactly how this shipped broken.
+    color: @color-gray20;
+    font-size: 1.3rem;
+    cursor: pointer;
+    display: flex;
+    gap: 1rem;
+    padding: .8rem 1rem;
+
+    &:first-child {
+        border-top: 0;
+    }
+
+    &._active {
+        background: @color-gray94;
+    }
+}
+
+//  Fixed-width code column: codes line up as a column and scan vertically,
+//  which is what makes a list of numbers readable at all.
+.taxcloud-tic-code {
+    color: @color-gray40;
+    flex: 0 0 5.5rem;
+    font-family: @font-family__monospace, monospace;
+    font-size: 1.2rem;
+}
+
+.taxcloud-tic-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.taxcloud-tic-label {
+    color: @color-gray20;
+    display: block;
+    font-size: 1.3rem;
+}
+
+//  v3 supplies this; v1 has no equivalent, so the row simply collapses to one
+//  line rather than showing an empty affordance.
+.taxcloud-tic-detail {
+    color: @color-gray60;
+    display: block;
+    font-size: 1.1rem;
+    line-height: 1.4;
+}
+
+.taxcloud-tic-score {
+    color: @color-gray60;
+    flex: 0 0 auto;
+    font-size: 1.1rem;
+}
+
+.taxcloud-tic-note {
+    font-size: 1.2rem;
+    margin: .5rem 0 0;
+
+    &._resolved {
+        color: @color-dark-green1;
+    }
+
+    //  Amber, not red: the value is being kept, not rejected. Deliberately a
+    //  literal — the UI library ships no amber token, and its nearest option
+    //  (@color-orange-red1) reads as an error, which is the one thing this
+    //  message must not do.
+    &._notfound {
+        color: #8a5a00;
+    }
+
+    &._unavailable,
+    &._muted {
+        color: @color-gray60;
+    }
+}

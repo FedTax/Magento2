@@ -36,6 +36,7 @@ class SoapClientDouble extends \SoapClient
     public function OrderDetails($params = null) {}
     public function GetExemptCertificates($params = null) {}
     public function verifyAddress($params = null) {}
+    public function GetTICs($params = null) {}
 }
 
 /**

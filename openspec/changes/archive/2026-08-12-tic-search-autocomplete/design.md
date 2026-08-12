@@ -50,28 +50,55 @@ route.
 
 ## Decisions
 
-### D1: One Knockout UI element component, hosted three ways
+### D1: One shared behaviour module, two thin adapters, four mounts
 
-Implement the field as a UI form element component extending
-`Magento_Ui/js/form/element/abstract`, with one template. Mount it:
+**Revised during implementation.** This decision originally read "one component
+extending `Magento_Ui/js/form/element/abstract`, hosted three ways, with the
+config fields booting it via `x-magento-init` + `Magento_Ui/js/core/app`". That
+is not possible: `abstract` hard-wires
 
-- **Category** — `formElement`/`component` in `category_form.xml`.
-- **Product** — the EAV attribute is rendered dynamically, so point it at the
-  component via a product form modifier rather than editing a form XML file.
-- **Config fields** — a `frontend_model` block that renders
-  `<div data-bind="scope:…">` plus `x-magento-init` with
-  `Magento_Ui/js/core/app`, which boots a UI component inside the old config
-  form. Both `default_tic` and `shipping_tic` use the same block with different
-  field metadata.
+```
+imports: { value: '${ $.provider }:${ $.dataScope }' }
+```
+
+plus three `listens` on `${ $.provider }`. The configuration form is not a UI
+form and has no data provider, so those resolve to nothing and the value never
+binds. The trick works for *rendering* a UI component in config; it does not
+give that component a value.
+
+What ships instead keeps the intent — one implementation of the interaction —
+while respecting the platform:
+
+- `js/tic/behaviour.js` — every observable, state transition, request, ranking
+  and piece of wording. This is the component in all but name.
+- `js/form/element/tic.js` — extends `abstract`, mixes in the behaviour. Value
+  comes from the form's data provider, so the label, scope label and
+  "Use Default Value" chrome keep working. Serves **category** (declared in
+  `category_form.xml`) and **product** (attached by a form modifier, since the
+  product form generates its attribute fields from EAV metadata at runtime and
+  has no XML file to edit).
+- `js/config/tic.js` — extends `uiElement`, mixes in the same behaviour, and
+  owns its `value` observable directly. Serves **`default_tic`** and
+  **`shipping_tic`** through one `frontend_model` block; the control writes
+  through to the real config input, so the configuration form posts the setting
+  exactly as before.
+
+The adapters exist solely because Magento has two different ways for a field to
+obtain a value. They contain no behaviour of their own — roughly 25 lines each,
+almost all of it `defaults`.
 
 *Alternative considered:* a jQuery UI widget attached to a plain input,
 initialised three ways. Rejected — the category and product forms are Knockout,
-so a jQuery widget would fight the UI component lifecycle (value binding,
-"Use Default Value" checkboxes, scope switching) that we get for free by
+so a jQuery widget would fight the UI component lifecycle we get for free by
 extending `abstract`.
 
-*Alternative considered:* three separate implementations sharing only CSS.
+*Alternative considered:* four separate implementations sharing only CSS.
 Rejected outright — it is the thing the change exists to avoid.
+
+*Alternative considered (post-revision):* give the config fields a minimal fake
+data provider so a single `abstract`-based component could serve all four.
+Rejected — a stub provider that exists only to satisfy an import is more
+machinery, and more to break on upgrade, than a 25-line adapter.
 
 ### D2: A single lookup service, dispatched by `api_type`
 
@@ -171,10 +198,18 @@ product attribute's scope would alter stored data and belongs to its own change.
   non-blocking. Flushing the cache type refreshes it on demand.
 - **Product form modifier is version-sensitive** → modifiers are a public
   extension point but touch a busy core form; covered by e2e on the product
-  form specifically, not only on the simpler category form.
-- **Config-form UI component hosting is the least common of the three mounts**
-  → it is a known Magento pattern, but it is the one most likely to break on an
-  upgrade; the block stays as thin as possible so a future fix is local.
+  form specifically, not only on the simpler category form. Verified working in
+  a real admin during implementation.
+- **Config-form UI component hosting is the least common of the mounts** → the
+  one most likely to break on an upgrade; the block stays as thin as possible
+  so a future fix is local. Verified working during implementation, but only
+  after the value-binding problem in D1 forced a second adapter.
+- **Deployment: this change adds a DI preference and a new top-level `Ui/`
+  directory** → the preference needs a real `setup:di:compile`
+  (`setup:upgrade --keep-generated` preserves the stale container and the
+  endpoint 500s with "Cannot instantiate interface"), and a running dev install
+  that symlinks module directories individually needs a manual link for `Ui/`.
+  Both cost time during implementation; both are release-note material.
 - **779 entries searched in PHP per request** → trivially fast at this size, but
   it is a linear scan; if the list ever grows by an order of magnitude this
   becomes an index, not a scan.

@@ -5,7 +5,10 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 ## 1.4.0
 
 Run `bin/magento setup:upgrade` after updating: this release pins existing
-installs to their current API via a data patch.
+installs to their current API via a data patch. In production mode also run
+`bin/magento setup:di:compile` — this release adds dependency-injection
+preferences, and an install still holding a compiled container from 1.3.0 will
+fail with "Cannot instantiate interface" when TIC search is used.
 
 ### Added
 
@@ -41,6 +44,27 @@ installs to their current API via a data patch.
   the V1 pair — cached until shortly before expiry and refreshed
   automatically — so migrated merchants get a working REST connection with no
   portal action. A saved V3 API Key always takes precedence.
+- **TIC search on every field that takes a TIC.** The product TIC, the category
+  TIC, the Default TIC and the Shipping TIC now offer autocomplete: type what
+  you sell ("candy", "combined shipping and handling") and pick from matching
+  Taxability Information Codes, each shown with its code *and* its description.
+  A code already saved is displayed with its meaning, so `40010` reads as
+  "Candy" without a trip to the TaxCloud site, and an empty field tells you what
+  it will fall back to.
+
+  The fields stay free-text. Search fills them in; it never restricts them. A
+  code TaxCloud does not recognise is kept exactly as entered, with a note
+  saying so — useful when TaxCloud issues a TIC newer than the list your store
+  has cached. Saving is never blocked, and if search is unavailable (no
+  credentials saved yet, or TaxCloud unreachable) the field goes on working as
+  the plain text box it was.
+
+  Which API answers follows the store's **API Type**: V3 REST stores use
+  TaxCloud's semantic TIC search, V1 SOAP stores search a locally cached copy of
+  the full TIC list, refreshed daily. *The two do not return identical results —
+  V3 understands descriptions ("beans for espresso"), V1 matches text.* That
+  difference is expected, not a fault. Clearing the `taxcloud` cache refreshes
+  the V1 list on demand.
 - **Requests now identify the extension, Magento and PHP versions.** Every
   call to TaxCloud — on both API generations, including address verification,
   order capture and returns, the Test Connection button, the credential

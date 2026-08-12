@@ -99,21 +99,23 @@ class TicSuggestion
     }
 
     /**
-     * Shape handed to the admin UI. Keys absent rather than null when the
-     * source had nothing, so the template can test presence directly.
+     * Shape handed to the admin UI.
+     *
+     * Every key is always present, null when the source had nothing to put
+     * there. Omitting them would be a smaller payload but a trap: inside a
+     * Knockout foreach a bare `detail` resolves against $data only when the
+     * property exists, and otherwise escapes to global scope and throws. Always
+     * emitting the key makes both `detail` and `$data.detail` safe.
      *
      * @return array<string, mixed>
      */
     public function toArray(): array
     {
-        $data = ['code' => $this->code, 'label' => $this->label];
-        if ($this->detail !== null && $this->detail !== '') {
-            $data['detail'] = $this->detail;
-        }
-        if ($this->score !== null) {
-            $data['score'] = $this->score;
-        }
-
-        return $data;
+        return [
+            'code' => $this->code,
+            'label' => $this->label,
+            'detail' => $this->detail !== '' ? $this->detail : null,
+            'score' => $this->score,
+        ];
     }
 }

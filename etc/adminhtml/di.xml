@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2025 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+  <!--
+    The product form generates its attribute fields from EAV metadata at
+    runtime, so a modifier is the only place to attach the autocomplete. The
+    category form declares its field in XML and needs no equivalent.
+
+    Declared here rather than in etc/di.xml because the modifier pool this
+    extends is itself an adminhtml-area virtualType (Magento_Catalog's
+    etc/adminhtml/di.xml); adding to it from global scope does not merge.
+  -->
+  <virtualType name="Magento\Catalog\Ui\DataProvider\Product\Form\Modifier\Pool">
+    <arguments>
+      <argument name="modifiers" xsi:type="array">
+        <item name="taxcloud_tic" xsi:type="array">
+          <item name="class" xsi:type="string">Taxcloud\Magento2\Ui\DataProvider\Product\Form\Modifier\TicField</item>
+          <item name="sortOrder" xsi:type="number">200</item>
+        </item>
+      </argument>
+    </arguments>
+  </virtualType>
+</config>

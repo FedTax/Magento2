@@ -87,7 +87,13 @@ class RestTicLookup implements TicLookupInterface
 
         $cached = $this->cache->load($query, $store);
         if ($cached !== null) {
-            return new TicSearchResult(TicSearchResult::AVAILABLE, $cached);
+            // Ranking is applied on the way out, never on the way in: the cache
+            // holds TaxCloud's own order, and a cached hit that skipped this
+            // would quietly stop promoting the exact code the admin typed.
+            return new TicSearchResult(
+                TicSearchResult::AVAILABLE,
+                $this->sorter->exactCodeFirst($cached, $query)
+            );
         }
 
         try {

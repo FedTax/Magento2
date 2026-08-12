@@ -64,6 +64,18 @@ class SoapTicLookup implements TicLookupInterface
     private $sorter;
 
     /**
+     * The catalogue for this request, keyed by credential fingerprint.
+     *
+     * Belt to the cache's braces: an admin can disable the TaxCloud cache type
+     * from System → Cache Management, and without this every keystroke would
+     * re-fetch all 779 TICs over SOAP. With it, a disabled cache costs one
+     * fetch per request instead of one per search.
+     *
+     * @var array<string, TicSearchResult>
+     */
+    private $catalogue = [];
+
+    /**
      * @param SoapClientProviderInterface $clientProvider
      * @param TaxcloudConfig $config
      * @param TicCache $cache
@@ -124,7 +136,7 @@ class SoapTicLookup implements TicLookupInterface
     }
 
     /**
-     * The store's TIC catalogue, from cache when warm.
+     * The store's TIC catalogue, from this request's memo or the cache.
      *
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return TicSearchResult
@@ -138,20 +150,30 @@ class SoapTicLookup implements TicLookupInterface
         }
 
         $fingerprint = sha1($apiId . '|' . $apiKey);
+
+        // Memoized outcomes include the failures: a store whose credentials
+        // TaxCloud just rejected should not be asked again for every keystroke
+        // of the same request.
+        if (isset($this->catalogue[$fingerprint])) {
+            return $this->catalogue[$fingerprint];
+        }
+
         $cached = $this->cache->loadList($fingerprint);
         if ($cached !== null) {
-            return new TicSearchResult(TicSearchResult::AVAILABLE, $cached);
+            return $this->catalogue[$fingerprint] = new TicSearchResult(TicSearchResult::AVAILABLE, $cached);
         }
 
         $client = $this->clientProvider->getClient($store);
         if ($client === null) {
-            return new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_TRANSPORT);
+            return $this->catalogue[$fingerprint] =
+                new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_TRANSPORT);
         }
 
         try {
             $response = $client->GetTICs(['apiLoginID' => $apiId, 'apiKey' => $apiKey]);
         } catch (Throwable $e) {
-            return new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_TRANSPORT);
+            return $this->catalogue[$fingerprint] =
+                new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_TRANSPORT);
         }
 
         $result = $response->GetTICsResult ?? null;
@@ -159,17 +181,19 @@ class SoapTicLookup implements TicLookupInterface
         if ($type !== 'OK' && $type !== 'Informational') {
             // v1 answers a bad credential pair with a non-OK ResponseType
             // rather than a fault.
-            return new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_AUTH_FAILED);
+            return $this->catalogue[$fingerprint] =
+                new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_AUTH_FAILED);
         }
 
         $suggestions = $this->mapTics($result);
         if ($suggestions === []) {
-            return new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_TRANSPORT);
+            return $this->catalogue[$fingerprint] =
+                new TicSearchResult(TicSearchResult::UNAVAILABLE, [], TicSearchResult::REASON_TRANSPORT);
         }
 
         $this->cache->saveList($fingerprint, $suggestions);
 
-        return new TicSearchResult(TicSearchResult::AVAILABLE, $suggestions);
+        return $this->catalogue[$fingerprint] = new TicSearchResult(TicSearchResult::AVAILABLE, $suggestions);
     }
 
     /**
