@@ -93,10 +93,10 @@ class SearchTest extends TestCase
      */
     private function isAllowed(Search $controller): bool
     {
-        $method = new \ReflectionMethod($controller, '_isAllowed');
-        $method->setAccessible(true);
-
-        return (bool) $method->invoke($controller);
+        // No setAccessible(): it has been a no-op since PHP 8.1 and is
+        // deprecated in 8.5, which Magento's unit bootstrap turns into a
+        // failure on the 2.4.9 matrix.
+        return (bool) (new \ReflectionMethod($controller, '_isAllowed'))->invoke($controller);
     }
 
     /**

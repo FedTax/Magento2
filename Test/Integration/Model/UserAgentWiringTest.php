@@ -59,10 +59,9 @@ class UserAgentWiringTest extends IntegrationTestCase
      */
     private function injected(object $object, string $property)
     {
-        $reflection = new \ReflectionProperty($object, $property);
-        $reflection->setAccessible(true);
-
-        return $reflection->getValue($object);
+        // No setAccessible(): it has been a no-op since PHP 8.1 and is
+        // deprecated in 8.5, which the test bootstrap turns into a failure.
+        return (new \ReflectionProperty($object, $property))->getValue($object);
     }
 
     public function testEveryTransportReceivesTheSharedUserAgentInstance(): void
