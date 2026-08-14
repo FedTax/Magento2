@@ -22,6 +22,7 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\CompositeItemResolver;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Taxcloud\Magento2\Model\ProductTicService;
@@ -215,12 +216,24 @@ class RequestBuilder
                     // Skip products with tax_class_id of None, store owners should avoid doing this
                     continue;
                 }
+                if (CompositeItemResolver::isQuoteParentPricedByChildren($item)) {
+                    // Dynamic-price bundle: the children below carry this line's
+                    // whole basis and are cart lines of their own. Sending the
+                    // parent as well would report that basis to TaxCloud twice.
+                    continue;
+                }
+
+                // Not getQty(): a bundle child stores its qty per parent, so the
+                // effective qty is what the row total was built from.
+                $qty = CompositeItemResolver::quoteQty($item);
+                $discountPerUnit = $qty > 0 ? $item->getDiscountAmount() / $qty : 0;
+
                 $cartItems[] = [
                     'ItemID' => $item->getSku(),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes', $store),
-                    'Price' => $item->getPrice() - $item->getDiscountAmount() / $item->getQty(),
-                    'Qty' => $item->getQty(),
+                    'Price' => $item->getPrice() - $discountPerUnit,
+                    'Qty' => $qty,
                 ];
                 $indexedItems[$index++] = $code;
             }
@@ -307,6 +320,21 @@ class RequestBuilder
                     continue;
                 }
                 $item = $creditItem->getOrderItem();
+                // A credit memo lists parents and children alike, so both halves
+                // of a composite have to be filtered to leave exactly the lines
+                // that carry the basis — the same ones the Lookup sent.
+                //
+                // Dynamic-price bundle parent: its children are credit-memo items
+                // of their own and carry the basis. Unlike the quote side, their
+                // qty is already absolute — do not multiply it here.
+                if (CompositeItemResolver::isOrderParentPricedByChildren($item)) {
+                    continue;
+                }
+                // Configurable or fixed-bundle child: the parent above carries
+                // the price and this line is worth 0.
+                if (CompositeItemResolver::isOrderChildWithoutBasis($item)) {
+                    continue;
+                }
                 $price = $creditItem->getPrice();
                 $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
                 $cartItems[] = [
@@ -380,22 +408,27 @@ class RequestBuilder
         $index = 0;
         $orderItems = $order->getAllVisibleItems();
         if ($orderItems) {
-            foreach ($orderItems as $item) {
-                $qty = (float) $item->getQtyOrdered();
-                if ($qty <= 0) {
-                    continue;
+            foreach ($orderItems as $visibleItem) {
+                // A dynamic-price bundle is visible as its parent, but the basis
+                // lives on its children — and those are the lines the Lookup for
+                // this order sent, so a return has to name the same ones.
+                foreach (CompositeItemResolver::orderBasisItems($visibleItem) as $item) {
+                    $qty = (float) $item->getQtyOrdered();
+                    if ($qty <= 0) {
+                        continue;
+                    }
+                    $price = (float) $item->getPrice();
+                    $discountAmount = (float) $item->getDiscountAmount();
+                    $discountPerUnit = $qty > 0 ? $discountAmount / $qty : 0;
+                    $cartItems[] = [
+                        'ItemID' => $item->getSku(),
+                        'Index' => $index,
+                        'TIC' => $this->productTicService->getProductTic($item, 'returnOrder', $store),
+                        'Price' => $price - $discountPerUnit,
+                        'Qty' => $qty,
+                    ];
+                    $index++;
                 }
-                $price = (float) $item->getPrice();
-                $discountAmount = (float) $item->getDiscountAmount();
-                $discountPerUnit = $qty > 0 ? $discountAmount / $qty : 0;
-                $cartItems[] = [
-                    'ItemID' => $item->getSku(),
-                    'Index' => $index,
-                    'TIC' => $this->productTicService->getProductTic($item, 'returnOrder', $store),
-                    'Price' => $price - $discountPerUnit,
-                    'Qty' => $qty,
-                ];
-                $index++;
             }
         }
         $shippingAmount = (float) $order->getBaseShippingAmount();

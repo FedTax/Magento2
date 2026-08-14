@@ -67,6 +67,7 @@
     <rule ref="Magento2.Functions.StaticFunction">
         <exclude-pattern>Model/PostalCodeParser\.php$</exclude-pattern>
         <exclude-pattern>Model/Logging/LogRedactor\.php$</exclude-pattern>
+        <exclude-pattern>Model/CompositeItemResolver\.php$</exclude-pattern>
     </rule>
 
     <!-- 1 finding: stream_context_create() flagged as an unguarded system-resource
