@@ -129,6 +129,10 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         // Fetch tax amount from TaxCloud
         $taxAmounts = $this->tcapi->lookupTaxes($itemsByType, $shippingAssignment, $quote);
 
+        // Typed as core types them (CommonTaxCollector::processProductItems):
+        // a shipping assignment's items are quote items, and the composite
+        // accessors below live on AbstractItem rather than CartItemInterface.
+        /** @var \Magento\Quote\Model\Quote\Item\AbstractItem[] $keyedAddressItems */
         $keyedAddressItems = [];
         foreach ($shippingAssignment->getItems() as $item) {
             // Configurable/composite lines expose a child item with no tax
@@ -151,21 +155,36 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 
                 $quoteItem = $keyedAddressItems[$code];
 
-                if ($quoteItem->getProduct()->getTaxClassId() === '0' || $quoteItem->getQty() === 0) {
+                // A bundle child's qty is stored per parent while its row total
+                // is already parent-multiplied; CompositeItemResolver reconciles
+                // the two the same way the Lookup request does.
+                $effectiveQty = CompositeItemResolver::quoteQty($quoteItem);
+                $isPricedByChildren = CompositeItemResolver::isQuoteParentPricedByChildren($quoteItem);
+
+                if ($quoteItem->getProduct()->getTaxClassId() === '0' || $effectiveQty <= 0) {
                     $taxAmount = 0;
                     $taxAmountPer = 0;
+                } elseif ($isPricedByChildren) {
+                    // Never sent to TaxCloud, so it has no amount of its own: show
+                    // the sum of its children, which is the tax this line bears.
+                    $taxAmount = $this->sumChildTaxAmounts($quoteItem, $taxAmounts);
+                    $taxAmountPer = $taxAmount / $effectiveQty;
                 } else {
                     $taxAmount = $taxAmounts[self::ITEM_TYPE_PRODUCT][$code] ?? 0;
-                    $taxAmountPer = $taxAmount / $quoteItem->getQty();
+                    $taxAmountPer = $taxAmount / $effectiveQty;
                 }
 
-                $productTaxTotal += (float) $taxAmount;
+                if (!$isPricedByChildren) {
+                    // The parent's amount is an echo of its children's, and core
+                    // keeps it out of the address total for the same reason.
+                    $productTaxTotal += (float) $taxAmount;
+                }
 
                 // Snapshot pre-tax values on first collect; reuse on subsequent passes.
                 // Without this, any 3rd-party collector that mutates getPrice()/getRowTotal()
                 // between collect() invocations causes incl-tax to compound (see order #2000543282).
                 // Snapshot invalidates on qty change so genuine cart edits are picked up.
-                $currentQty = (float) $quoteItem->getQty();
+                $currentQty = $effectiveQty;
                 if ($quoteItem->getData('taxcloud_pretax_price') === null
                     || (float) $quoteItem->getData('taxcloud_pretax_qty') !== $currentQty
                 ) {
@@ -283,5 +302,30 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         }
 
         return $this;
+    }
+
+    /**
+     * Total the looked-up tax of a quote item's children.
+     *
+     * The tax a dynamic-price bundle's parent line displays: it is not sent to
+     * TaxCloud itself, so this is the only amount it can honestly carry.
+     *
+     * @param \Magento\Quote\Model\Quote\Item\AbstractItem $quoteItem
+     * @param array $taxAmounts Lookup amounts keyed by tax-calculation item id
+     * @return float
+     */
+    private function sumChildTaxAmounts($quoteItem, array $taxAmounts)
+    {
+        $sum = 0.0;
+
+        foreach ($quoteItem->getChildren() as $child) {
+            $childCode = $child->getTaxCalculationItemId();
+            if ($childCode === null) {
+                continue;
+            }
+            $sum += (float) ($taxAmounts[self::ITEM_TYPE_PRODUCT][$childCode] ?? 0);
+        }
+
+        return $sum;
     }
 }

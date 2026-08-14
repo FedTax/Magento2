@@ -57,15 +57,30 @@ try {
     // area already set
 }
 
-// The full seeded catalog. Keep in sync with seed-test-data.php.
-$skus = ['test-product', 'test-variant-red', 'test-variant-blue', 'test-configurable'];
+// The full seeded catalog. Keep in sync with seed-test-data.php. test-giftcard
+// only exists on Adobe Commerce; a missing sku is skipped below, so listing it
+// unconditionally is safe.
+$skus = [
+    'test-product',
+    'test-variant-red',
+    'test-variant-blue',
+    'test-configurable',
+    'test-virtual',
+    'test-downloadable',
+    'test-grouped',
+    'test-bundle-dynamic',
+    'test-bundle-fixed',
+    'test-giftcard',
+];
 
 $productRepository = $om->get(\Magento\Catalog\Api\ProductRepositoryInterface::class);
 
 $ids = [];
+$found = [];
 foreach ($skus as $sku) {
     try {
         $ids[] = (int) $productRepository->get($sku)->getId();
+        $found[] = $sku;
     } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
         echo "[enable] skip $sku (not found)\n";
     }
@@ -82,4 +97,4 @@ $om->get(\Magento\Catalog\Model\Product\Action::class)->updateAttributes(
     0
 );
 
-echo '[enable] enabled ' . count($ids) . ' test products: ' . implode(', ', $skus) . "\n";
+echo '[enable] enabled ' . count($ids) . ' test products: ' . implode(', ', $found) . "\n";

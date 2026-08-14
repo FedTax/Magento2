@@ -395,6 +395,167 @@ class TaxTest extends TestCase
     }
 
     /**
+     * Helper: a quote item wired into a composite hierarchy, for the bundle
+     * cases below. $children may be a closure, since a parent built before its
+     * children still has to hand them back.
+     */
+    private function createMockCompositeQuoteItem(
+        $itemId,
+        $qty,
+        $price,
+        $rowTotal,
+        $parent = null,
+        $children = [],
+        $childrenCalculated = false
+    ) {
+        $item = $this->getMockBuilder(Dbl\QuoteItemDouble::class)
+            ->onlyMethods([
+                'getPrice', 'getProduct', 'getQty', 'getBasePrice', 'getBaseRowTotal', 'getRowTotal',
+                'getTaxCalculationItemId', 'setBasePriceInclTax', 'setBaseRowTotalInclTax', 'setBaseTaxAmount',
+                'setPriceInclTax', 'setRowTotalInclTax', 'setTaxAmount', 'setTaxPercent',
+                'getParentItem', 'getChildren', 'isChildrenCalculated',
+            ])
+            ->getMock();
+
+        $product = $this->getMockBuilder(Dbl\ProductDouble::class)
+            ->onlyMethods(['getTaxClassId'])
+            ->getMock();
+        $product->method('getTaxClassId')->willReturn('2');
+
+        $item->method('getTaxCalculationItemId')->willReturn($itemId);
+        $item->method('getProduct')->willReturn($product);
+        $item->method('getQty')->willReturn($qty);
+        $item->method('getPrice')->willReturn($price);
+        $item->method('getBasePrice')->willReturn($price);
+        $item->method('getRowTotal')->willReturn($rowTotal);
+        $item->method('getBaseRowTotal')->willReturn($rowTotal);
+        $item->method('getParentItem')->willReturn($parent);
+        $item->method('isChildrenCalculated')->willReturn($childrenCalculated);
+        if (is_callable($children)) {
+            $item->method('getChildren')->willReturnCallback($children);
+        } else {
+            $item->method('getChildren')->willReturn($children);
+        }
+
+        return $item;
+    }
+
+    /**
+     * A qty-2 dynamic bundle holding one $10 selection, as the quote stores it:
+     * the child at qty 1 against a $20 row total. Returns [parent, child].
+     */
+    private function createDynamicBundleQuoteItems()
+    {
+        $children = [];
+
+        $parent = $this->createMockCompositeQuoteItem(
+            'bundle-1',
+            2,
+            10.00,
+            20.00,
+            null,
+            function () use (&$children) {
+                return $children;
+            },
+            true
+        );
+        $child = $this->createMockCompositeQuoteItem('child-1', 1, 10.00, 20.00, $parent);
+        $children[] = $child;
+
+        return [$parent, $child];
+    }
+
+    /**
+     * The regression, at the collector: a bundle child's per-parent qty must not
+     * be what the per-unit incl-tax price is derived from, or the $20 row shows
+     * the tax of a single $10 unit.
+     */
+    public function testCollectSpreadsBundleChildTaxOverTheParentMultipliedQty()
+    {
+        $this->configureTaxCloudEnabled();
+
+        [$parent, $child] = $this->createDynamicBundleQuoteItems();
+
+        $quote = $this->createMockQuote();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$parent, $child]);
+
+        $total = $this->getMockBuilder(Dbl\TotalDouble::class)
+            ->onlyMethods(['getBaseTaxAmount', 'getTaxAmount'])
+            ->getMock();
+        $total->method('getTaxAmount')->willReturn(0);
+        $total->method('getBaseTaxAmount')->willReturn(0);
+
+        [$parentDetail, $parentBaseDetail] = $this->createMockTaxDetails(10.00, 20.00);
+        [$childDetail, $childBaseDetail] = $this->createMockTaxDetails(10.00, 20.00);
+        $itemsByType = [
+            Tax::ITEM_TYPE_PRODUCT => [
+                'bundle-1' => [Tax::KEY_ITEM => $parentDetail, Tax::KEY_BASE_ITEM => $parentBaseDetail],
+                'child-1' => [Tax::KEY_ITEM => $childDetail, Tax::KEY_BASE_ITEM => $childBaseDetail],
+            ],
+        ];
+
+        $this->setupParentMethodMocks($itemsByType);
+        // Only the child is sent to TaxCloud, so only the child comes back.
+        $this->setupTaxCloudApiMock(['child-1' => 1.65], 0);
+
+        $child->expects($this->once())->method('setTaxAmount')->with($this->equalTo(1.65));
+        // 8.25% of the $20 row — not the 4.15% a half-priced lookup produced.
+        $child->expects($this->once())->method('setTaxPercent')->with($this->equalTo(8.25));
+        // 10 + 1.65/2, i.e. the tax of one unit on one unit's price.
+        $child->expects($this->once())->method('setPriceInclTax')->with($this->equalTo(10.825));
+        $child->expects($this->once())->method('setRowTotalInclTax')->with($this->equalTo(21.65));
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
+     * The bundle parent is never sent to TaxCloud, so the tax it displays can
+     * only be its children's — and it must stay out of the total, exactly as
+     * Magento's own processProductItems() leaves it out.
+     */
+    public function testCollectShowsBundleParentTaxAsSumOfChildrenWithoutDoubleCounting()
+    {
+        $this->configureTaxCloudEnabled(logging: true);
+
+        [$parent, $child] = $this->createDynamicBundleQuoteItems();
+
+        $quote = $this->createMockQuote();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$parent, $child]);
+
+        $total = $this->getMockBuilder(Dbl\TotalDouble::class)
+            ->onlyMethods([
+                'addBaseTotalAmount', 'addTotalAmount', 'getBaseTaxAmount',
+                'getTaxAmount', 'setBaseTaxAmount', 'setTaxAmount',
+            ])
+            ->getMock();
+        $total->method('getTaxAmount')->willReturn(0.0);
+        $total->method('getBaseTaxAmount')->willReturn(0.0);
+
+        [$parentDetail, $parentBaseDetail] = $this->createMockTaxDetails(10.00, 20.00);
+        [$childDetail, $childBaseDetail] = $this->createMockTaxDetails(10.00, 20.00);
+        $itemsByType = [
+            Tax::ITEM_TYPE_PRODUCT => [
+                'bundle-1' => [Tax::KEY_ITEM => $parentDetail, Tax::KEY_BASE_ITEM => $parentBaseDetail],
+                'child-1' => [Tax::KEY_ITEM => $childDetail, Tax::KEY_BASE_ITEM => $childBaseDetail],
+            ],
+        ];
+
+        $this->setupParentMethodMocks($itemsByType);
+        $this->setupTaxCloudApiMock(['child-1' => 1.65], 0);
+
+        $parent->expects($this->once())->method('setTaxAmount')->with($this->equalTo(1.65));
+
+        // The safeguard adds the product tax once: 1.65, not the 3.30 that
+        // counting the parent's echo alongside its child would produce.
+        $total->expects($this->once())->method('addTotalAmount')->with('tax', 1.65);
+        $total->expects($this->once())->method('addBaseTotalAmount')->with('tax', 1.65);
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
      * Test defensive safeguard adds product tax when missing from totals
      */
     public function testDefensiveSafeguardAddsProductTaxToTotals()
