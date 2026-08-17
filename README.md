@@ -6,7 +6,7 @@
 ## Compatibility
 
 **Adobe Commerce 2.4.9 Compatible** ✅  
-This extension (Version 1.3.0) is tested and verified against Adobe Commerce
+This extension (Version 1.3.1) is tested and verified against Adobe Commerce
 2.4.7-p10, 2.4.8-p5 and 2.4.9 — the unit, integration and E2E suites run on all
 three on every change.
 
