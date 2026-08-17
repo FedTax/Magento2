@@ -55,16 +55,6 @@ parameters:
 			path: Model/Api.php
 
 		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getDiscountAmount\\(\\)\\.$#"
-			count: 1
-			path: Model/Fallback/MagentoTaxFallback.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getProduct\\(\\)\\.$#"
-			count: 2
-			path: Model/Fallback/MagentoTaxFallback.php
-
-		-
 			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getTaxCalculationItemId\\(\\)\\.$#"
 			count: 1
 			path: Model/Fallback/MagentoTaxFallback.php
@@ -90,71 +80,6 @@ parameters:
 			path: Model/RefundDistributor.php
 
 		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getBasePrice\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getBaseRowTotal\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getData\\(\\)\\.$#"
-			count: 6
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getProduct\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getRowTotal\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
 			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getTaxCalculationItemId\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setBasePriceInclTax\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setBaseRowTotalInclTax\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setBaseTaxAmount\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setData\\(\\)\\.$#"
-			count: 5
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setPriceInclTax\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setRowTotalInclTax\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setTaxAmount\\(\\)\\.$#"
-			count: 1
-			path: Model/Tax.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:setTaxPercent\\(\\)\\.$#"
 			count: 1
 			path: Model/Tax.php

@@ -177,14 +177,18 @@ jobs:
   # ---------------------------------------------------------------------------
   # Integration tests — community + enterprise across the full version matrix.
   # EXPENSIVE (10-15 min/row, real Magento install in Docker). Runs on release
-  # tags, manual dispatch, and PRs into main (so a main-bound PR is gated by the
-  # same checks as a release tag); skipped on branch pushes and PRs into other
-  # branches.
+  # tags, manual dispatch, and EVERY pull request whatever it targets.
+  #
+  # This used to be limited to PRs into main, which meant work merged into a
+  # release branch first — the normal route for this repo — reached main already
+  # merged and only then got its first integration run. A bundle-tax defect that
+  # only a real Magento quote could expose shipped that way. Branch pushes are
+  # still skipped: the PR is the gate, and a push to a PR branch re-runs it.
   # ---------------------------------------------------------------------------
   integration:
     name: Integration — ${{ matrix.magento-edition }} ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -300,7 +304,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # E2E tests — Playwright against a real, served storefront. Same matrix and
-  # gating as integration (release tags + manual dispatch + PRs into main). Shares the
+  # gating as integration (release tags + manual dispatch + every PR). Shares the
   # install script via E2E=1, which overlays docker-compose.e2e.yml (adds nginx
   # and runs php-fpm) so Magento is reachable over HTTP. The browser runs on the
   # runner and drives the published port. See docs/E2E_TESTS.md.
@@ -308,7 +312,7 @@ jobs:
   e2e:
     name: E2E — ${{ matrix.magento-edition }} ${{ matrix.magento-version }} / PHP ${{ matrix.php-version }}
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     timeout-minutes: 45
     strategy:
       fail-fast: false
