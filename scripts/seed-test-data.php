@@ -231,7 +231,13 @@ $configValues = $productsOnly ? [] : [
 // below honors it, exactly like an admin save). With a saved key the REST
 // path authenticates with X-API-KEY — the primary mode under test; the
 // Bearer-via-exchange fallback keeps only basic connectivity coverage.
-$configValues['tax/taxcloud_settings/rest_api_key'] = $apiV3Key;
+//
+// Guarded like every other config write: --products-only must leave the store's
+// credentials alone, and in that mode TAXCLOUD_API_V3_KEY is not even required,
+// so an unguarded write here would blank a working key with an empty string.
+if (!$productsOnly) {
+    $configValues['tax/taxcloud_settings/rest_api_key'] = $apiV3Key;
+}
 
 // Go through PreparedValueFactory (what `bin/magento config:set` uses) so any
 // backend model attached to a field (e.g. encrypted values) is honored.

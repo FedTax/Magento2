@@ -4,6 +4,13 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ## 1.4.0
 
+Includes every fix listed under 1.3.1 below, plus one that only affects the v3
+REST transport: a dynamic-price bundle was filed to `POST /orders` under the
+bundle's own item id while its cart had been filed under the item ids of its
+selections. v3 refunds reference an order's item ids by name, so such an order
+could be sold and then never cleanly refunded. All three v3 payloads — cart,
+order and refund — now name the same lines.
+
 Run `bin/magento setup:upgrade` after updating: this release pins existing
 installs to their current API via a data patch. In production mode also run
 `bin/magento setup:di:compile` — this release adds dependency-injection

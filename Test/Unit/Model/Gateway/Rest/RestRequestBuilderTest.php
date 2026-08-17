@@ -209,6 +209,73 @@ class RestRequestBuilderTest extends TestCase
         $this->assertSame('USD', $eur['items'][0]['currency']['currencyCode'], 'unsupported currencies file as USD');
     }
 
+    /**
+     * A dynamic-price bundle files its SELECTIONS, not the wrapper.
+     *
+     * The cart was filed under the selections' item ids (the v1 builder emits
+     * them and buildCartLineItems just reshapes its output), and a v3 refund
+     * references an order's item ids. File the wrapper here and the three
+     * payloads describe three different orders: the refund would name goods the
+     * order never reported, which v3 rejects rather than guesses at.
+     */
+    public function testOrderPayloadFilesBundleSelectionsNotTheWrapper(): void
+    {
+        $builder = $this->builder();
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('20010');
+        $this->ticService->method('getShippingTic')->willReturn('11010');
+
+        $childA = $this->orderItem('test-product', 2.0, 10.0, 0.0, 1.65, 8.25);
+        $childB = $this->orderItem('test-virtual', 4.0, 10.0, 0.0, 3.30, 8.25);
+
+        // The wrapper: priced at the sum of its selections, tax an echo of theirs.
+        $bundle = $this->orderItem('test-bundle-dynamic', 2.0, 20.0, 0.0, 4.95, 8.25);
+        $bundle->method('isChildrenCalculated')->willReturn(true);
+        $bundle->method('getChildrenItems')->willReturn([$childA, $childB]);
+
+        $payload = $builder->buildOrderPayload($this->order([$bundle]));
+
+        $this->assertSame(
+            ['test-product', 'test-virtual'],
+            array_column($payload['lineItems'], 'itemId'),
+            'The order must be filed under the selection item ids the cart used.'
+        );
+        $this->assertSame([2.0, 4.0], array_column($payload['lineItems'], 'quantity'));
+
+        // The wrapper's tax is its children's, so counting it too would file
+        // roughly double the tax actually charged.
+        $this->assertEqualsWithDelta(
+            4.95,
+            array_sum(array_column(array_column($payload['lineItems'], 'tax'), 'amount')),
+            0.01,
+            'Filed tax should equal the bundle line tax, counted once.'
+        );
+    }
+
+    /**
+     * The inverse: a parent-priced composite keeps filing its parent, because
+     * that is the line carrying the price and the one the cart used.
+     */
+    public function testOrderPayloadFilesTheParentOfAParentPricedComposite(): void
+    {
+        $builder = $this->builder();
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('20010');
+        $this->ticService->method('getShippingTic')->willReturn('11010');
+
+        $child = $this->orderItem('test-product', 2.0, 0.0, 0.0, 0.0, 0.0);
+        $parent = $this->orderItem('test-bundle-fixed', 2.0, 50.0, 0.0, 8.25, 8.25);
+        $parent->method('isChildrenCalculated')->willReturn(false);
+        $parent->method('getChildrenItems')->willReturn([$child]);
+
+        $payload = $builder->buildOrderPayload($this->order([$parent]));
+
+        $this->assertSame(['test-bundle-fixed'], array_column($payload['lineItems'], 'itemId'));
+        $this->assertSame([2.0], array_column($payload['lineItems'], 'quantity'));
+    }
+
     private function orderItem(
         string $sku,
         float $qty,
