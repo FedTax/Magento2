@@ -171,6 +171,102 @@ class MagentoTaxFallbackTest extends TestCase
         $this->assertArrayNotHasKey('orphan', $result['product']);
     }
 
+    /**
+     * The fallback builds a flat detail list with no parent codes, so Magento's
+     * own TaxCalculation cannot apply its parent-quantity rule for us: a bundle
+     * child has to arrive already parent-multiplied, and the wrapper — whose
+     * price is just the sum of those children — must not arrive at all.
+     */
+    public function testDynamicBundleIsPricedByItsChildrenAtTheParentMultipliedQty()
+    {
+        $this->customerAddressFactory->method('create')->willReturn($this->createMock(AddressInterface::class));
+        $this->quoteDetailsFactory->method('create')->willReturn($this->createMock(QuoteDetailsInterface::class));
+        $this->taxClassKeyFactory->method('create')
+            ->willReturnCallback(fn () => $this->createMock(TaxClassKeyInterface::class));
+
+        $mapped = [];
+        $this->quoteDetailsItemFactory->method('create')->willReturnCallback(
+            function () use (&$mapped) {
+                $detail = $this->createMock(QuoteDetailsItemInterface::class);
+                $at = count($mapped);
+                $mapped[$at] = ['code' => null, 'qty' => null];
+                $detail->method('setCode')->willReturnCallback(function ($code) use (&$mapped, $at) {
+                    $mapped[$at]['code'] = $code;
+                });
+                $detail->method('setQuantity')->willReturnCallback(function ($qty) use (&$mapped, $at) {
+                    $mapped[$at]['qty'] = $qty;
+                });
+
+                return $detail;
+            }
+        );
+
+        [$parent, $child] = $this->dynamicBundleQuoteItems();
+
+        $itemsByType = [
+            'product' => [
+                'bundle-1' => ['item' => 'ignored'],
+                'child-1' => ['item' => 'ignored'],
+            ],
+        ];
+
+        $taxDetails = $this->createMock(TaxDetailsInterface::class);
+        $taxDetails->method('getItems')->willReturn([]);
+        $this->taxCalculationService->method('calculateTax')->willReturn($taxDetails);
+
+        $assignment = $this->shippingAssignmentWithAddress($this->quoteAddress(), [$parent, $child]);
+        $quote = $this->createMock(Quote::class);
+        $quote->method('getStoreId')->willReturn(1);
+
+        $this->fallback()->calculate($itemsByType, $assignment, $quote);
+
+        $this->assertSame([['code' => 'child-1', 'qty' => 2.0]], $mapped);
+    }
+
+    /**
+     * A qty-2 dynamic bundle holding one $10 selection, as the quote stores it.
+     * Returns [parent, child].
+     */
+    private function dynamicBundleQuoteItems()
+    {
+        $product = $this->getMockBuilder(ProductDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getTaxClassId'])->getMock();
+        $product->method('getTaxClassId')->willReturn('2');
+
+        $build = function ($code, $qty, $parent, $children, $childrenCalculated) use ($product) {
+            $item = $this->getMockBuilder(QuoteItemDouble::class)
+                ->disableOriginalConstructor()
+                ->onlyMethods([
+                    'getTaxCalculationItemId', 'getProduct', 'getPrice', 'getQty', 'getDiscountAmount',
+                    'getParentItem', 'getChildren', 'isChildrenCalculated',
+                ])
+                ->getMock();
+            $item->method('getTaxCalculationItemId')->willReturn($code);
+            $item->method('getProduct')->willReturn($product);
+            $item->method('getPrice')->willReturn(10.0);
+            $item->method('getQty')->willReturn($qty);
+            $item->method('getDiscountAmount')->willReturn(0);
+            $item->method('getParentItem')->willReturn($parent);
+            $item->method('isChildrenCalculated')->willReturn($childrenCalculated);
+            if (is_callable($children)) {
+                $item->method('getChildren')->willReturnCallback($children);
+            } else {
+                $item->method('getChildren')->willReturn($children);
+            }
+
+            return $item;
+        };
+
+        $children = [];
+        $parent = $build('bundle-1', 2, null, function () use (&$children) {
+            return $children;
+        }, true);
+        $child = $build('child-1', 1, $parent, [], false);
+        $children[] = $child;
+
+        return [$parent, $child];
+    }
+
     public function testMapsMagentoTaxDetailsToProductAndShippingResult()
     {
         $this->customerAddressFactory->method('create')->willReturn($this->createMock(AddressInterface::class));

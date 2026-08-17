@@ -329,6 +329,18 @@ docker compose exec -T -w /var/www/html app \
 echo "==> Reindexing (fresh process, fixes configurable salability)..."
 docker compose exec -T -w /var/www/html app bin/magento indexer:reindex
 
+# --- 9b. Verify the seeded catalog is actually buyable ----------------------
+#
+# Every seeded product must load, be enabled, appear in the Test Category
+# listing, and add to a cart. This is the check that catches the failure modes
+# the two steps above exist to prevent (Content Staging leaving products
+# disabled, a stale salability index) — before a test suite runs and blames the
+# module for them. Fails the install loudly rather than leaving a half-usable
+# catalog behind.
+echo "==> Verifying seeded catalog (scripts/verify-test-products.php)..."
+docker compose exec -T -w /var/www/html app \
+    php /srv/module/scripts/verify-test-products.php
+
 # --- 10. E2E: reload nginx and confirm the storefront serves ---------------
 #
 # nginx came up before nginx.conf existed (so it started with an empty vhost).

@@ -25,6 +25,7 @@ use Magento\Tax\Api\Data\TaxClassKeyInterfaceFactory;
 use Magento\Tax\Api\TaxCalculationInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\CompositeItemResolver;
 
 /**
  * Computes tax using Magento's native tax engine as a fallback when a TaxCloud
@@ -132,6 +133,10 @@ class MagentoTaxFallback
             $quoteDetails->setCustomerTaxClassId($quote->getCustomerTaxClassId());
             $quoteDetails->setItems([]);
 
+            // Typed as core types them (CommonTaxCollector::processProductItems):
+            // a shipping assignment's items are quote items, and the composite
+            // accessors below live on AbstractItem, not CartItemInterface.
+            /** @var \Magento\Quote\Model\Quote\Item\AbstractItem[] $keyedAddressItems */
             $keyedAddressItems = [];
             foreach ($shippingAssignment->getItems() as $item) {
                 // Skip composite child lines with no tax calculation id (null
@@ -160,6 +165,13 @@ class MagentoTaxFallback
                     if ($item->getProduct()->getTaxClassId() === '0') {
                         continue;
                     }
+                    // Dynamic-price bundle wrapper: its children are items of
+                    // their own below and carry the basis. These details are a
+                    // flat list with no parent codes, so Magento's own
+                    // TaxCalculation cannot tell the two apart on its own.
+                    if (CompositeItemResolver::isQuoteParentPricedByChildren($item)) {
+                        continue;
+                    }
 
                     $quoteDetailsItem = $this->quoteDetailsItemFactory->create();
                     $quoteDetailsItem->setCode($code);
@@ -169,7 +181,9 @@ class MagentoTaxFallback
                     $taxClassKey->setValue($item->getProduct()->getTaxClassId());
                     $quoteDetailsItem->setTaxClassKey($taxClassKey);
                     $quoteDetailsItem->setUnitPrice($item->getPrice());
-                    $quoteDetailsItem->setQuantity($item->getQty());
+                    // Parent-multiplied for a bundle child, matching the row
+                    // total — the same reconciliation the live lookup makes.
+                    $quoteDetailsItem->setQuantity(CompositeItemResolver::quoteQty($item));
                     $quoteDetailsItem->setDiscountAmount($item->getDiscountAmount());
                     $quoteDetailsItem->setIsTaxIncluded(false);
 
