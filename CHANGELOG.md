@@ -4,6 +4,13 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ## 1.4.0
 
+Includes every fix listed under 1.3.1 below, plus one that only affects the v3
+REST transport: a dynamic-price bundle was filed to `POST /orders` under the
+bundle's own item id while its cart had been filed under the item ids of its
+selections. v3 refunds reference an order's item ids by name, so such an order
+could be sold and then never cleanly refunded. All three v3 payloads — cart,
+order and refund — now name the same lines.
+
 Run `bin/magento setup:upgrade` after updating: this release pins existing
 installs to their current API via a data patch. In production mode also run
 `bin/magento setup:di:compile` — this release adds dependency-injection
@@ -76,6 +83,38 @@ fail with "Cannot instantiate interface" when TIC search is used.
   installation and carries no credential, connection id, store id or customer
   data — it is safe to share in full when sending logs to support. There is no
   setting to change it, and nothing else about your requests changes.
+
+## 1.3.1
+
+### Fixed
+
+- **Bundle products with dynamic pricing were taxed on a fraction of their
+  value.** A bundle's selections store their quantity per bundle — one unit
+  inside a qty-2 bundle is stored as 1, against a row total for 2 — and the
+  tax lookup sent that stored number. A qty-2 bundle was therefore taxed as
+  one, a qty-3 bundle as one of three, and the shopper was undercharged by the
+  difference. Bundle lines now carry the quantity their row total was built
+  from. Configurable, grouped, simple and fixed-price bundle products were
+  never affected.
+- **A bundle's value was reported to TaxCloud twice.** The lookup sent both the
+  bundle line and each of its selections, so the transaction recorded against
+  the order — and captured with it — covered more than the order was worth,
+  while Magento (which excludes the bundle wrapper from its own totals by
+  design) charged less. Returns and cancellations described the same order
+  differently again. All three now describe a bundle the same way: by its
+  selections, which are the lines that carry its price.
+
+  Orders placed with a dynamic-price bundle before this release were charged
+  and reported incorrectly and are not corrected by updating; they need
+  adjusting in TaxCloud.
+- **Refunds named items the order never reported.** A credit memo lists a
+  composite's children alongside their parent, so refunding a configurable or a
+  fixed-price bundle returned its selections as extra $0 lines — item IDs that
+  were never in the original lookup. No tax rode on them, but the three payloads
+  for one order each described it differently, which is the condition the bundle
+  defect above hid inside. All three now name the same lines.
+- A cart line at quantity zero no longer raises a division-by-zero error while
+  its discount is being apportioned.
 
 ## 1.3.0
 

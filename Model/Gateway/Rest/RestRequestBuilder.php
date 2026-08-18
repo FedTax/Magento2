@@ -19,6 +19,7 @@ namespace Taxcloud\Magento2\Model\Gateway\Rest;
 
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\CompositeItemResolver;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\ProductTicService;
@@ -176,32 +177,40 @@ class RestRequestBuilder
 
         $lineItems = [];
         $index = 0;
-        foreach ($order->getAllVisibleItems() as $item) {
+        foreach ($order->getAllVisibleItems() as $visibleItem) {
             // Capture fires on sales_order_place_after, BEFORE the order is
             // saved — at that point composite children have no parent_item_id
             // yet, so getAllVisibleItems() lets them through and a configurable
             // would file its zero-priced child as a duplicate line (observed
             // live 2026-08-07). The in-memory parent_item object IS set
             // pre-save; skip on either signal.
-            if ($item->getParentItem() || $item->getParentItemId()) {
+            if ($visibleItem->getParentItem() || $visibleItem->getParentItemId()) {
                 continue;
             }
-            $qty = (float) $item->getQtyOrdered();
-            if ($qty <= 0) {
-                continue;
+
+            // A dynamic-price bundle is visible as its parent, but the price
+            // lives on its selections — and those are the item ids the cart was
+            // filed under. v3 refunds reference an order's item ids, so filing
+            // the wrapper here would make every later refund name goods this
+            // order never reported. Same rule as the cart and the refund.
+            foreach (CompositeItemResolver::orderBasisItems($visibleItem) as $item) {
+                $qty = (float) $item->getQtyOrdered();
+                if ($qty <= 0) {
+                    continue;
+                }
+                $discountPerUnit = $qty > 0 ? ((float) $item->getDiscountAmount()) / $qty : 0.0;
+                $lineItems[] = [
+                    'index' => $index++,
+                    'itemId' => (string) $item->getSku(),
+                    'tic' => (int) $this->productTicService->getProductTic($item, 'authorizeCapture', $store),
+                    'price' => (float) $item->getPrice() - $discountPerUnit,
+                    'quantity' => $qty,
+                    'tax' => [
+                        'amount' => round($exempt ? 0.0 : (float) $item->getTaxAmount(), 2),
+                        'rate' => $exempt ? 0.0 : ((float) $item->getTaxPercent()) / 100,
+                    ],
+                ];
             }
-            $discountPerUnit = $qty > 0 ? ((float) $item->getDiscountAmount()) / $qty : 0.0;
-            $lineItems[] = [
-                'index' => $index++,
-                'itemId' => (string) $item->getSku(),
-                'tic' => (int) $this->productTicService->getProductTic($item, 'authorizeCapture', $store),
-                'price' => (float) $item->getPrice() - $discountPerUnit,
-                'quantity' => $qty,
-                'tax' => [
-                    'amount' => round($exempt ? 0.0 : (float) $item->getTaxAmount(), 2),
-                    'rate' => $exempt ? 0.0 : ((float) $item->getTaxPercent()) / 100,
-                ],
-            ];
         }
 
         $shippingAmount = (float) $order->getShippingAmount();

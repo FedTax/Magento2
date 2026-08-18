@@ -141,6 +141,71 @@ class RequestBuilderTest extends TestCase
         $this->assertSame([], $this->builder->buildCartItemsFromOrder($order));
     }
 
+    /**
+     * An order item stubbed for the return / cancel payloads.
+     */
+    private function returnOrderItem(
+        string $sku,
+        $qtyOrdered,
+        $price,
+        $discount = 0.0,
+        $parentItemId = null,
+        bool $childrenCalculated = false,
+        array $children = []
+    ) {
+        $item = $this->createMock(OrderItem::class);
+        $item->method('getSku')->willReturn($sku);
+        $item->method('getQtyOrdered')->willReturn($qtyOrdered);
+        $item->method('getPrice')->willReturn($price);
+        $item->method('getDiscountAmount')->willReturn($discount);
+        $item->method('getParentItemId')->willReturn($parentItemId);
+        $item->method('isChildrenCalculated')->willReturn($childrenCalculated);
+        $item->method('getChildrenItems')->willReturn($children);
+
+        return $item;
+    }
+
+    /**
+     * The order side stores a bundle child's qty absolutely (qty_ordered 2 for
+     * the same line the quote stored as 1), so the children are emitted as they
+     * stand — multiplying here would double it back.
+     */
+    public function testBuildCartItemsFromOrderExpandsDynamicBundleIntoChildren()
+    {
+        $childA = $this->returnOrderItem('child-a', 2.0, 10.0, 0.0, 54, true);
+        $childB = $this->returnOrderItem('child-b', 2.0, 10.0, 0.0, 54, true);
+        $parent = $this->returnOrderItem('bundle-sku', 2.0, 20.0, 0.0, null, true, [$childA, $childB]);
+
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getAllVisibleItems')->willReturn([$parent]);
+        $order->method('getBaseShippingAmount')->willReturn(0.0);
+
+        $cartItems = $this->builder->buildCartItemsFromOrder($order);
+
+        $this->assertCount(2, $cartItems, 'the bundle wrapper must not add a third line');
+        $this->assertSame(['child-a', 'child-b'], array_column($cartItems, 'ItemID'));
+        $this->assertSame([2.0, 2.0], array_column($cartItems, 'Qty'));
+        $this->assertSame([0, 1], array_column($cartItems, 'Index'));
+    }
+
+    public function testBuildCartItemsFromOrderFallsBackToBundleParentWithoutChildren()
+    {
+        $parent = $this->returnOrderItem('bundle-sku', 2.0, 20.0, 0.0, null, true, []);
+
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getAllVisibleItems')->willReturn([$parent]);
+        $order->method('getBaseShippingAmount')->willReturn(0.0);
+
+        $cartItems = $this->builder->buildCartItemsFromOrder($order);
+
+        $this->assertCount(1, $cartItems);
+        $this->assertSame('bundle-sku', $cartItems[0]['ItemID']);
+    }
+
     public function testBuildDestinationFromOrderReturnsNullForNonUs()
     {
         $address = $this->createMock(OrderAddress::class);
@@ -359,6 +424,161 @@ class RequestBuilderTest extends TestCase
         $this->assertSame([], $built['cartItems']);
     }
 
+    /**
+     * A quote item stubbed with everything buildLookupCartItems() reads,
+     * including the composite hierarchy.
+     */
+    private function lookupQuoteItem(
+        string $sku,
+        $qty,
+        $price,
+        $discount = 0.0,
+        $parent = null,
+        $children = [],
+        bool $childrenCalculated = false
+    ) {
+        $product = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ProductDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getTaxClassId'])->getMock();
+        $product->method('getTaxClassId')->willReturn('2');
+
+        $item = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteItemDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods([
+                'getProduct',
+                'getSku',
+                'getPrice',
+                'getDiscountAmount',
+                'getQty',
+                'getParentItem',
+                'getChildren',
+                'isChildrenCalculated',
+            ])
+            ->getMock();
+        $item->method('getProduct')->willReturn($product);
+        $item->method('getSku')->willReturn($sku);
+        $item->method('getPrice')->willReturn($price);
+        $item->method('getDiscountAmount')->willReturn($discount);
+        $item->method('getQty')->willReturn($qty);
+        $item->method('getParentItem')->willReturn($parent);
+        $item->method('isChildrenCalculated')->willReturn($childrenCalculated);
+        // A parent and its children reference each other, so the children of a
+        // parent built first arrive late — accept a provider for that case.
+        if (is_callable($children)) {
+            $item->method('getChildren')->willReturnCallback($children);
+        } else {
+            $item->method('getChildren')->willReturn($children);
+        }
+
+        return $item;
+    }
+
+    /**
+     * A dynamic-price bundle as the quote stores it: the parent priced at the
+     * sum of its selections, the child holding the real price at a qty that is
+     * per-parent. Returns [parent, child].
+     */
+    private function dynamicBundleQuoteItems($parentQty, $childQty, $childPrice, $childDiscount = 0.0)
+    {
+        $children = [];
+
+        $parent = $this->lookupQuoteItem(
+            'bundle-sku',
+            $parentQty,
+            $childPrice * $childQty,
+            0.0,
+            null,
+            function () use (&$children) {
+                return $children;
+            },
+            true
+        );
+        $child = $this->lookupQuoteItem('child-sku', $childQty, $childPrice, $childDiscount, $parent);
+        $children[] = $child;
+
+        return [$parent, $child];
+    }
+
+    private function lookupAddress()
+    {
+        $address = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
+            ->disableOriginalConstructor()->onlyMethods(['getShippingAmount'])->getMock();
+        $address->method('getShippingAmount')->willReturn(0.0);
+
+        return $address;
+    }
+
+    /**
+     * Wrap quote items (keyed by tax-calculation id) in the two arguments
+     * buildLookupCartItems() takes.
+     */
+    private function buildLookupFor(array $keyedItems)
+    {
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+
+        $itemsByType = ['product' => []];
+        foreach (array_keys($keyedItems) as $code) {
+            $itemsByType['product'][$code] = ['item' => 'x'];
+        }
+
+        return $this->builder->buildLookupCartItems($itemsByType, $keyedItems, $this->lookupAddress());
+    }
+
+    /**
+     * A qty-2 dynamic bundle holding one $10 selection: the quote stores the
+     * child at qty 1 against a $20 row total, so the cart line has to say 2.
+     * Sending 1 is what under-charged the customer by half.
+     */
+    public function testBuildLookupCartItemsMultipliesBundleChildQtyByParentQty()
+    {
+        [$parent, $child] = $this->dynamicBundleQuoteItems(2.0, 1.0, 10.0);
+
+        $built = $this->buildLookupFor(['bundle' => $parent, 'child' => $child]);
+
+        $this->assertCount(1, $built['cartItems'], 'the parent must not be a line of its own');
+        $this->assertSame('child-sku', $built['cartItems'][0]['ItemID']);
+        $this->assertSame(2.0, $built['cartItems'][0]['Qty']);
+        $this->assertSame(10.0, $built['cartItems'][0]['Price']);
+        $this->assertSame(['child'], array_values($built['indexedItems']));
+    }
+
+    public function testBuildLookupCartItemsSpreadsBundleChildDiscountOverEffectiveQty()
+    {
+        // $4 off the row, which is 2 units — $2 each, not $4.
+        [$parent, $child] = $this->dynamicBundleQuoteItems(2.0, 1.0, 10.0, 4.0);
+
+        $built = $this->buildLookupFor(['bundle' => $parent, 'child' => $child]);
+
+        $this->assertSame(8.0, $built['cartItems'][0]['Price']);
+        $this->assertSame(2.0, $built['cartItems'][0]['Qty']);
+    }
+
+    /**
+     * A configurable (and a fixed-price bundle) prices the parent and zeroes the
+     * children, so the parent stays the cart line and its qty is taken as-is.
+     */
+    public function testBuildLookupCartItemsKeepsConfigurableParentLine()
+    {
+        $child = $this->lookupQuoteItem('variant-sku', 1.0, 0.0);
+        $parent = $this->lookupQuoteItem('config-sku', 2.0, 10.0, 0.0, null, [$child], false);
+
+        $built = $this->buildLookupFor(['config' => $parent]);
+
+        $this->assertCount(1, $built['cartItems']);
+        $this->assertSame('config-sku', $built['cartItems'][0]['ItemID']);
+        $this->assertSame(2.0, $built['cartItems'][0]['Qty']);
+    }
+
+    public function testBuildLookupCartItemsSurvivesZeroQty()
+    {
+        $item = $this->lookupQuoteItem('SKU-1', 0.0, 10.0, 5.0);
+
+        $built = $this->buildLookupFor(['p1' => $item]);
+
+        // Regression: the discount used to be divided by qty unguarded.
+        $this->assertSame(10.0, $built['cartItems'][0]['Price']);
+        $this->assertSame(0.0, $built['cartItems'][0]['Qty']);
+    }
+
     public function testBuildLookupParams()
     {
         $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
@@ -484,6 +704,43 @@ class RequestBuilderTest extends TestCase
         $this->assertSame('SKU-1', $return['cartItems'][0]['ItemID']);
         $this->assertSame(8.0, $return['cartItems'][0]['Price']); // 10 - 4/2
         $this->assertSame('shipping', $return['cartItems'][1]['ItemID']);
+    }
+
+    /**
+     * Refunding a dynamic bundle: the children are credit-memo items in their
+     * own right, so returning the wrapper as well would hand back tax on twice
+     * the basis that was authorized.
+     */
+    public function testBuildReturnCartItemsSkipsDynamicBundleParent()
+    {
+        $parentOrderItem = $this->returnOrderItem('bundle-sku', 2.0, 20.0, 0.0, null, true);
+        $childOrderItem = $this->returnOrderItem('child-sku', 2.0, 10.0, 0.0, 54, true);
+
+        $parentCredit = $this->createMock(\Magento\Sales\Model\Order\Creditmemo\Item::class);
+        $parentCredit->method('getQty')->willReturn(2.0);
+        $parentCredit->method('getOrderItem')->willReturn($parentOrderItem);
+        $parentCredit->method('getPrice')->willReturn(20.0);
+        $parentCredit->method('getDiscountAmount')->willReturn(0.0);
+
+        $childCredit = $this->createMock(\Magento\Sales\Model\Order\Creditmemo\Item::class);
+        $childCredit->method('getQty')->willReturn(2.0);
+        $childCredit->method('getOrderItem')->willReturn($childOrderItem);
+        $childCredit->method('getPrice')->willReturn(10.0);
+        $childCredit->method('getDiscountAmount')->willReturn(0.0);
+
+        $this->productTicService->method('getProductTic')->willReturn('20000');
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($this->createMock(Order::class));
+        $creditmemo->method('getAllItems')->willReturn([$parentCredit, $childCredit]);
+        $creditmemo->method('getShippingAmount')->willReturn(0.0);
+
+        $return = $this->builder->buildReturnCartItems($creditmemo);
+
+        $this->assertCount(1, $return['cartItems']);
+        $this->assertSame('child-sku', $return['cartItems'][0]['ItemID']);
+        $this->assertSame(2.0, $return['cartItems'][0]['Qty'], 'order-side qty is already absolute');
+        $this->assertSame(0, $return['cartItems'][0]['Index']);
     }
 
     public function testBuildReturnCartItemsDetectsTaxOnlyRefund()
