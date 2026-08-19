@@ -153,8 +153,10 @@ class RestExemptionValidator
      * @param string $certificateID
      * @param string $customerID
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
-     * @return string[]|null State abbreviations; [] when the certificate is
-     *                       missing or disabled; null when the fetch failed
+     * @return string[]|null Two-letter state abbreviations, taken from each
+     *                       state entry's `abbreviation`; [] when the
+     *                       certificate is missing, disabled, or covers no
+     *                       state; null when the fetch failed
      */
     private function fetchExemptStates($certificateID, $customerID, $store)
     {
@@ -197,7 +199,7 @@ class RestExemptionValidator
                     return [];
                 }
                 $states = $certificate['states'] ?? [];
-                return is_array($states) ? array_values(array_filter($states, 'is_string')) : [];
+                return is_array($states) ? $this->toStateAbbreviations($states) : [];
             }
 
             $cursor = isset($body['nextCursor']) && is_string($body['nextCursor']) && $body['nextCursor'] !== ''
@@ -207,6 +209,36 @@ class RestExemptionValidator
 
         $this->logger->warning('Certificate ' . $certificateID . ' not found for customer ' . $customerID);
         return [];
+    }
+
+    /**
+     * Reduce a v3 certificate's state entries to their two-letter
+     * abbreviations.
+     *
+     * v3 states are objects — {"abbreviation": "NY"} per the
+     * ExemptionCertificateExemptStatesResponse schema — not the bare strings
+     * the SOAP mapper produces from StateAbbr. Entries carrying no usable
+     * abbreviation are dropped individually rather than voiding the whole
+     * certificate, so one malformed entry cannot silently un-exempt a customer
+     * whose remaining states are fine.
+     *
+     * @param array $states Raw state entries from the v3 response
+     * @return string[] State abbreviations (e.g. ['NY', 'NJ'])
+     */
+    private function toStateAbbreviations(array $states)
+    {
+        $abbreviations = [];
+        foreach ($states as $state) {
+            if (!is_array($state)) {
+                continue;
+            }
+            $abbr = $state['abbreviation'] ?? null;
+            if (is_string($abbr) && strlen($abbr) === 2) {
+                $abbreviations[] = $abbr;
+            }
+        }
+
+        return $abbreviations;
     }
 
     /**

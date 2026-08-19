@@ -79,9 +79,19 @@ class RestExemptionValidatorTest extends TestCase
         return new RestResponse(200, (string) json_encode($body));
     }
 
+    /**
+     * @param string[] $states Covered state abbreviations, shaped here into the
+     *                         v3 state entries the API actually returns
+     */
     private function certificate(string $id, array $states, ?string $disabledAt = null): array
     {
-        $cert = ['certificateId' => $id, 'customerId' => '42', 'states' => $states];
+        $cert = [
+            'certificateId' => $id,
+            'customerId' => '42',
+            'states' => array_map(static function ($abbr) {
+                return ['abbreviation' => $abbr];
+            }, $states),
+        ];
         if ($disabledAt !== null) {
             $cert['disabledAt'] = $disabledAt;
         }
@@ -134,6 +144,48 @@ class RestExemptionValidatorTest extends TestCase
 
         $this->assertNull($validator->validate('cert-9', '42', 'NY', self::STORE_ID));
         $this->assertContains('[]', $this->cacheStore, 'the miss is cached as an empty state list');
+    }
+
+    /**
+     * A single malformed state entry must not cost the customer the states
+     * that are perfectly well-formed alongside it — the failure mode that
+     * turned the whole certificate into "covers nothing".
+     */
+    public function testUnusableStateEntriesDoNotDiscardTheRest()
+    {
+        $validator = $this->validator();
+        $this->restClient->method('request')->willReturn(
+            $this->certificatesResponse([
+                [
+                    'certificateId' => 'cert-9',
+                    'customerId' => '42',
+                    'states' => [
+                        ['abbreviation' => 'NY'],
+                        ['abbreviation' => null],
+                        ['abbreviation' => 'NEW YORK'],
+                        [],
+                        'NJ',
+                        ['abbreviation' => 'CT'],
+                    ],
+                ],
+            ])
+        );
+
+        $this->assertSame('cert-9', $validator->validate('cert-9', '42', 'NY', self::STORE_ID));
+        $this->assertSame('cert-9', $validator->validate('cert-9', '42', 'CT', self::STORE_ID));
+        // The bare string is the pre-fix shape; it is not a v3 state entry.
+        $this->assertNull($validator->validate('cert-9', '42', 'NJ', self::STORE_ID));
+    }
+
+    public function testCertificateWithNoCoveredStatesIsRejected()
+    {
+        $validator = $this->validator();
+        $this->restClient->method('request')->willReturn(
+            $this->certificatesResponse([$this->certificate('cert-9', [])])
+        );
+
+        $this->assertNull($validator->validate('cert-9', '42', 'NY', self::STORE_ID));
+        $this->assertContains('[]', $this->cacheStore, 'an enabled cert covering nothing caches as empty');
     }
 
     public function testPaginationFollowsCursorUntilCertificateFound()

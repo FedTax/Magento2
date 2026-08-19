@@ -1,18 +1,62 @@
 /**
- * Authentication helpers for E2E — scaffold only.
+ * Authentication helpers for E2E.
  *
- * The pipeline smoke test runs as an anonymous guest, so no auth is needed yet.
- * Logged-in customer and admin flows arrive with the real test coverage; this
- * file marks where their helpers will live so specs import sessions from one
- * place instead of re-typing login steps.
+ * The seeded storefront customers (scripts/seed-test-data.php, sections 4h/4j),
+ * both with password Test1234! and both carrying a default Austin TX shipping
+ * address:
  *
- * The seeded admin (scripts/seed-test-data.php) is admin / 1234567a. A first
- * adminLogin() will likely drive the admin login form at
- * `${baseURL}/admin` (or storageState capture for speed). Customer login will
- * need a seeded customer account, which the seed does not create yet — see the
- * "Reuse existing seed; defer extras" decision in docs/E2E_TESTS.md.
+ *   customer@example.com          - plain customer, taxed normally
+ *   exempt-customer@example.com   - holds a TaxCloud exemption certificate
+ *                                   covering TX, so its orders come out exempt
  *
- * Until those land this module intentionally exports nothing usable.
+ * The pair is what makes an exemption assertion meaningful: the same cart to the
+ * same address differs only in who is signed in, so a zero tax line can be read
+ * as "the exemption applied" rather than "tax is broken".
+ *
+ * Admin login lives in pages/admin/AdminLoginPage.ts; this module is the
+ * storefront side.
  */
+import { type Page, expect } from '@playwright/test';
 
-export {};
+export const CUSTOMER_PASSWORD = 'Test1234!';
+export const PLAIN_CUSTOMER_EMAIL = 'customer@example.com';
+export const EXEMPT_CUSTOMER_EMAIL = 'exempt-customer@example.com';
+
+/**
+ * Log a seeded customer in through the storefront login form and wait until the
+ * account dashboard confirms the session.
+ *
+ * Waiting on the dashboard rather than the POST matters: Magento answers a
+ * failed login with a 200 and an error banner on the same URL, so a spec that
+ * only awaited navigation would sail past a bad login and fail later somewhere
+ * far less obvious.
+ */
+export async function loginAsCustomer(
+  page: Page,
+  email: string,
+  password: string = CUSTOMER_PASSWORD,
+): Promise<void> {
+  await page.goto('/customer/account/login/');
+
+  // Luma ids, confirmed against the running storefront: the password field is
+  // #password here, not the #pass some Magento versions render.
+  await page.locator('#email').fill(email);
+  await page.locator('#password').fill(password);
+  await page.locator('#send2').click();
+
+  await page.waitForURL(/customer\/account/, { timeout: 40_000 });
+  await expect(
+    page.locator('.page-main'),
+    `login failed for ${email} - check the seed ran (scripts/seed-test-data.php)`,
+  ).toContainText(email, { timeout: 40_000 });
+}
+
+/** Log the plain (non-exempt) seeded customer in. */
+export async function loginAsPlainCustomer(page: Page): Promise<void> {
+  await loginAsCustomer(page, PLAIN_CUSTOMER_EMAIL);
+}
+
+/** Log the seeded customer holding the TX exemption certificate in. */
+export async function loginAsExemptCustomer(page: Page): Promise<void> {
+  await loginAsCustomer(page, EXEMPT_CUSTOMER_EMAIL);
+}

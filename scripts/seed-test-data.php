@@ -28,6 +28,13 @@
  *                     (so at least one shipping + payment method works)
  *                     web/url/use_store = 1 (store code in URLs, so both
  *                     stores are reachable on one base URL: /default/, /second/)
+ *   - Customers       customer@example.com / Test1234! (plain, taxed normally)
+ *                     exempt-customer@example.com / Test1234! — holds a real
+ *                     v3 exemption certificate covering TX, so exemption tests
+ *                     have a genuinely exempt account to work with. The
+ *                     certificate is created on the TaxCloud account under the
+ *                     customer's real Magento entity id, and reused on later
+ *                     runs rather than recreated.
  *   - Multi-store     second website/group/store view (all code "second"),
  *                     same root category + full test catalog assigned;
  *                     TaxCloud DISABLED on it via store-scope override;
@@ -924,6 +931,13 @@ if ($om->get(\Magento\Framework\Module\Manager::class)->isEnabled('Magento_GiftC
 const CUSTOMER_EMAIL    = 'customer@example.com';
 const CUSTOMER_PASSWORD = 'Test1234!';
 
+// A SECOND customer holding a TaxCloud exemption certificate (section 4j).
+// Deliberately separate from CUSTOMER_EMAIL: that one is the plain registered
+// customer, and a test asserting normal tax on a logged-in cart must not be
+// silently exempt. The pair is what an end-to-end exemption test needs — one
+// order that should be taxed, one that should not.
+const EXEMPT_CUSTOMER_EMAIL = 'exempt-customer@example.com';
+
 $customerRepository = $om->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
 
 // Customer accounts are scoped PER WEBSITE (customer/account_share/scope
@@ -931,16 +945,21 @@ $customerRepository = $om->get(\Magento\Customer\Api\CustomerRepositoryInterface
 // second store (section 4i) gets its own record with the SAME credentials —
 // tests log in with one email/password everywhere and the website context
 // picks the account. Callable per store view; idempotent per website.
-$ensureCustomer = function (\Magento\Store\Api\Data\StoreInterface $store) use (
+$ensureCustomer = function (
+    \Magento\Store\Api\Data\StoreInterface $store,
+    string $email = CUSTOMER_EMAIL,
+    string $firstname = 'Test',
+    string $lastname = 'Customer'
+) use (
     $om,
     $customerRepository,
     $step
-): void {
+): \Magento\Customer\Api\Data\CustomerInterface {
     $websiteId = (int) $store->getWebsiteId();
     try {
-        $customerRepository->get(CUSTOMER_EMAIL, $websiteId);
-        $step('customer "' . CUSTOMER_EMAIL . "\" already exists (website $websiteId)");
-        return;
+        $existing = $customerRepository->get($email, $websiteId);
+        $step('customer "' . $email . "\" already exists (website $websiteId)");
+        return $existing;
     } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
         // fall through and create
     }
@@ -949,9 +968,9 @@ $ensureCustomer = function (\Magento\Store\Api\Data\StoreInterface $store) use (
     $customer = $om->create(\Magento\Customer\Api\Data\CustomerInterfaceFactory::class)->create();
     $customer->setWebsiteId($websiteId)
         ->setStoreId((int) $store->getId())
-        ->setEmail(CUSTOMER_EMAIL)
-        ->setFirstname('Test')
-        ->setLastname('Customer')
+        ->setEmail($email)
+        ->setFirstname($firstname)
+        ->setLastname($lastname)
         ->setGroupId(1); // General
 
     // save($customer, $passwordHash) sets the password directly, bypassing the
@@ -959,7 +978,7 @@ $ensureCustomer = function (\Magento\Store\Api\Data\StoreInterface $store) use (
     $passwordHash = $om->get(\Magento\Framework\Encryption\EncryptorInterface::class)
         ->getHash(CUSTOMER_PASSWORD, true);
     $customer = $customerRepository->save($customer, $passwordHash);
-    $step('customer "' . CUSTOMER_EMAIL . '" created (website ' . $websiteId
+    $step('customer "' . $email . '" created (website ' . $websiteId
         . ', password ' . CUSTOMER_PASSWORD . ')');
 
     // Default shipping + billing: Austin TX 78701 — in-state with the seeded
@@ -969,8 +988,8 @@ $ensureCustomer = function (\Magento\Store\Api\Data\StoreInterface $store) use (
 
     /** @var \Magento\Customer\Api\Data\AddressInterface $address */
     $address = $om->create(\Magento\Customer\Api\Data\AddressInterfaceFactory::class)->create();
-    $address->setFirstname('Test')
-        ->setLastname('Customer')
+    $address->setFirstname($firstname)
+        ->setLastname($lastname)
         ->setStreet(['1401 Lavaca St'])
         ->setCity('Austin')
         ->setCountryId('US')
@@ -983,6 +1002,9 @@ $ensureCustomer = function (\Magento\Store\Api\Data\StoreInterface $store) use (
         ->setIsDefaultShipping(true);
     $om->get(\Magento\Customer\Api\AddressRepositoryInterface::class)->save($address);
     $step("customer default address set (1401 Lavaca St, Austin TX 78701; website $websiteId)");
+
+    // Re-read: the address save does not refresh the instance we hold.
+    return $customerRepository->getById((int) $customer->getId());
 };
 
 // getDefaultStoreView(), NOT getStore(): the current store was pinned to the
@@ -993,6 +1015,157 @@ if ($productsOnly) {
 } else {
     $ensureCustomer($storeManager->getDefaultStoreView());
 }
+
+// --- 4j. Exempt customer + TaxCloud exemption certificate --------------------
+//
+// A second registered customer holding a real exemption certificate covering
+// TEXAS, so the suites have a genuinely exempt customer to test against. TX is
+// deliberate: the sandbox account has TX nexus, so a TX order produces non-zero
+// tax and an exemption test can assert the line actually fell to zero. In a
+// no-nexus state the tax is zero either way and such a test would pass whether
+// or not exemptions work at all.
+//
+// The certificate is CREATED OVER V1 SOAP, and that is not an accident or a
+// leftover from the pre-REST era. Verified against the live sandbox on
+// 2026-08-19:
+//
+//   - v3 reads certificates created by either API.
+//   - v1 CANNOT read a v3-created certificate. Worse, it does not skip it:
+//     one v3-created certificate makes GetExemptCertificates return
+//     ResponseType=Error ("There was a problem processing the exemption
+//     certificate") for that customer, so the customer's WHOLE certificate
+//     list becomes unreadable over SOAP — adding a v1 certificate alongside
+//     does not rescue it.
+//
+// So a v1-created certificate is the only kind both transports can read, which
+// is what lets ONE fixture serve both the SOAP and the REST e2e passes. If this
+// is ever switched to create over v3, the SOAP pass will fail.
+//
+// The customer's REAL Magento entity id is the certificate's customer id --
+// what the module's certificate lookup filters on, and the identity the
+// extension will stamp once it creates certificates itself.
+//
+// Idempotent, and it has to be: the sandbox account is shared across CI runs
+// and certificates are only removable through an explicit delete, so a seed
+// that created one per run would leave an ever-growing pile behind. The
+// reuse check runs over v3 because v3 sees certificates from both APIs.
+if ($productsOnly) {
+    $step('skipped exempt customer (--products-only)');
+} else {
+    $exemptCustomer = $ensureCustomer(
+        $storeManager->getDefaultStoreView(),
+        EXEMPT_CUSTOMER_EMAIL,
+        'Exempt',
+        'Customer'
+    );
+    $exemptCustomerId = (string) $exemptCustomer->getId();
+
+    try {
+        // Section 2 wrote the credentials straight to the DB; the config this
+        // process booted with predates them, so drop the in-memory snapshot
+        // before the first API call reads it.
+        $om->get(\Magento\Framework\App\Config::class)->clean();
+
+        $storeId = (int) $storeManager->getDefaultStoreView()->getId();
+
+        // Reuse a live certificate if this customer already has one.
+        $certificateId = null;
+        $listing = $om->get(\Taxcloud\Magento2\Model\Gateway\Rest\RestClient::class)->request(
+            'GET',
+            '/tax/exemption-certificates?customerId=' . rawurlencode($exemptCustomerId) . '&limit=100',
+            null,
+            $storeId,
+            false
+        );
+        if (!$listing->isSuccess()) {
+            throw new \RuntimeException('certificate listing failed: ' . $listing->errorDetail());
+        }
+        $listedBody  = $listing->getBody() ?? [];
+        $listedItems = $listedBody['items'] ?? [];
+        foreach (is_array($listedItems) ? $listedItems : [] as $item) {
+            if (is_array($item) && empty($item['disabledAt']) && !empty($item['certificateId'])) {
+                $certificateId = (string) $item['certificateId'];
+                $step('exemption certificate reused (' . $certificateId . ')');
+                break;
+            }
+        }
+
+        if ($certificateId === null) {
+            $soap = $om->get(\Taxcloud\Magento2\Model\Gateway\Soap\SoapClientProviderInterface::class)
+                ->getClient($storeId);
+            if ($soap === null) {
+                throw new \RuntimeException('could not build a SOAP client');
+            }
+
+            // SinglePurchase = false: a blanket certificate, so it applies to
+            // every order this customer places rather than one named order.
+            $response = $soap->AddExemptCertificate([
+                'apiLoginID' => $apiId,
+                'apiKey'     => $apiKey,
+                'customerID' => $exemptCustomerId,
+                'exemptCert' => [
+                    'Detail' => [
+                        'ExemptStates' => [
+                            'ExemptState' => [
+                                [
+                                    'StateAbbr'            => 'TX',
+                                    'ReasonForExemption'   => 'Resale',
+                                    'IdentificationNumber' => '12-3456789',
+                                ],
+                            ],
+                        ],
+                        'SinglePurchase'                => false,
+                        'PurchaserFirstName'            => 'Exempt',
+                        'PurchaserLastName'             => 'Customer',
+                        'PurchaserTitle'                => 'Owner',
+                        'PurchaserAddress1'             => '1100 Congress Ave',
+                        'PurchaserCity'                 => 'Austin',
+                        'PurchaserState'                => 'TX',
+                        'PurchaserZip'                  => '78701',
+                        'PurchaserTaxID'                => [
+                            'TaxType'      => 'FEIN',
+                            'IDNumber'     => '12-3456789',
+                            'StateOfIssue' => '',
+                        ],
+                        'PurchaserBusinessType'         => 'WholesaleTrade',
+                        'PurchaserExemptionReason'      => 'Resale',
+                        'PurchaserExemptionReasonValue' => 'Resale',
+                    ],
+                ],
+            ]);
+
+            $result = $response->AddExemptCertificateResult ?? null;
+            if (($result->ResponseType ?? '') !== 'OK') {
+                $messages = [];
+                foreach ((array) ($result->Messages->ResponseMessage ?? []) as $m) {
+                    $messages[] = is_object($m) ? ($m->Message ?? '') : (string) $m;
+                }
+                throw new \RuntimeException(
+                    'AddExemptCertificate returned ' . ($result->ResponseType ?? 'no response')
+                    . ($messages ? ': ' . implode('; ', array_filter($messages)) : '')
+                );
+            }
+            $certificateId = (string) ($result->CertificateID ?? '');
+            if ($certificateId === '') {
+                throw new \RuntimeException('AddExemptCertificate returned no CertificateID');
+            }
+            $step('exemption certificate created over SOAP (' . $certificateId . ', covers TX)');
+        }
+
+        $exemptCustomer->setCustomAttribute('taxcloud_cert', $certificateId);
+        $customerRepository->save($exemptCustomer);
+        $step('customer "' . EXEMPT_CUSTOMER_EMAIL . '" taxcloud_cert = ' . $certificateId);
+    } catch (\Throwable $e) {
+        // Non-fatal: the catalog and store fixtures are still usable without a
+        // certificate, and failing the whole seed over a TaxCloud outage would
+        // block every other suite. The live contract test asserts a non-empty
+        // listing, so it reports the gap on its own terms rather than passing
+        // vacuously.
+        $step('WARNING: could not seed the exemption certificate - ' . $e->getMessage());
+        $step('WARNING: exemption tests will fail until this succeeds.');
+    }
+}
+
 
 // --- 4i. Second website / store group / store view (multi-store) -------------
 //
