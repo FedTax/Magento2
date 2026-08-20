@@ -19,9 +19,9 @@ declare(strict_types=1);
 
 namespace Taxcloud\Magento2\Test\Integration\Rest;
 
+use Taxcloud\Magento2\Model\Certificate\RestCertificateGateway;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestClient;
-use Taxcloud\Magento2\Model\Gateway\Rest\RestExemptionValidator;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestGateway;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
 
@@ -38,8 +38,8 @@ use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
  *  - verify-address ZIP+4 shape
  *  - the exemption-certificates listing envelope (items/nextCursor), and the
  *    item shape inside it — states as objects carrying a two-letter
- *    `abbreviation`, which the REST validator originally read as bare strings
- *    and so never matched
+ *    `abbreviation`, which the REST path originally read as bare strings and
+ *    so never matched
  *
  * These tests talk to the real TaxCloud API with the credentials seeded by
  * scripts/seed-test-data.php: the real v3 key (TAXCLOUD_API_V3_KEY, required)
@@ -310,7 +310,7 @@ class RestLiveApiTest extends IntegrationTestCase
     {
         $client = $this->restClient();
 
-        // RestExemptionValidator reads exactly these envelope keys.
+        // CertificateRepository reads exactly these envelope keys.
         $response = $client->request('GET', '/tax/exemption-certificates?limit=2', null, null, false);
 
         $this->assertTrue($response->isSuccess(), 'certificate listing failed: ' . $response->errorDetail());
@@ -354,8 +354,7 @@ class RestLiveApiTest extends IntegrationTestCase
         $this->assertArrayHasKey('disabledAt', $certificate, 'disabledAt gates whether a cert may be applied');
 
         // The crux: states are OBJECTS carrying a two-letter abbreviation, not
-        // bare strings. RestExemptionValidator::toStateAbbreviations() depends
-        // on exactly this.
+        // bare strings. RestCertificateMapper depends on exactly this.
         $this->assertIsArray($certificate['states'] ?? null, 'states must be an array');
         $this->assertNotEmpty($certificate['states'], 'the seeded certificate must cover at least one state');
         foreach ($certificate['states'] as $state) {
@@ -390,26 +389,25 @@ class RestLiveApiTest extends IntegrationTestCase
             'no live certificate with covered states on the account — run scripts/seed-test-data.php'
         );
 
-        $validator = $this->get(RestExemptionValidator::class);
+        $gateway = $this->get(RestCertificateGateway::class);
         $covered = $certificate['states'][0]['abbreviation'];
 
-        $this->assertSame(
-            $certificate['certificateId'],
-            $validator->validate(
-                $certificate['certificateId'],
-                $certificate['customerId'],
-                $covered
-            ),
-            'a certificate covering ' . $covered . ' must validate for a ' . $covered . ' destination'
-        );
+        $mapped = null;
+        foreach ($gateway->listCertificates($certificate['customerId']) as $candidate) {
+            if ($candidate->getCertificateId() === $certificate['certificateId']) {
+                $mapped = $candidate;
+                break;
+            }
+        }
 
-        $this->assertNull(
-            $validator->validate(
-                $certificate['certificateId'],
-                $certificate['customerId'],
-                $covered === 'CA' ? 'NY' : 'CA'
-            ),
-            'a certificate must not validate for a state it does not cover'
+        $this->assertNotNull($mapped, 'the certificate must come back from a listing by its own customer identity');
+        $this->assertTrue(
+            $mapped->covers($covered),
+            'a certificate covering ' . $covered . ' must cover a ' . $covered . ' destination'
+        );
+        $this->assertFalse(
+            $mapped->covers($covered === 'CA' ? 'NY' : 'CA'),
+            'a certificate must not cover a state it does not list'
         );
     }
 }

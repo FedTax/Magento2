@@ -59,6 +59,30 @@ export class CheckoutPage {
   }
 
   /**
+   * Empty the cart before starting.
+   *
+   * Guest specs do not need this — a guest cart dies with the session. A
+   * SIGNED-IN customer's cart is persisted against their account, so anything
+   * left behind by an earlier run (especially one that failed before placing
+   * the order) is still there on the next, and every total silently doubles.
+   * Cheap insurance for a confusing failure.
+   */
+  async emptyCart(): Promise<void> {
+    await this.page.goto('/checkout/cart/');
+
+    // Each removal re-renders the cart, so re-query rather than iterating a
+    // stale list.
+    for (let guard = 0; guard < 20; guard++) {
+      const remove = this.page.locator('a.action-delete, .action.action-delete').first();
+      if ((await remove.count()) === 0) {
+        return;
+      }
+      await remove.click();
+      await this.page.waitForLoadState('domcontentloaded');
+    }
+  }
+
+  /**
    * Open the checkout as a signed-in customer.
    *
    * The guest entry point does not transfer: with an account there is no
@@ -76,6 +100,40 @@ export class CheckoutPage {
     await this.page
       .locator('input[type="radio"][value="flatrate_flatrate"]')
       .waitFor({ timeout: 60_000 });
+  }
+
+  /**
+   * As a signed-in customer, add and select a NEW shipping address instead of
+   * the account's default.
+   *
+   * Needed to ship a customer somewhere other than where they usually do —
+   * which is how a certificate's state coverage gets exercised, since a
+   * certificate that covers the customer's home state proves nothing about
+   * one that does not.
+   *
+   * Luma renders this as a modal over the saved-address list; the form fields
+   * are the same names as the guest form, but they only exist once the modal
+   * is open.
+   */
+  async addNewShippingAddress(a: Omit<GuestAddress, 'email'>): Promise<void> {
+    await this.page.locator('button.action.action-show-popup').click();
+
+    const modal = this.page.locator('.modal-inner-wrap').filter({ has: this.page.locator('form') }).last();
+    await modal.locator('input[name="firstname"]').waitFor({ timeout: 30_000 });
+
+    await modal.locator('input[name="firstname"]').fill(a.firstname);
+    await modal.locator('input[name="lastname"]').fill(a.lastname);
+    await modal.locator('input[name="street[0]"]').fill(a.street);
+    await modal.locator('input[name="city"]').fill(a.city);
+    await modal.locator('select[name="region_id"]').selectOption({ label: a.region });
+    await modal.locator('input[name="postcode"]').fill(a.postcode);
+    await modal.locator('input[name="telephone"]').fill(a.telephone);
+
+    await modal.locator('button.action.primary.action-save-address').click();
+    await modal.waitFor({ state: 'hidden', timeout: 30_000 });
+
+    // The saved address becomes the selected one and totals recalculate.
+    await this.page.locator('input[type="radio"][value="flatrate_flatrate"]').waitFor({ timeout: 60_000 });
   }
 
   /**

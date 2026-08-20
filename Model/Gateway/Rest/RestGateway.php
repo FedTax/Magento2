@@ -76,9 +76,14 @@ class RestGateway implements GatewayInterface
     private $requestBuilder;
 
     /**
-     * @var RestExemptionValidator
+     * @var \Taxcloud\Magento2\Model\Certificate\RestCertificateGateway
      */
-    private $exemptionValidator;
+    private $certificateGateway;
+
+    /**
+     * @var \Taxcloud\Magento2\Model\Certificate\CertificateResolver
+     */
+    private $certificateResolver;
 
     /**
      * @var ResultCache
@@ -107,7 +112,7 @@ class RestGateway implements GatewayInterface
      * @param RestRequestBuilder $restRequestBuilder
      * @param RestResponseMapper $restResponseMapper
      * @param RequestBuilder $requestBuilder
-     * @param RestExemptionValidator $exemptionValidator
+     * @param \Taxcloud\Magento2\Model\Certificate\RestCertificateGateway $certificateGateway
      * @param ResultCache $resultCache
      * @param MagentoTaxFallback $magentoTaxFallback
      * @param GatewayEventDispatcher $eventDispatcher
@@ -120,7 +125,8 @@ class RestGateway implements GatewayInterface
         RestRequestBuilder $restRequestBuilder,
         RestResponseMapper $restResponseMapper,
         RequestBuilder $requestBuilder,
-        RestExemptionValidator $exemptionValidator,
+        \Taxcloud\Magento2\Model\Certificate\RestCertificateGateway $certificateGateway,
+        \Taxcloud\Magento2\Model\Certificate\CertificateResolver $certificateResolver,
         ResultCache $resultCache,
         MagentoTaxFallback $magentoTaxFallback,
         GatewayEventDispatcher $eventDispatcher,
@@ -132,7 +138,8 @@ class RestGateway implements GatewayInterface
         $this->restRequestBuilder = $restRequestBuilder;
         $this->restResponseMapper = $restResponseMapper;
         $this->requestBuilder = $requestBuilder;
-        $this->exemptionValidator = $exemptionValidator;
+        $this->certificateGateway = $certificateGateway;
+        $this->certificateResolver = $certificateResolver;
         $this->resultCache = $resultCache;
         $this->magentoTaxFallback = $magentoTaxFallback;
         $this->eventDispatcher = $eventDispatcher;
@@ -142,9 +149,25 @@ class RestGateway implements GatewayInterface
     /**
      * @inheritDoc
      */
-    public function getValidatedCertificateID($certificateID, $customerID, $destinationState, $store = null)
+    public function listCertificates($customerIdentity, $store = null)
     {
-        return $this->exemptionValidator->validate($certificateID, $customerID, $destinationState, $store);
+        return $this->certificateGateway->listCertificates($customerIdentity, $store);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function createCertificate($customerIdentity, array $data, $store = null)
+    {
+        return $this->certificateGateway->createCertificate($customerIdentity, $data, $store);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function deleteCertificate($certificateId, $customerIdentity, $store = null)
+    {
+        $this->certificateGateway->deleteCertificate($certificateId, $customerIdentity, $store);
     }
 
     /**
@@ -215,19 +238,18 @@ class RestGateway implements GatewayInterface
             return $result;
         }
 
-        $certificateID = null;
-        if ($customer) {
-            $certificate = $customer->getCustomAttribute('taxcloud_cert');
-            if ($certificate && $certificate->getValue()) {
-                // Only apply the exemption when the cert actually covers the destination state
-                $certificateID = $this->getValidatedCertificateID(
-                    $certificate->getValue(),
-                    (string) $customer->getId(),
-                    $destination['State'],
-                    $storeId
-                );
-            }
-        }
+        // One resolver for both transports: eligibility, precedence and the
+        // ownership check that TaxCloud does not perform live here, not twice
+        // over in two lookup paths. `taxcloud_cert` is the explicitly attached
+        // certificate — untrusted like any other inbound identifier, and
+        // honoured only if it turns out to be this customer's.
+        $resolvedCertificate = $this->certificateResolver->resolve(
+            $customer,
+            $destination['State'],
+            null,
+            $storeId
+        );
+        $certificateID = $resolvedCertificate ? $resolvedCertificate->getCertificateId() : null;
 
         $origin = $this->requestBuilder->buildOrigin($storeId);
         if ($origin === null) {

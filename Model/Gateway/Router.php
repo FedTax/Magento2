@@ -73,10 +73,25 @@ class Router implements GatewayInterface
     /**
      * @inheritDoc
      */
-    public function getValidatedCertificateID($certificateID, $customerID, $destinationState, $store = null)
+    public function listCertificates($customerIdentity, $store = null)
     {
-        return $this->target($store)
-            ->getValidatedCertificateID($certificateID, $customerID, $destinationState, $store);
+        return $this->target($store)->listCertificates($customerIdentity, $store);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function createCertificate($customerIdentity, array $data, $store = null)
+    {
+        return $this->target($store)->createCertificate($customerIdentity, $data, $store);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function deleteCertificate($certificateId, $customerIdentity, $store = null)
+    {
+        $this->target($store)->deleteCertificate($certificateId, $customerIdentity, $store);
     }
 
     /**

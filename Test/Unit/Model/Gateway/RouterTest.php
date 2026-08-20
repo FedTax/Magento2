@@ -77,8 +77,8 @@ class RouterTest extends TestCase
 
         $this->soap->expects($this->once())->method('lookupTaxes')
             ->with($itemsByType, $shippingAssignment, $quote)->willReturn(['taxes']);
-        $this->soap->expects($this->once())->method('getValidatedCertificateID')
-            ->with('cert-1', 'cust-1', 'NY', 7)->willReturn('cert-1');
+        $this->soap->expects($this->once())->method('listCertificates')
+            ->with('cust-1', 7)->willReturn(['cert-1']);
         $this->soap->expects($this->once())->method('authorizeCapture')
             ->with($order)->willReturn(true);
         $this->soap->expects($this->once())->method('returnOrder')
@@ -93,7 +93,7 @@ class RouterTest extends TestCase
         $this->rest->expects($this->never())->method($this->anything());
 
         $this->assertSame(['taxes'], $router->lookupTaxes($itemsByType, $shippingAssignment, $quote));
-        $this->assertSame('cert-1', $router->getValidatedCertificateID('cert-1', 'cust-1', 'NY', 7));
+        $this->assertSame(['cert-1'], $router->listCertificates('cust-1', 7));
         $this->assertTrue($router->authorizeCapture($order));
         $this->assertTrue($router->returnOrder($creditmemo));
         $this->assertSame(['details'], $router->getOrderDetails($order));
@@ -144,7 +144,7 @@ class RouterTest extends TestCase
         $creditmemo->method('getStoreId')->willReturn(7);
 
         $this->rest->expects($this->once())->method('lookupTaxes')->willReturn(['taxes']);
-        $this->rest->expects($this->once())->method('getValidatedCertificateID')->willReturn('cert-1');
+        $this->rest->expects($this->once())->method('listCertificates')->willReturn(['cert-1']);
         $this->rest->expects($this->once())->method('authorizeCapture')->willReturn(true);
         $this->rest->expects($this->once())->method('returnOrder')->willReturn(true);
         $this->rest->expects($this->once())->method('getOrderDetails')->willReturn(['details']);
@@ -154,7 +154,7 @@ class RouterTest extends TestCase
         $this->soap->expects($this->never())->method($this->anything());
 
         $this->assertSame(['taxes'], $router->lookupTaxes([], [], $quote));
-        $this->assertSame('cert-1', $router->getValidatedCertificateID('c', 'u', 'NY', 7));
+        $this->assertSame(['cert-1'], $router->listCertificates('u', 7));
         $this->assertTrue($router->authorizeCapture($order));
         $this->assertTrue($router->returnOrder($creditmemo));
         $this->assertSame(['details'], $router->getOrderDetails($order));
@@ -202,7 +202,7 @@ class RouterTest extends TestCase
                 \Taxcloud\Magento2\Api\LookupGatewayInterface::class,
                 \Taxcloud\Magento2\Api\OrderGatewayInterface::class,
                 \Taxcloud\Magento2\Api\AddressGatewayInterface::class,
-                \Taxcloud\Magento2\Api\ExemptionGatewayInterface::class,
+                \Taxcloud\Magento2\Api\CertificateGatewayInterface::class,
             ] as $contract
         ) {
             $preference = $diXml->xpath('//preference[@for="' . $contract . '"]');

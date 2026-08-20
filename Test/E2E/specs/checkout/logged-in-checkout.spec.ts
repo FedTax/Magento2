@@ -36,6 +36,8 @@ test('signed-in customer sees the right tax and completes checkout', async ({ pa
   const checkout = new CheckoutPage(page);
 
   await loginAsPlainCustomer(page);
+  // A signed-in customer's cart persists between runs — start from empty.
+  await checkout.emptyCart();
 
   await product.open('test-product');
   await product.addToCart();

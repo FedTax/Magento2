@@ -43,6 +43,11 @@ class CacheKeyBuilder
     public const PREFIX_EXEMPT_CERT_STATES = 'taxcloud_cert_states_';
 
     /**
+     * Prefix for a customer's cached certificate set.
+     */
+    public const PREFIX_CUSTOMER_CERTS = 'taxcloud_customer_certs_';
+
+    /**
      * Cache key for a Lookup response, derived from the exact request payload.
      *
      * @param array $params The Lookup request params, post-observer
@@ -84,5 +89,33 @@ class CacheKeyBuilder
     {
         return self::PREFIX_EXEMPT_CERT_STATES . $customerId . '_' . $certificateId
             . '_' . hash('sha256', (string) $apiId);
+    }
+
+    /**
+     * Cache key for the whole set of certificates filed under one TaxCloud
+     * customer identity.
+     *
+     * Keyed on the TAXCLOUD IDENTITY, not the Magento customer id: two
+     * customers may deliberately share an identity — several buyers at one
+     * company covered by that company's certificate — and they resolve the
+     * same set, so they should share one entry rather than each cache a
+     * private copy that can drift out of step with the other.
+     *
+     * Per account for the same reason the per-certificate key was: a set
+     * fetched under one TaxCloud account must never be served to a store
+     * configured with another. Hashed so the credential does not appear in
+     * cache storage keys and the key stays cache-id-safe whatever the
+     * identity contains.
+     *
+     * @param string $customerIdentity TaxCloud customer identity
+     * @param string $account TaxCloud account discriminator — API login ID on
+     *                        SOAP, connection ID on REST
+     * @return string
+     */
+    public function forCustomerCertificates($customerIdentity, $account = '')
+    {
+        return self::PREFIX_CUSTOMER_CERTS
+            . hash('sha256', (string) $customerIdentity)
+            . '_' . hash('sha256', (string) $account);
     }
 }

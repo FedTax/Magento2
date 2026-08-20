@@ -37,6 +37,8 @@ test('exempt customer is charged no tax and completes checkout', async ({ page }
   const checkout = new CheckoutPage(page);
 
   await loginAsExemptCustomer(page);
+  // A signed-in customer's cart persists between runs — start from empty.
+  await checkout.emptyCart();
 
   await product.open('test-product');
   await product.addToCart();

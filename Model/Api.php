@@ -22,7 +22,6 @@ use Taxcloud\Magento2\Model\Cache\ResultCache;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Event\GatewayEventDispatcher;
 use Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback;
-use Taxcloud\Magento2\Model\Gateway\ExemptionValidator;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
 use Taxcloud\Magento2\Model\Gateway\RetryPolicy;
@@ -111,11 +110,18 @@ class Api implements GatewayInterface
     private $resultCache;
 
     /**
-     * Exemption-certificate validation.
+     * Certificate reads and writes over v1.
      *
-     * @var \Taxcloud\Magento2\Model\Gateway\ExemptionValidator
+     * @var \Taxcloud\Magento2\Model\Certificate\SoapCertificateGateway
      */
-    private $exemptionValidator;
+    private $certificateGateway;
+
+    /**
+     * Which certificate exempts an order, and whether it may.
+     *
+     * @var \Taxcloud\Magento2\Model\Certificate\CertificateResolver
+     */
+    private $certificateResolver;
 
     /**
      * Magento-native tax fallback.
@@ -144,7 +150,6 @@ class Api implements GatewayInterface
      * @param \Taxcloud\Magento2\Model\Gateway\RequestBuilder $requestBuilder
      * @param \Taxcloud\Magento2\Model\Gateway\ResponseMapper $responseMapper
      * @param \Taxcloud\Magento2\Model\Cache\ResultCache $resultCache
-     * @param \Taxcloud\Magento2\Model\Gateway\ExemptionValidator $exemptionValidator
      * @param \Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback $magentoTaxFallback
      * @param \Taxcloud\Magento2\Model\Event\GatewayEventDispatcher $eventDispatcher
      * @param \Taxcloud\Magento2\Model\Gateway\RetryPolicy $retryPolicy
@@ -156,7 +161,8 @@ class Api implements GatewayInterface
         RequestBuilder $requestBuilder,
         ResponseMapper $responseMapper,
         ResultCache $resultCache,
-        ExemptionValidator $exemptionValidator,
+        \Taxcloud\Magento2\Model\Certificate\SoapCertificateGateway $certificateGateway,
+        \Taxcloud\Magento2\Model\Certificate\CertificateResolver $certificateResolver,
         MagentoTaxFallback $magentoTaxFallback,
         GatewayEventDispatcher $eventDispatcher,
         RetryPolicy $retryPolicy,
@@ -167,7 +173,8 @@ class Api implements GatewayInterface
         $this->requestBuilder = $requestBuilder;
         $this->responseMapper = $responseMapper;
         $this->resultCache = $resultCache;
-        $this->exemptionValidator = $exemptionValidator;
+        $this->certificateGateway = $certificateGateway;
+        $this->certificateResolver = $certificateResolver;
         $this->magentoTaxFallback = $magentoTaxFallback;
         $this->eventDispatcher = $eventDispatcher;
         $this->retryPolicy = $retryPolicy;
@@ -175,22 +182,27 @@ class Api implements GatewayInterface
     }
 
     /**
-     * Check whether an exemption certificate covers the destination state.
-     *
-     * Calls GetExemptCertificates via SOAP, caches the result, and returns
-     * the certificate ID only when the destination state appears in the
-     * certificate's ExemptStates list.  Returns null otherwise, so the
-     * lookup proceeds without an exemption.
-     *
-     * @param string $certificateID
-     * @param string $customerID
-     * @param string $destinationState  Two-letter state abbreviation
-     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose TaxCloud account applies
-     * @return string|null  The certificate ID if it covers the state, null otherwise
+     * @inheritDoc
      */
-    public function getValidatedCertificateID($certificateID, $customerID, $destinationState, $store = null)
+    public function listCertificates($customerIdentity, $store = null)
     {
-        return $this->exemptionValidator->validate($certificateID, $customerID, $destinationState, $store);
+        return $this->certificateGateway->listCertificates($customerIdentity, $store);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function createCertificate($customerIdentity, array $data, $store = null)
+    {
+        return $this->certificateGateway->createCertificate($customerIdentity, $data, $store);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function deleteCertificate($certificateId, $customerIdentity, $store = null)
+    {
+        $this->certificateGateway->deleteCertificate($certificateId, $customerIdentity, $store);
     }
 
     /**
@@ -288,6 +300,10 @@ class Api implements GatewayInterface
 
         $result = [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
 
+        // Quote::getCustomer() is declared as ExtensibleDataInterface but always
+        // returns a customer here; narrowing it once keeps the certificate and
+        // request-building calls below honestly typed.
+        /** @var \Magento\Customer\Api\Data\CustomerInterface|null $customer */
         $customer = $quote->getCustomer();
 
         $address = $shippingAssignment->getShipping()->getAddress();
@@ -341,19 +357,18 @@ class Api implements GatewayInterface
             return $result;
         }
 
-        $certificateID = null;
-        if ($customer) {
-            $certificate = $customer->getCustomAttribute('taxcloud_cert');
-            if ($certificate && $certificate->getValue()) {
-                // Only apply the exemption when the cert actually covers the destination state
-                $certificateID = $this->getValidatedCertificateID(
-                    $certificate->getValue(),
-                    $customer->getId(),
-                    $destination['State'],
-                    $storeId
-                );
-            }
-        }
+        // One resolver for both transports: eligibility, precedence and the
+        // ownership check that TaxCloud does not perform live here, not twice
+        // over in two lookup paths. `taxcloud_cert` is the explicitly attached
+        // certificate — untrusted like any other inbound identifier, and
+        // honoured only if it turns out to be this customer's.
+        $resolvedCertificate = $this->certificateResolver->resolve(
+            $customer,
+            $destination['State'],
+            null,
+            $storeId
+        );
+        $certificateID = $resolvedCertificate ? $resolvedCertificate->getCertificateId() : null;
 
         $origin = $this->requestBuilder->buildOrigin($storeId);
         if ($origin === null) {

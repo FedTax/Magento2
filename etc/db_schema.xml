@@ -24,5 +24,18 @@
              license-gated OrderDetails API. -->
         <column xsi:type="smallint" name="taxcloud_captured" unsigned="true" nullable="true"
                 identity="false" default="0" comment="Order captured in TaxCloud"/>
+        <!-- The exemption certificate that untaxed this order, if any. -->
+        <column xsi:type="varchar" name="taxcloud_certificate_id" length="64" nullable="true"
+                comment="TaxCloud exemption certificate applied to this order"/>
+        <!-- What that certificate SAID at the time of the sale, not what it says
+             now. TaxCloud stores neither the certificate document nor an expiry
+             date - their documentation is explicit that both stay the merchant's
+             responsibility - and a certificate can be deleted outright. So the
+             identifier alone is a pointer into a store that may not contain the
+             target when an auditor asks why this sale was untaxed. Written once,
+             when the exemption is applied, and never revised afterwards: the
+             question it answers is what was relied on, which cannot change. -->
+        <column xsi:type="text" name="taxcloud_certificate_snapshot" nullable="true"
+                comment="Certificate detail as it stood when this order was placed"/>
     </table>
 </schema>

@@ -25,27 +25,12 @@ parameters:
 			path: Logger/Logger.php
 
 		-
-			message: "#^Call to an undefined method Magento\\\\Framework\\\\Api\\\\ExtensibleDataInterface\\:\\:getCustomAttribute\\(\\)\\.$#"
-			count: 1
-			path: Model/Api.php
-
-		-
-			message: "#^Call to an undefined method Magento\\\\Framework\\\\Api\\\\ExtensibleDataInterface\\:\\:getId\\(\\)\\.$#"
-			count: 1
-			path: Model/Api.php
-
-		-
 			message: "#^Call to an undefined method Magento\\\\Quote\\\\Api\\\\Data\\\\CartItemInterface\\:\\:getTaxCalculationItemId\\(\\)\\.$#"
 			count: 1
 			path: Model/Api.php
 
 		-
 			message: "#^Parameter \\#1 \\$address of method Taxcloud\\\\Magento2\\\\Model\\\\Gateway\\\\RequestBuilder\\:\\:buildLookupDestination\\(\\) expects Magento\\\\Quote\\\\Model\\\\Quote\\\\Address, Magento\\\\Quote\\\\Api\\\\Data\\\\AddressInterface given\\.$#"
-			count: 1
-			path: Model/Api.php
-
-		-
-			message: "#^Parameter \\#1 \\$customer of method Taxcloud\\\\Magento2\\\\Model\\\\Gateway\\\\RequestBuilder\\:\\:buildLookupParams\\(\\) expects Magento\\\\Customer\\\\Api\\\\Data\\\\CustomerInterface\\|null, Magento\\\\Framework\\\\Api\\\\ExtensibleDataInterface given\\.$#"
 			count: 1
 			path: Model/Api.php
 
