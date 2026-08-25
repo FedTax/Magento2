@@ -20,6 +20,7 @@ namespace Taxcloud\Magento2\Model\Certificate;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
+
 /**
  * Decides which of a customer's certificates exempts an order — and refuses
  * every certificate that is not theirs.
