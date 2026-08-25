@@ -25,6 +25,10 @@
         <verify_address>1</verify_address>
         <api_type>rest</api_type>
         <guest_customer_id>-1</guest_customer_id>
+        <!-- Off until a merchant deliberately enables it: see system.xml. -->
+        <exemptions_enabled>0</exemptions_enabled>
+        <exempt_customer_groups/>
+        <restrict_to_exempt_groups>0</restrict_to_exempt_groups>
         <default_tic>00000</default_tic>
         <shipping_tic>11010</shipping_tic>
         <cache_lifetime>86400</cache_lifetime>

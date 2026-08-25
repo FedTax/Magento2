@@ -228,6 +228,53 @@
           </depends>
         </field>
 
+        <!--
+          Exemption certificates. OFF BY DEFAULT, deliberately: a certificate is
+          an unverified attestation, and offering one is inviting a shopper to
+          stop paying tax. A merchant turns this on knowingly.
+        -->
+        <field id="exemptions_enabled" translate="label comment" type="select" sortOrder="120" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Enable Exemption Certificates</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <config_path>tax/taxcloud_settings/exemptions_enabled</config_path>
+          <comment>Lets exempt customers hold TaxCloud exemption certificates and apply them at checkout. TaxCloud does not verify exemption claims — you remain responsible for holding valid certificates on file.</comment>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="exempt_customer_groups" translate="label comment" type="multiselect" sortOrder="125" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Exempt Customer Groups</label>
+          <source_model>Magento\Customer\Model\Config\Source\Group\Multiselect</source_model>
+          <config_path>tax/taxcloud_settings/exempt_customer_groups</config_path>
+          <comment>Customers in these groups have a covering certificate applied automatically, and are the only ones allowed to create certificates themselves. Putting a customer in one of these groups is how you vouch for them.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="exemptions_enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="restrict_to_exempt_groups" translate="label comment" type="select" sortOrder="130" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Restrict to Exempt Groups</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <config_path>tax/taxcloud_settings/restrict_to_exempt_groups</config_path>
+          <comment>Hide the exemption interface from everyone outside the groups above. Recommended on storefronts that also sell to consumers.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="exemptions_enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="company_name" translate="label comment" type="text" sortOrder="135" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Company Name</label>
+          <config_path>tax/taxcloud_settings/company_name</config_path>
+          <comment>Your business name, recorded on certificates customers create as the seller they are claiming exemption from.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="exemptions_enabled">1</field>
+          </depends>
+        </field>
+
       </group>
     </section>
   </system>

@@ -73,15 +73,20 @@ class InstallTaxcloudDataRevertTest extends IntegrationTestCase
             $this->attributeExists(self::PRODUCT_ENTITY, self::PRODUCT_ATTR),
             'Precondition: taxcloud_tic should exist on Product before revert.'
         );
-        $this->assertTrue(
-            $this->attributeExists(self::CUSTOMER_ENTITY, self::CUSTOMER_ATTR),
-            'Precondition: taxcloud_cert should exist on Customer before revert.'
-        );
+        // The customer attribute this patch installs is RETIRED downstream by
+        // RemoveLegacyCertificateAttribute, so on a fully upgraded install it is
+        // legitimately absent. revert() removing it is still correct behaviour
+        // when it is there, which is what the conditional below checks — the
+        // product attribute remains this patch's own and is asserted
+        // unconditionally.
+        $customerAttrPresent = $this->attributeExists(self::CUSTOMER_ENTITY, self::CUSTOMER_ATTR);
 
         // Snapshot stored values so re-apply() can restore them (revert drops
         // the attribute, cascading its values away — see class docblock).
         $this->snapshotValues(self::PRODUCT_ENTITY, self::PRODUCT_ATTR);
-        $this->snapshotValues(self::CUSTOMER_ENTITY, self::CUSTOMER_ATTR);
+        if ($customerAttrPresent) {
+            $this->snapshotValues(self::CUSTOMER_ENTITY, self::CUSTOMER_ATTR);
+        }
 
         // Act: run the patch's revert() through the real DI graph.
         $this->reverted = true;
@@ -92,10 +97,12 @@ class InstallTaxcloudDataRevertTest extends IntegrationTestCase
             $this->attributeExists(self::PRODUCT_ENTITY, self::PRODUCT_ATTR),
             'revert() should remove the taxcloud_tic Product attribute.'
         );
-        $this->assertFalse(
-            $this->attributeExists(self::CUSTOMER_ENTITY, self::CUSTOMER_ATTR),
-            'revert() should remove the taxcloud_cert Customer attribute.'
-        );
+        if ($customerAttrPresent) {
+            $this->assertFalse(
+                $this->attributeExists(self::CUSTOMER_ENTITY, self::CUSTOMER_ATTR),
+                'revert() should remove the taxcloud_cert Customer attribute when it is present.'
+            );
+        }
 
         // Restore schema + data for the rest of the suite (also covered by tearDown).
         $this->reapplyPatch();

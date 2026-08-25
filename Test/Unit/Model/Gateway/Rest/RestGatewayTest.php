@@ -109,7 +109,8 @@ class RestGatewayTest extends TestCase
 
         return new \Taxcloud\Magento2\Model\Certificate\CertificateResolver(
             $repository,
-            new \Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity()
+            new \Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity(),
+            new \Taxcloud\Magento2\Model\Certificate\ExemptionPolicy($this->config)
         );
     }
 

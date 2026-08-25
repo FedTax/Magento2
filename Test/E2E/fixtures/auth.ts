@@ -38,11 +38,16 @@ export async function loginAsCustomer(
 ): Promise<void> {
   await page.goto('/customer/account/login/');
 
-  // Luma ids, confirmed against the running storefront: the password field is
-  // #password here, not the #pass some Magento versions render.
-  await page.locator('#email').fill(email);
-  await page.locator('#password').fill(password);
-  await page.locator('#send2').click();
+  // Scoped to the login FORM, not the page. Luma also renders a hidden
+  // "authentication popup" carrying an #email/#password/#send2 of its own, so
+  // page-wide locators match two elements and Playwright refuses to guess.
+  // It only stays hidden on a fresh session, which is why an unscoped selector
+  // works right up until a spec visits another page first.
+  const form = page.locator('#login-form');
+
+  await form.locator('#email').fill(email);
+  await form.locator('#password').fill(password);
+  await form.locator('#send2').click();
 
   await page.waitForURL(/customer\/account/, { timeout: 40_000 });
   await expect(

@@ -203,6 +203,19 @@ $configValues = $productsOnly ? [] : [
     'tax/taxcloud_settings/rest_connection_id' => $apiKey,
     'tax/taxcloud_settings/default_tic'    => '20000',
 
+    // Exemption certificates: OFF, exactly as a real installation gets them.
+    // The seeded store must mirror what a merchant actually receives, or the
+    // suites quietly stop covering the state every install starts in — and the
+    // default is the one state guaranteed to be in production everywhere.
+    //
+    // Specs that need the feature turn it on themselves and restore it after
+    // (see specs/exemptions-mode.setup.ts), the same way the REST projects flip
+    // api_type rather than the seed pinning it.
+    'tax/taxcloud_settings/exemptions_enabled'     => '0',
+    'tax/taxcloud_settings/exempt_customer_groups' => '',
+    'tax/taxcloud_settings/restrict_to_exempt_groups' => '0',
+    'tax/taxcloud_settings/company_name'           => 'TaxCloud Test Store',
+
     // Ship-from origin: 1401 Lavaca St, Austin TX 78701 (region 57 = Texas)
     'shipping/origin/country_id'   => 'US',
     'shipping/origin/region_id'    => '57',
@@ -1152,9 +1165,9 @@ if ($productsOnly) {
             $step('exemption certificate created over SOAP (' . $certificateId . ', covers TX)');
         }
 
-        $exemptCustomer->setCustomAttribute('taxcloud_cert', $certificateId);
+        $exemptCustomer->setCustomAttribute('taxcloud_certificate_id', $certificateId);
         $customerRepository->save($exemptCustomer);
-        $step('customer "' . EXEMPT_CUSTOMER_EMAIL . '" taxcloud_cert = ' . $certificateId);
+        $step('customer "' . EXEMPT_CUSTOMER_EMAIL . '" taxcloud_certificate_id = ' . $certificateId);
     } catch (\Throwable $e) {
         // Non-fatal: the catalog and store fixtures are still usable without a
         // certificate, and failing the whole seed over a TaxCloud outage would

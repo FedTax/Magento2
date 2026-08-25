@@ -5,5 +5,11 @@
             "taxcloud_certificate_id": true,
             "taxcloud_certificate_snapshot": true
         }
+    },
+    "quote": {
+        "column": {
+            "taxcloud_certificate_id": true,
+            "taxcloud_certificate_cleared": true
+        }
     }
 }

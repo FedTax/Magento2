@@ -22,6 +22,8 @@ use RuntimeException;
 use Taxcloud\Magento2\Model\Certificate\Certificate;
 use Taxcloud\Magento2\Model\Certificate\CertificateRepository;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
+use Taxcloud\Magento2\Model\Certificate\ExemptionPolicy;
+use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity;
 
 /**
@@ -64,19 +66,37 @@ class CertificateResolverTest extends TestCase
         return $this->repository;
     }
 
+    /**
+     * @var int[] Customer groups the store treats as exempt in the test at hand
+     */
+    private $exemptGroups = [];
+
     private function resolver(): CertificateResolver
     {
-        return new CertificateResolver($this->repository, new TaxCloudCustomerIdentity());
+        $config = $this->createStub(TaxcloudConfig::class);
+        $config->method('isEnabled')->willReturn(true);
+        $config->method('areExemptionsEnabled')->willReturn(true);
+        $config->method('getExemptCustomerGroups')->willReturnCallback(function () {
+            return $this->exemptGroups;
+        });
+        $config->method('isRestrictedToExemptGroups')->willReturn(false);
+
+        return new CertificateResolver(
+            $this->repository,
+            new TaxCloudCustomerIdentity(),
+            new ExemptionPolicy($config)
+        );
     }
 
     /**
      * @param string|null $configured
      * @param int|null $entityId
      */
-    private function customer($configured = null, $entityId = 42)
+    private function customer($configured = null, $entityId = 42, $groupId = 1)
     {
         $customer = $this->createStub(\Magento\Customer\Api\Data\CustomerInterface::class);
         $customer->method('getId')->willReturn($entityId);
+        $customer->method('getGroupId')->willReturn($groupId);
 
         if ($configured === null) {
             $customer->method('getCustomAttribute')->willReturn(null);
@@ -277,14 +297,117 @@ class CertificateResolverTest extends TestCase
 
     // ─── auto-apply slot ─────────────────────────────────────────────────
 
+    // ─── group auto-apply ────────────────────────────────────────────────
+
     /**
-     * With no identifier supplied, nothing is applied yet: the group auto-apply
-     * branch is a slot until the setting that nominates exempt customer groups
-     * exists. A rule nothing can turn on would be worse than no rule.
+     * The merchant vouched for this customer by putting them in an exempt
+     * group; making them pick a certificate on every order would be friction
+     * without a decision.
      */
-    public function testNothingIsAutoAppliedYet()
+    public function testExemptGroupCustomerIsAutoApplied()
+    {
+        $this->exemptGroups = [7];
+        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        $resolved = $this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null);
+
+        $this->assertNotNull($resolved);
+        $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
+    }
+
+    public function testCustomerOutsideTheExemptGroupsIsNotAutoApplied()
+    {
+        $this->exemptGroups = [7];
+        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1), 'TX', null));
+    }
+
+    public function testAutoApplyStillRequiresTheCertificateToCoverTheDestination()
+    {
+        $this->exemptGroups = [7];
+        $this->holding([$this->certificate(self::NY_CERT, ['NY'])]);
+
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null));
+    }
+
+    /**
+     * An exempt-group customer who declines must stay declined; otherwise they
+     * could never remove an exemption they are entitled not to use.
+     */
+    public function testAnExplicitClearingIsNotOverruledByTheGroup()
+    {
+        $this->exemptGroups = [7];
+        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        $this->assertNull(
+            $this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null, null, true)
+        );
+    }
+
+    // ─── declining ───────────────────────────────────────────────────────
+
+    /**
+     * A decline must beat the certificate an administrator pinned to the
+     * customer, not just their exempt group.
+     *
+     * Getting this wrong gives the shopper a control that appears to work and
+     * does nothing — and files the order against a certificate they refused.
+     */
+    public function testDecliningBeatsACertificatePinnedToTheCustomer()
+    {
+        $this->exemptGroups = [];
+        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        // The customer has cert-tx attached to their account...
+        $customer = $this->customer(self::TX_CERT, 42, 1);
+
+        $this->assertNotNull(
+            $this->resolver()->resolve($customer, 'TX', null, null, false),
+            'precondition: the attached certificate applies when nothing was declined'
+        );
+
+        $this->assertNull(
+            $this->resolver()->resolve($customer, 'TX', null, null, true),
+            'a declined order must not be exempted by the attached certificate'
+        );
+    }
+
+    /**
+     * Choosing a certificate for this cart is not a decline — the two cannot
+     * both be true, and the choice must win.
+     */
+    public function testChoosingACertificateOverridesAStaleDeclineFlag()
     {
         $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        $resolved = $this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT, null, true);
+
+        $this->assertNotNull($resolved);
+        $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
+    }
+
+    /**
+     * A decline costs no API call either: there is nothing to look up.
+     */
+    public function testDecliningMakesNoApiCall()
+    {
+        $this->exemptGroups = [7];
+        $this->expectRepository()->expects($this->never())->method('forCustomer');
+
+        $this->assertNull(
+            $this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null, null, true)
+        );
+    }
+
+    /**
+     * The property the foundation established, which auto-apply must not cost:
+     * a store applying nothing automatically pays no API call per cart.
+     */
+    public function testNoApiCallWhenNothingIsClaimedAndNothingIsAutomatic()
+    {
+        $this->exemptGroups = [];
+        $this->expectRepository()->expects($this->never())->method('forCustomer');
 
         $this->assertNull($this->resolver()->resolve($this->customer(), 'TX', null));
     }

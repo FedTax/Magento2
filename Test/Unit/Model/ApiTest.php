@@ -1055,7 +1055,9 @@ class ApiTest extends TestCase
         $customer->method('getId')->willReturn(42);
         $customer->method('getCustomAttribute')
             ->willReturnCallback(function ($attr) use ($certAttr) {
-                return $attr === 'taxcloud_cert' ? $certAttr : null;
+                return $attr === \Taxcloud\Magento2\Model\Certificate\CertificateResolver::ATTACHED_ATTRIBUTE
+                    ? $certAttr
+                    : null;
             });
 
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);

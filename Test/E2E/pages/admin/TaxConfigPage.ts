@@ -17,6 +17,8 @@ export class TaxConfigPage {
   readonly testConnectionButton: Locator;
   readonly testConnectionResult: Locator;
   readonly saveButton: Locator;
+  readonly exemptionsEnabled: Locator;
+  readonly exemptCustomerGroups: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -28,6 +30,8 @@ export class TaxConfigPage {
     this.testConnectionButton = page.locator('#taxcloud_test_connection_btn');
     this.testConnectionResult = page.locator('#taxcloud_test_connection_result');
     this.saveButton = page.locator('#save');
+    this.exemptionsEnabled = page.locator('#tax_taxcloud_exemptions_enabled');
+    this.exemptCustomerGroups = page.locator('#tax_taxcloud_exempt_customer_groups');
   }
 
   async open(): Promise<void> {
@@ -64,6 +68,34 @@ export class TaxConfigPage {
    */
   async selectApiType(value: 'soap' | 'rest'): Promise<void> {
     await this.apiType.selectOption(value);
+  }
+
+  /**
+   * Turn exemption certificates on or off for the default scope.
+   *
+   * Off is what a real installation has, and what the seed leaves behind — so
+   * a spec needing the feature turns it on and puts it back, rather than the
+   * seed pinning a state no merchant starts in.
+   *
+   * @param enabled whether to offer exemption certificates
+   * @param exemptGroupIds customer groups treated as exempt; ignored when disabling
+   */
+  async setExemptions(enabled: boolean, exemptGroupIds: string[] = []): Promise<void> {
+    await this.exemptionsEnabled.selectOption(enabled ? '1' : '0');
+
+    if (enabled && exemptGroupIds.length) {
+      // The group multiselect only exists once the master switch is on — its
+      // `depends` hides it otherwise.
+      await expect(this.exemptCustomerGroups).toBeVisible({ timeout: 10_000 });
+      await this.exemptCustomerGroups.selectOption(exemptGroupIds);
+    }
+  }
+
+  /**
+   * Whether the exemption settings are currently switched on in the form.
+   */
+  async isExemptionsEnabled(): Promise<boolean> {
+    return (await this.exemptionsEnabled.inputValue()) === '1';
   }
 
   /**

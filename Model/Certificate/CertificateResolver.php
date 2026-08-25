@@ -52,8 +52,14 @@ class CertificateResolver
 {
     /**
      * Customer attribute naming a specific certificate to apply.
+     *
+     * Replaces the legacy `taxcloud_cert`, whose values are carried across by
+     * {@see \Taxcloud\Magento2\Setup\Patch\Data\MigrateLegacyCertificateAttribute}.
+     * Deliberately a new code rather than a reuse: a rename in place would give
+     * the migration nothing to read from, and no way to tell a migrated value
+     * from an un-migrated one if it were interrupted.
      */
-    public const ATTACHED_ATTRIBUTE = 'taxcloud_cert';
+    public const ATTACHED_ATTRIBUTE = 'taxcloud_certificate_id';
 
     /**
      * @var CertificateRepository
@@ -66,6 +72,11 @@ class CertificateResolver
     private $identity;
 
     /**
+     * @var ExemptionPolicy
+     */
+    private $policy;
+
+    /**
      * @var LoggerInterface
      */
     private $logger;
@@ -73,15 +84,18 @@ class CertificateResolver
     /**
      * @param CertificateRepository $repository
      * @param TaxCloudCustomerIdentity $identity
+     * @param ExemptionPolicy $policy
      * @param LoggerInterface|null $logger
      */
     public function __construct(
         CertificateRepository $repository,
         TaxCloudCustomerIdentity $identity,
+        ExemptionPolicy $policy,
         ?LoggerInterface $logger = null
     ) {
         $this->repository = $repository;
         $this->identity = $identity;
+        $this->policy = $policy;
         $this->logger = $logger ?? new NullLogger();
     }
 
@@ -95,10 +109,18 @@ class CertificateResolver
      *        honoured if it turns out to be this customer's. When null, the
      *        certificate attached to the customer is used instead.
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @param bool $cleared The customer explicitly declined an exemption on this
+     *        order. Distinct from "nothing chosen": an exempt-group customer
+     *        must be able to decline without it being re-applied.
      * @return Certificate|null
      */
-    public function resolve($customer, $destinationState, $requestedCertificateId = null, $store = null)
-    {
+    public function resolve(
+        $customer,
+        $destinationState,
+        $requestedCertificateId = null,
+        $store = null,
+        $cleared = false
+    ) {
         // Guests hold no certificates. Bail before the API call rather than
         // querying under an empty identity, which would match whatever
         // TaxCloud happens to file under the empty string.
@@ -107,19 +129,33 @@ class CertificateResolver
             return null;
         }
 
-        // Which certificate is being claimed: one the caller supplied, or the
-        // one attached to the customer.
-        $explicit = $requestedCertificateId !== null && $requestedCertificateId !== ''
+        $requested = $requestedCertificateId !== null && $requestedCertificateId !== ''
             ? (string) $requestedCertificateId
-            : $this->attachedCertificateId($customer);
+            : '';
 
-        // Nothing claimed, and nothing yet that would apply one automatically —
-        // group auto-apply arrives with the setting that configures it. Return
-        // before asking TaxCloud: listing certificates for every signed-in
-        // shopper who has never claimed an exemption would add an API call per
-        // cart to answer a question nobody asked. When auto-apply lands, this
-        // is the branch that consults it instead of returning.
-        if ($explicit === '') {
+        // A decline beats every standing arrangement. Not just the customer's
+        // exempt group — also a certificate an administrator pinned to their
+        // account. Otherwise a shopper who chose "no exemption" would be
+        // exempted anyway, having been given a control that does nothing, and
+        // the order would be filed against a certificate they refused.
+        //
+        // It does not beat a certificate chosen for THIS cart, because
+        // choosing one clears the decline; the two cannot both be true.
+        if ($cleared && $requested === '') {
+            return null;
+        }
+
+        // What is being claimed: the per-cart choice, else the certificate
+        // attached to the customer.
+        $explicit = $requested !== '' ? $requested : $this->attachedCertificateId($customer);
+
+        // Nothing claimed. Before asking TaxCloud, decide whether anything
+        // WOULD be applied on this customer's behalf: listing certificates for
+        // every signed-in shopper who never claimed an exemption would add an
+        // API call per cart to answer a question nobody asked.
+        $autoApply = $explicit === '' && $this->policy->isTreatedAsExempt($customer, $store);
+
+        if ($explicit === '' && !$autoApply) {
             return null;
         }
 
@@ -142,15 +178,21 @@ class CertificateResolver
             }
         }
 
-        return $this->requested($eligible, $explicit, $customerIdentity);
+        if ($explicit !== '') {
+            return $this->requested($eligible, $explicit, $customerIdentity);
+        }
+
+        // Auto-apply: the merchant vouched for this customer by putting them in
+        // an exempt group, so the first covering certificate stands in for a
+        // choice they would otherwise have to make on every order.
+        return $eligible === [] ? null : $eligible[0];
     }
 
     /**
      * The certificate attached to a customer, if any.
      *
-     * `taxcloud_cert` is the legacy attachment slot — the free-text attribute
-     * an admin pasted a certificate id into. It is read here rather than in
-     * each lookup path so the precedence rule exists once, and it is treated
+     * Read here rather than in each lookup path so the precedence rule exists
+     * once, and treated
      * exactly like any other externally supplied identifier: verified against
      * the customer's own certificates before it can be applied. A pasted id
      * that was never theirs has never been honoured, and still is not.
