@@ -270,7 +270,11 @@ class ExemptionMatrixTest extends IntegrationTestCase
     }
 
     /**
+     * Both forms on purpose: Magento 2.4.7 ships PHPUnit 9.5, which does not read
+     * the attribute and would otherwise run this once with no arguments.
+     *
      * @param array<string> $held
+     * @dataProvider exemptionMatrixProvider
      */
     #[DataProvider('exemptionMatrixProvider')]
     public function testExemptionMatrix(
