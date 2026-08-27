@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test';
 import { loginAsExemptCustomer } from '../../fixtures/auth';
-import { AdminLoginPage } from '../../pages/admin/AdminLoginPage';
-import { CustomerCertificatesPage } from '../../pages/admin/CustomerCertificatesPage';
 
 /**
  * Exemption certificates in My Account.
@@ -15,21 +13,8 @@ import { CustomerCertificatesPage } from '../../pages/admin/CustomerCertificates
  * Runs with exemptions on, since the whole surface is hidden otherwise — that
  * hidden-by-default state is covered separately by exemptions-disabled-by-default.
  */
-const MARKER = 'Selfserve';
-const SEEDED_CUSTOMER = 2;
 
 test.describe('my account certificates', () => {
-  // Certificates created here are real. Clean up from the admin side, which can
-  // see them regardless of what the storefront did or how far it got.
-  test.afterEach(async ({ page }) => {
-    test.setTimeout(180_000);
-    await new AdminLoginPage(page).login();
-    const panel = new CustomerCertificatesPage(page);
-    await panel.openCustomer(SEEDED_CUSTOMER);
-    await panel.openTab();
-    await panel.deleteCertificatesNamed(MARKER);
-  });
-
   test('the account menu offers the certificates page', async ({ page }) => {
     test.setTimeout(240_000);
     await loginAsExemptCustomer(page);
@@ -65,31 +50,33 @@ test.describe('my account certificates', () => {
     });
   });
 
-  test('a customer can remove a certificate held for them', async ({ page }) => {
-    // Created from the admin panel, because creating is an administrator's act:
-    // nobody verifies an exemption claim, so a shopper cannot mint one. The
-    // customer can still see it and take it away.
-    await new AdminLoginPage(page).login();
-    const panel = new CustomerCertificatesPage(page);
-    await panel.openCustomer(SEEDED_CUSTOMER);
-    await panel.openTab();
-    await panel.createCertificate(MARKER);
+  test('each certificate offers the customer a way to remove it', async ({ page }) => {
+    test.setTimeout(240_000);
 
+    // Deliberately does not click. Removing is irreversible at TaxCloud, and
+    // proving the button works would cost an admin login, a real certificate
+    // created live, and a real delete — for wiring that
+    // StorefrontCertificateControllersTest already covers, including every way
+    // the endpoint refuses. What only a browser can show is that the control is
+    // rendered and carries the identifier the endpoint expects.
     await loginAsExemptCustomer(page);
     await page.goto('/taxcloud/certificate/');
-    await page.waitForTimeout(6000);
+    await page.waitForTimeout(8000);
 
-    const row = page.locator('[data-role="certificate-rows"] tr').filter({ hasText: MARKER });
-    await expect(row, 'the customer must see the certificate held for them').toHaveCount(1);
+    const rows = page.locator('[data-role="certificate-rows"] tr');
+    await expect(rows).not.toHaveCount(0);
 
-    page.on('dialog', (d) => d.accept());
-    await row.first().locator('[data-delete]').click();
-    await page.waitForTimeout(9000);
+    const removable = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-role="certificate-rows"] tr')).map((r) => {
+        const control = r.querySelector('[data-delete]');
+        return control ? (control.getAttribute('data-delete') || '').trim() : '';
+      }));
 
-    await expect(
-      page.locator('[data-role="certificate-rows"] tr').filter({ hasText: MARKER }),
-      'removing it must take it away at TaxCloud, not just from the page',
-    ).toHaveCount(0);
+    expect(
+      removable.every((id) => id.length > 0),
+      'every listed certificate must carry a remove control naming it — a control with no ' +
+        'identifier silently removes nothing, and the row looks the same either way',
+    ).toBe(true);
   });
 
   test('My Account offers no way to create a certificate', async ({ page }) => {

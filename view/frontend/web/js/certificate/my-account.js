@@ -19,7 +19,6 @@ define([
     'mage/translate',
     'Magento_Ui/js/modal/alert',
     'mage/loader',
-    'mage/validation'
 ], function ($, $t, uiAlert) {
     'use strict';
 
@@ -96,14 +95,78 @@ define([
         }
 
         /**
-         * Select-all / clear for the states multiselect.
+         * Why a read failed below the application layer.
          *
-         * An all-states certificate has to be expressed by selecting them all,
-         * not by leaving the list blank: TaxCloud records the list but never
-         * enforces it, so a blank list means nothing to them and this module
-         * would have to invent a scope the merchant never granted. One click
-         * beats fifty, and the certificate then says what it covers.
+         * The controller answers TaxCloud problems as JSON, so reaching here
+         * means the request never got that far. Told apart because a signed-out
+         * session — the common one, and the one the customer can fix — used to
+         * read the same as a TaxCloud outage.
+         *
+         * @param {Object} xhr
+         * @return {String}
          */
+        function readFailure(xhr) {
+            var status = xhr && xhr.status;
+
+            if (status === 200 || status === 401 || status === 403) {
+                return $t('Please sign in again to see your certificates.');
+            }
+
+            return $t('We could not load your certificates just now. Please try again.');
+        }
+
+        function escapeHtml(value) {
+            return $('<div>').text(value === null || value === undefined ? '' : value).html();
+        }
+
+        function render(certificates) {
+            rows.empty();
+
+            if (!certificates.length) {
+                table.hide();
+
+                return;
+            }
+
+            certificates.forEach(function (certificate) {
+                rows.append(
+                    '<tr>' +
+                    '<td class="col">' + escapeHtml((certificate.states || []).join(', ')) + '</td>' +
+                    '<td class="col">' + escapeHtml(certificate.purchaserName || '—') + '</td>' +
+                    '<td class="col">' + escapeHtml(certificate.reason || '—') + '</td>' +
+                    '<td class="col"><a href="#" data-delete="' + escapeHtml(certificate.certificateId) + '">' +
+                    escapeHtml($t('Remove')) + '</a></td>' +
+                    '</tr>'
+                );
+            });
+
+            table.show();
+        }
+
+        function load() {
+            $.get(config.endpoints.list).done(function (response) {
+                if (!response.success) {
+                    table.hide();
+                    // Not an empty list — see the module docblock.
+                    say(response.message || $t('We could not load your certificates just now.'), 'error');
+
+                    return;
+                }
+
+                render(response.certificates || []);
+
+                if (!response.certificates || !response.certificates.length) {
+                    say($t(
+                        'You have no exemption certificates. Contact us if you believe you should be tax exempt.'
+                    ));
+                } else {
+                    say('');
+                }
+            }).fail(function (xhr) {
+                table.hide();
+                say(readFailure(xhr), 'error');
+            });
+        }
 
         // See the admin panel's note: validation is bound once, and valid() is
         // only called while the form is visible.
