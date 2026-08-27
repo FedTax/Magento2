@@ -13,10 +13,8 @@ Three consequences follow from that single text field:
 ## What Changes
 
 - **A certificate grid on the customer admin page** — list, view, add, delete — with the TaxCloud identity beside it and a discovery action that shows what that identity currently resolves.
-- **Certificate management in My Account**, so an exempt customer can add and remove their own certificates rather than emailing paperwork to a merchant.
+- **Certificate visibility in My Account**, so a customer can see the certificates held for them and remove one.
 - **Attaching a certificate to a customer** from the admin page, with creation attaching it when nothing is attached yet — the write path for the attachment resolution already prefers.
-- **Customer-group auto-apply**, filling the slot the resolver already leaves: for customers in a nominated group, a covering certificate applies without anyone choosing it.
-- **Settings** gating all of it: a master switch defaulting to off, the exempt groups, restrict-to-those-groups, and the company name recorded on certificates.
 - **A cache-refresh control**, so a certificate changed in the TaxCloud portal can be picked up without waiting out the hour.
 - **BREAKING: the `taxcloud_cert` attribute is removed**, its values migrated to the new storage.
 
@@ -28,7 +26,7 @@ None. Everything here extends the capability the foundation introduced.
 
 ### Modified Capabilities
 
-- `exemption-certificates`: the capability currently describes what the module can do with certificates and says nothing about who may ask it to. This change adds the surfaces — administrator, customer, order — the settings that gate them, group auto-apply as a resolution step, and the retirement of the legacy attribute.
+- `exemption-certificates`: the capability currently describes what the module can do with certificates and says nothing about who may ask it to. This change adds the surfaces — administrator, customer, order — the setting that gates them, and the retirement of the legacy attribute.
 
 ## Non-goals
 
@@ -51,7 +49,6 @@ The exempt customer groups are a store-scoped setting while a customer's group i
 - `Block/Adminhtml/`, `Ui/`, `view/adminhtml/` — customer certificate grid, identity field, discovery action, order-screen selector.
 - `Controller/Adminhtml/Certificate/` and `Controller/Certificate/` — admin and storefront endpoints for list, add, delete, refresh. Every one of them passes certificate identifiers through the resolver's ownership check rather than trusting them.
 - `view/frontend/` — My Account section.
-- `Model/Certificate/CertificateResolver` — the group auto-apply branch the foundation left as a slot.
 - `etc/adminhtml/system.xml`, `etc/config.xml` — the settings and their defaults.
 - `Setup/Patch/Data/` — migrate `taxcloud_cert` values, then remove the attribute.
 - **Breaking**: `taxcloud_cert` disappears. Values migrate, but anything reading the attribute directly — an integration, a data import, custom code — needs updating. This is the release's upgrade note.

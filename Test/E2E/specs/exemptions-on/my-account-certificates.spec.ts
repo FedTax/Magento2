@@ -65,44 +65,39 @@ test.describe('my account certificates', () => {
     });
   });
 
-  test('a customer can add a certificate and remove it again', async ({ page }) => {
-    test.setTimeout(300_000);
-    page.on('dialog', (d) => {
-      d.accept().catch(() => undefined);
-    });
+  test('a customer can remove a certificate held for them', async ({ page }) => {
+    // Created from the admin panel, because creating is an administrator's act:
+    // nobody verifies an exemption claim, so a shopper cannot mint one. The
+    // customer can still see it and take it away.
+    await new AdminLoginPage(page).login();
+    const panel = new CustomerCertificatesPage(page);
+    await panel.openCustomer(SEEDED_CUSTOMER);
+    await panel.openTab();
+    await panel.createCertificate(MARKER);
 
     await loginAsExemptCustomer(page);
     await page.goto('/taxcloud/certificate/');
-    await expect(page.locator('[data-role="certificate-rows"] tr')).not.toHaveCount(0, {
-      timeout: 60_000,
-    });
-
-    const before = await page.locator('[data-role="certificate-rows"] tr').count();
-
-    await page.locator('[data-role="show-add"]').click();
-    await page.selectOption('#tc_states', ['TX']);
-    await page.fill('[data-field="firstName"]', 'Self');
-    await page.fill('[data-field="lastName"]', MARKER);
-    await page.fill('#tc_address1', '1401 Lavaca St');
-    await page.fill('#tc_city', 'Austin');
-    await page.selectOption('#tc_state', 'TX');
-    await page.fill('#tc_zip', '78701');
-    await page.locator('[data-role="save"]').click();
-
-    await expect(
-      page.locator('[data-role="certificate-rows"] tr'),
-      'the new certificate must appear without the customer reloading the page. status was: ' +
-        (await page.locator('[data-role="status"]').innerText().catch(() => '(unreadable)')),
-    ).toHaveCount(before + 1, { timeout: 120_000 });
+    await page.waitForTimeout(6000);
 
     const row = page.locator('[data-role="certificate-rows"] tr').filter({ hasText: MARKER });
-    await expect(row).toHaveCount(1);
+    await expect(row, 'the customer must see the certificate held for them').toHaveCount(1);
 
+    page.on('dialog', (d) => d.accept());
     await row.first().locator('[data-delete]').click();
+    await page.waitForTimeout(9000);
 
     await expect(
       page.locator('[data-role="certificate-rows"] tr').filter({ hasText: MARKER }),
-      'removing must actually remove it, not just redraw the list',
-    ).toHaveCount(0, { timeout: 120_000 });
+      'removing it must take it away at TaxCloud, not just from the page',
+    ).toHaveCount(0);
+  });
+
+  test('My Account offers no way to create a certificate', async ({ page }) => {
+    await loginAsExemptCustomer(page);
+    await page.goto('/taxcloud/certificate/');
+    await page.waitForTimeout(6000);
+
+    await expect(page.locator('[data-role="show-add"]')).toHaveCount(0);
+    await expect(page.locator('[data-role="add-form"]')).toHaveCount(0);
   });
 });

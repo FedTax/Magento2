@@ -1,6 +1,6 @@
 ## Context
 
-See proposal.md — Why. The foundation change left exactly the seams this one fills: a routed certificate gateway, a repository with invalidation, an identity resolver, an ownership check, and a precedence rule with an empty branch where group auto-apply goes.
+See proposal.md — Why. The foundation change left exactly the seams this one fills: a routed certificate gateway, a repository with invalidation, an identity resolver, an ownership check, and and a precedence rule that reads the attachment.
 
 Two facts from that change still govern everything here.
 
@@ -28,19 +28,9 @@ This is the same reasoning that put the ownership check in the resolver rather t
 
 *Alternative considered:* a thin service per surface, each doing its own permission logic. Rejected — three surfaces with three interpretations of "may this customer use this certificate" is exactly how the WooCommerce plugin ended up keying certificate lookup on email addresses.
 
-### Group auto-apply fills the existing branch, and consults the setting there
-
-`CertificateResolver::resolve()` already returns early when nothing is claimed. That early return becomes: consult the store's exempt groups; if the customer is in one, pick the first eligible certificate; otherwise return as before.
-
-Placing it there preserves the property the foundation established — a store not using exemptions pays no API call per cart — because the group check is a config read, and only a customer who passes it causes a listing.
-
-An explicit clearing must survive, or a customer in an exempt group could never remove an exemption they are entitled to decline. That is a distinct state from "nothing chosen", so the quote records the clearing rather than the absence of a choice.
-
 ### Settings gate the surfaces, not the resolution
 
 The master switch and group restriction decide what is *shown* and what a *request* may do. They deliberately do not gate `CertificateResolver`'s core: an order that already carries a certificate keeps resolving it even if a merchant later restricts the surfaces, because the alternative is a store silently re-taxing orders whose exemption was legitimately granted.
-
-The one place a setting does reach resolution is group auto-apply, which is a resolution step defined entirely by configuration.
 
 ### Migration copies before it deletes, in two patches
 
@@ -56,17 +46,12 @@ The values themselves need no interpretation. A pasted identifier only ever work
 
 Certificates belong to a TaxCloud account, and a multi-store install may point stores at different accounts. A grid that silently reported one store's account while an administrator thought about another would be actively misleading, so the grid names the store whose account it queried.
 
-### Storefront creation is confined to exempt groups by default
-
-The customer-facing creation form is available only to customers the store treats as exempt. A merchant putting a customer in an exempt group is the vetting step that stands in for verification nobody performs.
-
 *Alternative considered:* creation open to any signed-in customer when exemptions are enabled, as the WooCommerce plugin allows. Rejected as a default: on a consumer storefront it amounts to a self-service "stop charging me tax" button, and the merchant carries the liability. A store that wants it can nominate a group containing everyone.
 
 ## Risks / Trade-offs
 
 - **Six new entry points, each a place to leak someone else's exemption.** → All of them route through one resolver, and the ownership tests are written against the resolver rather than per controller so a new surface inherits the coverage.
 - **Removing `taxcloud_cert` breaks anything reading it.** → Values migrate; the attribute does not. This is the release's upgrade note and the reason both changes ship together.
-- **Group auto-apply can exempt a customer nobody consciously exempted for that order.** → It is off by default, requires nominating groups, and is exactly what a merchant asks for when they place a customer in an exempt group. The order's record still captures what was applied.
 - **A customer creating their own certificate is asserting something legally binding.** → The form states the attestation and the permanence. The module cannot verify either, and does not pretend to.
 
 ## Migration Plan
@@ -85,8 +70,6 @@ One to settle with the first merchant who asks rather than now: whether the admi
 
 ## Attaching a certificate to a customer
 
-Resolution prefers `taxcloud_certificate_id` on the customer, and the foundation built the storage, but no surface ever wrote it. On a store with no exempt groups nominated — the default — a customer could hold a covering certificate and still be taxed, with nothing in the log to explain it, because the resolver reaches its decision before any API call. The read path was complete and the write path did not exist.
-
 Two writers, deliberately:
 
 **An explicit control** on each row of the admin panel, showing which certificate is attached and allowing it to be cleared. This is the general answer: a customer may hold several certificates and only an administrator can say which one stands.
@@ -97,4 +80,3 @@ The identifier is re-resolved through `CertificateResolver::belongsToCustomer()`
 
 Attaching grants exemptions, so it is logged exactly as identity changes are, and gated by the same `Taxcloud_Magento2::certificates` ACL on the shared controller base.
 
-No precedence changes. An attached certificate already beat group auto-apply, and an explicit decline already beat both.

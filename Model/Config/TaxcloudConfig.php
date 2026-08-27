@@ -114,16 +114,6 @@ class TaxcloudConfig
     public const XML_PATH_EXEMPTIONS_ENABLED = 'tax/taxcloud_settings/exemptions_enabled';
 
     /**
-     * Customer groups the store treats as exempt.
-     */
-    public const XML_PATH_EXEMPT_CUSTOMER_GROUPS = 'tax/taxcloud_settings/exempt_customer_groups';
-
-    /**
-     * Hide the exemption interface outside those groups.
-     */
-    public const XML_PATH_RESTRICT_TO_EXEMPT_GROUPS = 'tax/taxcloud_settings/restrict_to_exempt_groups';
-
-    /**
      * Seller name recorded on certificates customers create.
      */
     public const XML_PATH_COMPANY_NAME = 'tax/taxcloud_settings/company_name';
@@ -502,46 +492,6 @@ class TaxcloudConfig
         // double that only implements getValue.
         return (bool) $this->scopeConfig->getValue(
             self::XML_PATH_EXEMPTIONS_ENABLED,
-            ScopeInterface::SCOPE_STORE,
-            $store
-        );
-    }
-
-    /**
-     * Customer group ids the store treats as exempt.
-     *
-     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
-     * @return int[]
-     */
-    public function getExemptCustomerGroups($store = null): array
-    {
-        $raw = $this->scopeConfig->getValue(
-            self::XML_PATH_EXEMPT_CUSTOMER_GROUPS,
-            ScopeInterface::SCOPE_STORE,
-            $store
-        );
-
-        if ($raw === null || $raw === '') {
-            return [];
-        }
-
-        $ids = is_array($raw) ? $raw : explode(',', (string) $raw);
-
-        return array_values(array_map('intval', array_filter($ids, static function ($id) {
-            return $id !== '' && $id !== null;
-        })));
-    }
-
-    /**
-     * Whether the exemption interface is hidden outside the exempt groups.
-     *
-     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
-     * @return bool
-     */
-    public function isRestrictedToExemptGroups($store = null): bool
-    {
-        return (bool) $this->scopeConfig->getValue(
-            self::XML_PATH_RESTRICT_TO_EXEMPT_GROUPS,
             ScopeInterface::SCOPE_STORE,
             $store
         );

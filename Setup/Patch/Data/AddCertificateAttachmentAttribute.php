@@ -80,7 +80,7 @@ class AddCertificateAttachmentAttribute implements DataPatchInterface, PatchReve
             'position' => 1002,
             'system' => 0,
             'note' => 'Pin a specific certificate to this customer. Leave empty to let a covering'
-                . ' certificate apply automatically when the customer is in an exempt group.',
+                . ' certificate exempt this customer\'s orders where it applies.',
         ]);
 
         $attribute = $customerSetup->getEavConfig()

@@ -31,8 +31,6 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
  *
  *   - isEnabled()          does this store offer exemptions at all
  *   - isVisibleTo()        may this customer SEE the exemption interface
- *   - isTreatedAsExempt()  should a covering certificate apply on its own
- *   - mayCreate()          may this customer create a certificate
  *
  * Seeing and creating are separated on purpose. Nothing verifies a certificate
  * — one created with an invented tax id is accepted, confirmed against the live
@@ -70,72 +68,21 @@ class ExemptionPolicy
     /**
      * Whether this customer may see the exemption interface.
      *
-     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer Null for a guest
+     * Signed in, on a store where the feature is switched on. There is no
+     * narrower notion of who exemptions are "for": a certificate belongs to a
+     * customer, and an administrator decides which one applies by attaching it.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return bool
      */
     public function isVisibleTo($customer, $store = null): bool
     {
-        if (!$this->isEnabled($store) || $customer === null || !$customer->getId()) {
-            // Guests hold no certificates, so there is nothing to show them.
-            return false;
-        }
-
-        if (!$this->config->isRestrictedToExemptGroups($store)) {
-            return true;
-        }
-
-        return $this->isInExemptGroup($customer, $store);
+        return $this->isEnabled($store) && $customer !== null && $customer->getId();
     }
-
-    /**
-     * Whether a covering certificate should apply to this customer's orders
-     * without anyone choosing it.
-     *
-     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer
-     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
-     * @return bool
-     */
-    public function isTreatedAsExempt($customer, $store = null): bool
-    {
-        if (!$this->isEnabled($store) || $customer === null || !$customer->getId()) {
-            return false;
-        }
-
-        return $this->isInExemptGroup($customer, $store);
-    }
-
-    /**
-     * Whether this customer may create a certificate.
-     *
-     * Stricter than merely seeing the interface: creating a certificate is
-     * asserting an exemption nobody checks, so it is confined to customers the
-     * merchant has already vouched for. A store wanting it open to everyone can
-     * nominate a group containing everyone — a deliberate act, not a default.
-     *
-     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer
-     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
-     * @return bool
-     */
-    public function mayCreate($customer, $store = null): bool
-    {
-        return $this->isTreatedAsExempt($customer, $store);
-    }
-
     /**
      * @param \Magento\Customer\Api\Data\CustomerInterface $customer
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return bool
      */
-    private function isInExemptGroup($customer, $store): bool
-    {
-        $groups = $this->config->getExemptCustomerGroups($store);
-        if ($groups === []) {
-            return false;
-        }
-
-        $groupId = $customer->getGroupId();
-
-        return $groupId !== null && in_array((int) $groupId, $groups, true);
-    }
 }

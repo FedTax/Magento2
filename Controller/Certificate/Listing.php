@@ -85,7 +85,6 @@ class Listing extends AbstractCustomerAction implements HttpGetActionInterface
 
         return $this->json([
             'success' => true,
-            'mayCreate' => $this->policy->mayCreate($customer, $storeId),
             'certificates' => $offered,
         ]);
     }

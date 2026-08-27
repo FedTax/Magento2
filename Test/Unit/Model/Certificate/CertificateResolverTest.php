@@ -22,8 +22,6 @@ use RuntimeException;
 use Taxcloud\Magento2\Model\Certificate\Certificate;
 use Taxcloud\Magento2\Model\Certificate\CertificateRepository;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
-use Taxcloud\Magento2\Model\Certificate\ExemptionPolicy;
-use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity;
 
 /**
@@ -69,26 +67,10 @@ class CertificateResolverTest extends TestCase
         return $this->repository;
     }
 
-    /**
-     * @var int[] Customer groups the store treats as exempt in the test at hand
-     */
-    private $exemptGroups = [];
 
     private function resolver(): CertificateResolver
     {
-        $config = $this->createStub(TaxcloudConfig::class);
-        $config->method('isEnabled')->willReturn(true);
-        $config->method('areExemptionsEnabled')->willReturn(true);
-        $config->method('getExemptCustomerGroups')->willReturnCallback(function () {
-            return $this->exemptGroups;
-        });
-        $config->method('isRestrictedToExemptGroups')->willReturn(false);
-
-        return new CertificateResolver(
-            $this->repository,
-            new TaxCloudCustomerIdentity(),
-            new ExemptionPolicy($config)
-        );
+        return new CertificateResolver($this->repository, new TaxCloudCustomerIdentity());
     }
 
     /**
@@ -323,69 +305,49 @@ class CertificateResolverTest extends TestCase
      * group; making them pick a certificate on every order would be friction
      * without a decision.
      */
-    public function testExemptGroupCustomerIsAutoApplied()
-    {
-        $this->exemptGroups = [7];
-        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
-
-        $resolved = $this->resolver()->resolve($this->customer(null, 42, 7), 'TX');
-
-        $this->assertNotNull($resolved);
-        $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
-    }
-
-    public function testCustomerOutsideTheExemptGroupsIsNotAutoApplied()
-    {
-        $this->exemptGroups = [7];
-        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
-
-        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1), 'TX'));
-    }
-
-    public function testAutoApplyStillRequiresTheCertificateToCoverTheDestination()
-    {
-        $this->exemptGroups = [7];
-        $this->holding([$this->certificate(self::NY_CERT, ['NY'])]);
-
-        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 7), 'TX'));
-    }
-
-    /**
-     * An exempt-group customer who declines must stay declined; otherwise they
-     * could never remove an exemption they are entitled not to use.
-     */
-    /**
-     * A decline must beat the certificate an administrator pinned to the
-     * customer, not just their exempt group.
-     *
-     * Getting this wrong gives the shopper a control that appears to work and
-     * does nothing — and files the order against a certificate they refused.
-     */
-    /**
-     * Choosing a certificate for this cart is not a decline — the two cannot
-     * both be true, and the choice must win.
-     */
-    /**
-     * The one precedence pair nothing covered at any layer.
-     *
-     * A shopper who picks a certificate for this cart has said something more
-     * recent, and more specific, than whatever an administrator pinned to their
-     * account months ago. If the attachment won instead, the order would be
-     * filed against a certificate the shopper did not choose — and the
-     * selector at checkout would be a control that silently does nothing.
-     */
-    /**
-     * A decline costs no API call either: there is nothing to look up.
-     */
     /**
      * The property the foundation established, which auto-apply must not cost:
      * a store applying nothing automatically pays no API call per cart.
      */
     public function testNoApiCallWhenNothingIsClaimedAndNothingIsAutomatic()
     {
-        $this->exemptGroups = [];
         $this->expectRepository()->expects($this->never())->method('forCustomer');
 
         $this->assertNull($this->resolver()->resolve($this->customer(), 'TX'));
+    }
+
+    // ─── the log has to explain the decision ─────────────────────────────
+
+    /**
+     * Exemption is a financial decision, and the log recorded only refusals —
+     * an exempted order left no trace of which certificate was filed, which is
+     * exactly what someone has to explain long after the sale.
+     */
+    public function testAnAppliedCertificateIsLoggedWithTheOrderItExempted()
+    {
+        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('info')
+            ->with($this->logicalAnd(
+                $this->stringContains(self::TX_CERT),
+                $this->stringContains('TX order')
+            ));
+
+        $this->resolverWith($logger)->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX');
+    }
+
+    /**
+     * @param \Psr\Log\LoggerInterface $logger
+     * @return CertificateResolver
+     */
+    private function resolverWith($logger): CertificateResolver
+    {
+        return new CertificateResolver(
+            $this->repository,
+            new TaxCloudCustomerIdentity(),
+            $logger
+        );
     }
 }

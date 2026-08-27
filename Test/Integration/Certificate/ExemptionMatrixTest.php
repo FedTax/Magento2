@@ -109,7 +109,6 @@ class ExemptionMatrixTest extends IntegrationTestCase
         ]));
 
         $this->setScopedConfig('tax/taxcloud_settings/exemptions_enabled', '1');
-        $this->setScopedConfig('tax/taxcloud_settings/exempt_customer_groups', '');
     }
 
     /**
@@ -219,51 +218,46 @@ class ExemptionMatrixTest extends IntegrationTestCase
             // 1 — switching the interface off must not start taxing customers
             //     an administrator already exempted.
             'switch off, attached certificate still exempts' => [
-                'enabled' => false, 'guest' => false, 'exemptGroup' => false,
+                'enabled' => false, 'guest' => false,
                 'held' => ['TX'], 'attached' => self::TX_CERT, 'destination' => 'TX', 'expect' => 'exempt',
             ],
-            // 2 — but it does suppress what the store was doing on its own.
-            'switch off suppresses group auto-apply' => [
-                'enabled' => false, 'guest' => false, 'exemptGroup' => true,
-                'held' => ['TX'], 'attached' => null, 'destination' => 'TX', 'expect' => 'taxed',
-            ],
             'guest is taxed' => [
-                'enabled' => true, 'guest' => true, 'exemptGroup' => false,
+                'enabled' => true, 'guest' => true,
                 'held' => ['TX'], 'attached' => null, 'destination' => 'TX', 'expect' => 'taxed',
             ],
             'signed in holding nothing is taxed' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => false,
+                'enabled' => true, 'guest' => false,
                 'held' => [], 'attached' => null, 'destination' => 'TX', 'expect' => 'taxed',
             ],
             // 5 — holding a covering certificate is not, on its own, enough.
             //     This is the row that surprises people.
-            'holds a covering certificate but neither attached nor grouped' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => false,
+            'holds a covering certificate but has not attached it' => [
+                'enabled' => true, 'guest' => false,
                 'held' => ['TX'], 'attached' => null, 'destination' => 'TX', 'expect' => 'taxed',
             ],
             'attached covering certificate exempts' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => false,
+                'enabled' => true, 'guest' => false,
                 'held' => ['TX'], 'attached' => self::TX_CERT, 'destination' => 'TX', 'expect' => 'exempt',
             ],
-            // 7 — the feature with no non-mocked coverage before this test.
-            'exempt group auto-applies a covering certificate' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => true,
-                'held' => ['TX'], 'attached' => null, 'destination' => 'TX', 'expect' => 'exempt',
+            // Coverage and the disabled flag still decide the outcome; they are
+            // simply reached through the attachment now rather than a group.
+            'attached certificate for another state is taxed' => [
+                'enabled' => true, 'guest' => false,
+                'held' => ['NY'], 'attached' => self::NY_CERT,
+                'destination' => 'TX', 'expect' => 'taxed',
             ],
-            'certificate for another state is taxed' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => true,
-                'held' => ['NY'], 'attached' => null, 'destination' => 'TX', 'expect' => 'taxed',
+            'a disabled certificate never applies, even attached' => [
+                'enabled' => true, 'guest' => false,
+                'held' => ['TX-disabled'], 'attached' => self::TX_CERT,
+                'destination' => 'TX', 'expect' => 'taxed',
             ],
-            'the covering certificate is picked from several' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => true,
-                'held' => ['NY', 'TX'], 'attached' => null, 'destination' => 'TX', 'expect' => 'exempt',
-            ],
-            'disabled certificate never applies' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => true,
-                'held' => ['TX-disabled'], 'attached' => null, 'destination' => 'TX', 'expect' => 'taxed',
+            'the attached certificate is picked out of several held' => [
+                'enabled' => true, 'guest' => false,
+                'held' => ['NY', 'TX'], 'attached' => self::TX_CERT,
+                'destination' => 'TX', 'expect' => 'exempt',
             ],
             'attached certificate not covering the destination is taxed' => [
-                'enabled' => true, 'guest' => false, 'exemptGroup' => false,
+                'enabled' => true, 'guest' => false,
                 'held' => ['TX'], 'attached' => self::TX_CERT, 'destination' => 'CA', 'expect' => 'taxed',
             ],
         ];
@@ -280,14 +274,12 @@ class ExemptionMatrixTest extends IntegrationTestCase
     public function testExemptionMatrix(
         bool $enabled,
         bool $guest,
-        bool $exemptGroup,
         array $held,
         ?string $attached,
         string $destination,
         string $expect
     ): void {
         $this->setScopedConfig('tax/taxcloud_settings/exemptions_enabled', $enabled ? '1' : '0');
-        $this->setScopedConfig('tax/taxcloud_settings/exempt_customer_groups', $exemptGroup ? '1' : '');
         $this->held = $this->certificatesFrom($held);
 
         $quote = $this->quoteFor($guest, $attached, $destination);
@@ -343,7 +335,6 @@ class ExemptionMatrixTest extends IntegrationTestCase
      */
     public function testLookupFailureTaxesTheOrder(): void
     {
-        $this->setScopedConfig('tax/taxcloud_settings/exempt_customer_groups', '1');
         $this->held = $this->certificatesFrom(['TX']);
         $this->readFails = true;
 

@@ -28,8 +28,6 @@ define([
             status = root.find('[data-role="status"]'),
             table = root.find('[data-role="certificate-table"]'),
             rows = root.find('[data-role="certificate-rows"]'),
-            addForm = root.find('[data-role="add-form"]'),
-            addToolbar = root.find('[data-role="add-toolbar"]'),
             pending = 0;
 
         function say(message, tone) {
@@ -98,94 +96,6 @@ define([
         }
 
         /**
-         * Why a read failed below the application layer.
-         *
-         * The controller answers TaxCloud problems as JSON, so reaching here
-         * means the request never got that far. Told apart because a signed-out
-         * session — the common one, and the one the customer can fix — used to
-         * read the same as a TaxCloud outage.
-         *
-         * @param {Object} xhr
-         * @return {String}
-         */
-        function readFailure(xhr) {
-            var status = xhr && xhr.status;
-
-            if (status === 200 || status === 401 || status === 403) {
-                return $t('Please sign in again to see your certificates.');
-            }
-
-            return $t('We could not load your certificates just now. Please try again.');
-        }
-
-        function escapeHtml(value) {
-            return $('<div>').text(value === null || value === undefined ? '' : value).html();
-        }
-
-        function render(certificates) {
-            rows.empty();
-
-            if (!certificates.length) {
-                table.hide();
-
-                return;
-            }
-
-            certificates.forEach(function (certificate) {
-                rows.append(
-                    '<tr>' +
-                    '<td class="col">' + escapeHtml((certificate.states || []).join(', ')) + '</td>' +
-                    '<td class="col">' + escapeHtml(certificate.purchaserName || '—') + '</td>' +
-                    '<td class="col">' + escapeHtml(certificate.reason || '—') + '</td>' +
-                    '<td class="col"><a href="#" data-delete="' + escapeHtml(certificate.certificateId) + '">' +
-                    escapeHtml($t('Remove')) + '</a></td>' +
-                    '</tr>'
-                );
-            });
-
-            table.show();
-        }
-
-        function load() {
-            $.get(config.endpoints.list).done(function (response) {
-                if (!response.success) {
-                    table.hide();
-                    // Not an empty list — see the module docblock.
-                    say(response.message || $t('We could not load your certificates just now.'), 'error');
-
-                    return;
-                }
-
-                render(response.certificates || []);
-                addToolbar.toggle(Boolean(response.mayCreate));
-
-                if (!response.certificates || !response.certificates.length) {
-                    say(
-                        response.mayCreate
-                            ? $t('You have no exemption certificates yet.')
-                            : $t('You have no exemption certificates. Contact us if you believe you should be tax exempt.')
-                    );
-                } else {
-                    say('');
-                }
-            }).fail(function (xhr) {
-                table.hide();
-                say(readFailure(xhr), 'error');
-            });
-        }
-
-        function collectForm() {
-            var payload = {};
-
-            addForm.find('[data-field]').each(function () {
-                payload[$(this).data('field')] = $(this).val() || '';
-            });
-
-            return payload;
-        }
-
-
-        /**
          * Select-all / clear for the states multiselect.
          *
          * An all-states certificate has to be expressed by selecting them all,
@@ -194,77 +104,9 @@ define([
          * would have to invent a scope the merchant never granted. One click
          * beats fifty, and the certificate then says what it covers.
          */
-        root.on('click', '[data-role="states-all"]', function (event) {
-            event.preventDefault();
-            var select = addForm.find('[data-field="states"]');
-
-            select.find('option').prop('selected', true);
-            select.trigger('change');
-        });
-
-        root.on('click', '[data-role="states-none"]', function (event) {
-            event.preventDefault();
-            var select = addForm.find('[data-field="states"]');
-
-            select.find('option').prop('selected', false);
-            select.trigger('change');
-        });
-
-        root.on('click', '[data-role="show-add"]', function () {
-            addForm.show();
-            addToolbar.hide();
-        });
 
         // See the admin panel's note: validation is bound once, and valid() is
         // only called while the form is visible.
-        addForm.validation();
-
-        root.on('click', '[data-role="cancel"]', function (event) {
-            event.preventDefault();
-            addForm.hide();
-            addToolbar.show();
-        });
-
-        root.on('click', '[data-role="save"]', function () {
-            // Magento's standard validation, not a server round-trip. The
-            // required-entry classes on the form mirror CertificateFormReader,
-            // so anything caught here is something the server would reject
-            // anyway — reported against the offending field instead of as one
-            // message for the whole form.
-            if (!addForm.valid()) {
-                return;
-            }
-
-            say($t('Saving your certificate…'));
-            busy(true);
-
-            $.post(config.endpoints.add, {
-                form_key: $.mage.cookies.get('form_key'),
-                certificate: collectForm()
-            }).done(function (response) {
-                if (!response.success) {
-                    failed(response.message, $t('Could not save your certificate'));
-
-                    return;
-                }
-
-                addForm.hide();
-                load();
-
-                // The form runs well below the fold; without this the saved
-                // certificate lands off-screen and the click looks inert.
-                if (root[0] && root[0].scrollIntoView) {
-                    root[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            }).fail(function () {
-                failed(
-                    $t('We could not save your certificate just now.'),
-                    $t('Could not save your certificate')
-                );
-            }).always(function () {
-                busy(false);
-            });
-        });
 
         root.on('click', '[data-delete]', function (event) {
             var certificateId = $(this).data('delete');

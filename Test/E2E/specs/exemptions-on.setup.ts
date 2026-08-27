@@ -3,7 +3,7 @@ import { AdminLoginPage } from '../pages/admin/AdminLoginPage';
 import { TaxConfigPage } from '../pages/admin/TaxConfigPage';
 
 /**
- * Switch exemptions on, and nominate an exempt customer group.
+ * Switch exemptions on.
  *
  * A setup PROJECT rather than a beforeAll, paired with a teardown project,
  * because Playwright runs a teardown project even when the tests it guards
@@ -16,7 +16,7 @@ import { TaxConfigPage } from '../pages/admin/TaxConfigPage';
  * The seeded store mirrors production, where exemptions are OFF — that default
  * is itself covered, by exemptions-disabled-by-default.
  */
-test('switch exemptions on and nominate the general group', async ({ page }) => {
+test('switch exemptions on', async ({ page }) => {
   test.setTimeout(180_000);
 
   await new AdminLoginPage(page).login();
@@ -30,8 +30,7 @@ test('switch exemptions on and nominate the general group', async ({ page }) => 
   // pass deterministic instead of dependent on which teardown won the race.
   await config.selectApiType('soap');
 
-  // Group 1 is General, which the seeded customers belong to.
-  await config.setExemptions(true, ['1']);
+  await config.setExemptions(true);
   await config.save();
 
   await config.open();

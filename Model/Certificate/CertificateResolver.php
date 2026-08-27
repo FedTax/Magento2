@@ -72,11 +72,6 @@ class CertificateResolver
     private $identity;
 
     /**
-     * @var ExemptionPolicy
-     */
-    private $policy;
-
-    /**
      * @var LoggerInterface
      */
     private $logger;
@@ -84,18 +79,15 @@ class CertificateResolver
     /**
      * @param CertificateRepository $repository
      * @param TaxCloudCustomerIdentity $identity
-     * @param ExemptionPolicy $policy
      * @param LoggerInterface|null $logger
      */
     public function __construct(
         CertificateRepository $repository,
         TaxCloudCustomerIdentity $identity,
-        ExemptionPolicy $policy,
         ?LoggerInterface $logger = null
     ) {
         $this->repository = $repository;
         $this->identity = $identity;
-        $this->policy = $policy;
         $this->logger = $logger ?? new NullLogger();
     }
 
@@ -117,16 +109,13 @@ class CertificateResolver
             return null;
         }
 
-        // What is being claimed: the certificate attached to the customer.
+        // An exemption belongs to a customer and is put in force by attaching a
+        // certificate to them, so with nothing attached there is no arrangement
+        // that could exempt this order — and no reason to spend an API call
+        // discovering that.
         $explicit = $this->attachedCertificateId($customer);
 
-        // Nothing claimed. Before asking TaxCloud, decide whether anything
-        // WOULD be applied on this customer's behalf: listing certificates for
-        // every signed-in shopper who never claimed an exemption would add an
-        // API call per cart to answer a question nobody asked.
-        $autoApply = $explicit === '' && $this->policy->isTreatedAsExempt($customer, $store);
-
-        if ($explicit === '' && !$autoApply) {
+        if ($explicit === '') {
             return null;
         }
 
@@ -149,14 +138,18 @@ class CertificateResolver
             }
         }
 
-        if ($explicit !== '') {
-            return $this->claimed($eligible, $explicit, $customerIdentity);
+        $attached = $this->claimed($eligible, $explicit, $customerIdentity);
+
+        if ($attached !== null) {
+            // Exemption is a financial decision, and the log recorded only
+            // refusals — an exempted order left no trace of why.
+            $this->logger->info(
+                'Certificate ' . $attached->getCertificateId() . ' applied to a ' . $destinationState
+                . ' order for identity ' . $customerIdentity
+            );
         }
 
-        // Auto-apply: the merchant vouched for this customer by putting them in
-        // an exempt group, so the first covering certificate stands in for a
-        // choice they would otherwise have to make on every order.
-        return $eligible === [] ? null : $eligible[0];
+        return $attached;
     }
 
     /**

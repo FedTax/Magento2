@@ -60,58 +60,6 @@ class Manage extends Template
     }
 
     /**
-     * US states, from Magento's own region list rather than a hand-written one:
-     * the store already has them, already translated, and a second list is a
-     * second place to be wrong.
-     *
-     * US only because every tax lookup in this module is US-gated — offering a
-     * region that could never take effect would be offering a choice that
-     * silently does nothing.
-     *
-     * @return array<string, string> region code => name
-     */
-    public function getUsStates(): array
-    {
-        $states = [];
-
-        foreach ($this->regionCollectionFactory->create()->addCountryFilter('US') as $region) {
-            $code = (string) $region->getCode();
-            if ($code !== '') {
-                $states[$code] = (string) $region->getName();
-            }
-        }
-
-        asort($states);
-
-        return $states;
-    }
-
-    /**
-     * @return string
-     */
-    public function getGuidanceUrl(): string
-    {
-        return CertificateFormReader::GUIDANCE_URL;
-    }
-
-
-    /**
-     * @return string[]
-     */
-    public function getReasons(): array
-    {
-        return CertificateFormReader::REASONS;
-    }
-
-    /**
-     * @return string[]
-     */
-    public function getBusinessTypes(): array
-    {
-        return CertificateFormReader::BUSINESS_TYPES;
-    }
-
-    /**
      * @return string
      */
     public function getJsConfig(): string
@@ -119,10 +67,8 @@ class Manage extends Template
         return (string) json_encode([
             'endpoints' => [
                 'list' => $this->getUrl('taxcloud/certificate/listing'),
-                'add' => $this->getUrl('taxcloud/certificate/add'),
                 'delete' => $this->getUrl('taxcloud/certificate/delete'),
             ],
-            'reasonDescriptionLimit' => CertificateFormReader::REASON_DESCRIPTION_LIMIT,
         ]);
     }
 }

@@ -25,11 +25,9 @@ use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
-use Taxcloud\Magento2\Controller\Certificate\Add;
 use Taxcloud\Magento2\Controller\Certificate\Delete;
 use Taxcloud\Magento2\Controller\Certificate\Listing;
 use Taxcloud\Magento2\Model\Certificate\Certificate;
-use Taxcloud\Magento2\Model\Certificate\CertificateFormReader;
 use Taxcloud\Magento2\Model\Certificate\CertificateRepository;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
 use Taxcloud\Magento2\Model\Certificate\ExemptionPolicy;
@@ -40,9 +38,9 @@ use Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity;
  *
  * These controllers are the only part of the feature a shopper can reach
  * directly, so their refusals are the boundary: a signed-out request, a store
- * with exemptions switched off, a customer outside the groups a merchant
- * vouched for, and — the one that matters most — a certificate identifier that
- * belongs to somebody else. Nothing about a certificate id is secret or
+ * with exemptions switched off, and — the one that matters most — a certificate
+ * identifier that belongs to somebody else. Creating one is not among them:
+ * that is an administrator's act, because nobody verifies the claim. Nothing about a certificate id is secret or
  * unguessable, and TaxCloud itself performs no ownership check, so the only
  * thing standing between one customer's exemptions and another's is these four
  * paths refusing.
@@ -63,8 +61,6 @@ class StorefrontCertificateControllersTest extends TestCase
     /** @var bool */
     private $loggedIn = true;
 
-    /** @var int[] Groups the store treats as exempt */
-    private $exemptGroups = [];
 
     /** @var bool */
     private $exemptionsEnabled = true;
@@ -80,7 +76,6 @@ class StorefrontCertificateControllersTest extends TestCase
         $this->answer = [];
         $this->params = [];
         $this->loggedIn = true;
-        $this->exemptGroups = [];
         $this->exemptionsEnabled = true;
         $this->held = [];
         $this->readFailure = null;
@@ -103,10 +98,6 @@ class StorefrontCertificateControllersTest extends TestCase
         $config->method('areExemptionsEnabled')->willReturnCallback(function () {
             return $this->exemptionsEnabled;
         });
-        $config->method('getExemptCustomerGroups')->willReturnCallback(function () {
-            return $this->exemptGroups;
-        });
-        $config->method('isRestrictedToExemptGroups')->willReturn(false);
 
         return new ExemptionPolicy($config);
     }
@@ -173,11 +164,7 @@ class StorefrontCertificateControllersTest extends TestCase
 
     private function resolver(): CertificateResolver
     {
-        return new CertificateResolver(
-            $this->repository(),
-            new TaxCloudCustomerIdentity(),
-            $this->policy()
-        );
+        return new CertificateResolver($this->repository(), new TaxCloudCustomerIdentity());
     }
 
     /**
@@ -205,11 +192,6 @@ class StorefrontCertificateControllersTest extends TestCase
     private function delete(): Delete
     {
         return new Delete(...$this->dependencies());
-    }
-
-    private function add(): Add
-    {
-        return new Add(...array_merge($this->dependencies(), [new CertificateFormReader()]));
     }
 
     // ─── who may reach these endpoints at all ─────────────────────────────
@@ -244,37 +226,6 @@ class StorefrontCertificateControllersTest extends TestCase
         $this->delete()->execute();
 
         $this->assertFalse($this->answer['success']);
-    }
-
-    public function testCreationIsRefusedOutsideTheExemptGroups(): void
-    {
-        // Visible to any signed-in customer, but creating is narrower: asserting
-        // an exemption nobody verifies is confined to customers the merchant
-        // has already vouched for.
-        $this->exemptGroups = [];
-        $this->params['certificate'] = ['states' => ['TX']];
-
-        $this->add()->execute();
-
-        $this->assertFalse($this->answer['success']);
-        $this->assertStringContainsString('cannot add', $this->answer['message']);
-    }
-
-    public function testCreationIsAllowedInsideTheExemptGroups(): void
-    {
-        $this->exemptGroups = [1];
-        // Deliberately incomplete, so this stops at the form check rather than
-        // reaching TaxCloud — what is under test is that it got past the gate.
-        $this->params['certificate'] = ['states' => []];
-
-        $this->add()->execute();
-
-        $this->assertFalse($this->answer['success']);
-        $this->assertStringNotContainsString(
-            'cannot add',
-            $this->answer['message'],
-            'an exempt-group customer must get past the permission gate to the form itself'
-        );
     }
 
     // ─── the ownership boundary ───────────────────────────────────────────

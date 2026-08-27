@@ -12,7 +12,7 @@
     <div class="block-content">
         <p>
             <?= $escaper->escapeHtml(__(
-                'Certificates you add here are applied automatically at checkout when you ship to a state they cover.'
+                'These are the exemption certificates held for you. They apply automatically when you ship to a state they cover.'
             )) ?>
         </p>
 
@@ -31,132 +31,6 @@
             <tbody data-role="certificate-rows"></tbody>
         </table>
 
-        <div class="actions-toolbar" data-role="add-toolbar" style="display:none;">
-            <div class="primary">
-                <button type="button" class="action primary" data-role="show-add">
-                    <span><?= $escaper->escapeHtml(__('Add a certificate')) ?></span>
-                </button>
-            </div>
-        </div>
-
-        <form class="form" data-role="add-form" style="display:none;">
-            <fieldset class="fieldset">
-                <legend class="legend"><span><?= $escaper->escapeHtml(__('Add an exemption certificate')) ?></span></legend>
-
-                <div class="message notice">
-                    <div>
-                        <?= $escaper->escapeHtml(__(
-                            'This certificate will apply to ALL of your future orders shipped to the states you choose, until you remove it. It is not a one-time exemption.'
-                        )) ?>
-                    </div>
-                </div>
-
-                <p class="note">
-                    <?= $escaper->escapeHtml(__(
-                        'You are responsible for knowing whether you qualify to claim exemption in these states. You may be liable for tax, interest and penalties if you are not eligible.'
-                    )) ?>
-                </p>
-
-                <div class="field required">
-                    <label class="label" for="tc_states"><span><?= $escaper->escapeHtml(__('States this applies in')) ?></span></label>
-                    <div class="control">
-                        <select id="tc_states" class="select required-entry" multiple size="8" name="tc_states" data-field="states">
-                            <?php foreach ($block->getUsStates() as $code => $name): ?>
-                                <option value="<?= $escaper->escapeHtmlAttr($code) ?>"><?= $escaper->escapeHtml($name) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <div class="actions-toolbar">
-                            <button type="button" class="action secondary" data-role="states-all">
-                                <span><?= $escaper->escapeHtml(__('Select all states')) ?></span>
-                            </button>
-                            <button type="button" class="action secondary" data-role="states-none">
-                                <span><?= $escaper->escapeHtml(__('Clear')) ?></span>
-                            </button>
-                        </div>
-                        <span class="note">
-                            <?= $escaper->escapeHtml(__('Choose every state this certificate covers. Exemptions apply to US destinations only.')) ?>
-                        </span>
-                    </div>
-                </div>
-
-                <div class="field required">
-                    <label class="label"><span><?= $escaper->escapeHtml(__('Your name')) ?></span></label>
-                    <div class="control">
-                        <input class="input-text required-entry" name="tc_firstname" data-field="firstName" placeholder="<?= $escaper->escapeHtmlAttr(__('First name')) ?>"/>
-                        <input class="input-text required-entry" name="tc_lastname" data-field="lastName" placeholder="<?= $escaper->escapeHtmlAttr(__('Last name')) ?>"/>
-                    </div>
-                </div>
-
-                <div class="field required">
-                    <label class="label" for="tc_address1"><span><?= $escaper->escapeHtml(__('Street address')) ?></span></label>
-                    <div class="control"><input id="tc_address1" class="input-text required-entry" name="tc_address1" data-field="address1"/></div>
-                </div>
-
-                <div class="field required">
-                    <label class="label" for="tc_city"><span><?= $escaper->escapeHtml(__('City')) ?></span></label>
-                    <div class="control"><input id="tc_city" class="input-text required-entry" name="tc_city" data-field="city"/></div>
-                </div>
-
-                <div class="field required">
-                    <label class="label" for="tc_state"><span><?= $escaper->escapeHtml(__('State')) ?></span></label>
-                    <div class="control">
-                        <select id="tc_state" class="select required-entry" name="tc_state" data-field="state">
-                            <option value=""><?= $escaper->escapeHtml(__('Please select')) ?></option>
-                            <?php foreach ($block->getUsStates() as $code => $name): ?>
-                                <option value="<?= $escaper->escapeHtmlAttr($code) ?>"><?= $escaper->escapeHtml($name) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="field required">
-                    <label class="label" for="tc_zip"><span><?= $escaper->escapeHtml(__('ZIP')) ?></span></label>
-                    <div class="control"><input id="tc_zip" class="input-text required-entry" name="tc_zip" data-field="zip"/></div>
-                </div>
-
-                <div class="field required">
-                    <label class="label"><span><?= $escaper->escapeHtml(__('Type of business')) ?></span></label>
-                    <div class="control">
-                        <select class="select" data-field="businessType">
-                            <?php foreach ($block->getBusinessTypes() as $value => $label): ?>
-                                <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml($label) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="field required">
-                    <label class="label"><span><?= $escaper->escapeHtml(__('Reason for exemption')) ?></span></label>
-                    <div class="control">
-                        <select class="select" data-field="reason">
-                            <?php foreach ($block->getReasons() as $value => $label): ?>
-                                <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml($label) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <input class="input-text" data-field="reasonDescription" maxlength="20"
-                               placeholder="<?= $escaper->escapeHtmlAttr(__('Optional note, up to 20 characters')) ?>"/>
-                        <span class="note">
-                            <?= $escaper->escapeHtml(__('Not sure which reason applies?')) ?>
-                            <a href="<?= $escaper->escapeUrl($block->getGuidanceUrl()) ?>" target="_blank" rel="noopener noreferrer">
-                                <?= $escaper->escapeHtml(__('TaxCloud\'s guidance')) ?>
-                            </a>
-                        </span>
-                    </div>
-                </div>
-
-            </fieldset>
-
-            <div class="actions-toolbar">
-                <div class="primary">
-                    <button type="button" class="action primary" data-role="save">
-                        <span><?= $escaper->escapeHtml(__('Save certificate')) ?></span>
-                    </button>
-                </div>
-                <div class="secondary">
-                    <a class="action back" href="#" data-role="cancel"><span><?= $escaper->escapeHtml(__('Cancel')) ?></span></a>
-                </div>
-            </div>
-        </form>
     </div>
 </div>
 

@@ -29,7 +29,6 @@ use Taxcloud\Magento2\Model\Certificate\Certificate;
 use Taxcloud\Magento2\Model\Certificate\CertificateAttachment;
 use Taxcloud\Magento2\Model\Certificate\CertificateRepository;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
-use Taxcloud\Magento2\Model\Certificate\ExemptionPolicy;
 use Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity;
 
 /**
@@ -104,14 +103,8 @@ class AdminCertificateDeleteTest extends TestCase
         $config = $this->createStub(\Taxcloud\Magento2\Model\Config\TaxcloudConfig::class);
         $config->method('isEnabled')->willReturn(true);
         $config->method('areExemptionsEnabled')->willReturn(true);
-        $config->method('getExemptCustomerGroups')->willReturn([]);
-        $config->method('isRestrictedToExemptGroups')->willReturn(false);
 
-        return new CertificateResolver(
-            $this->repository(),
-            new TaxCloudCustomerIdentity(),
-            new ExemptionPolicy($config)
-        );
+        return new CertificateResolver($this->repository(), new TaxCloudCustomerIdentity());
     }
 
     private function context(): Context

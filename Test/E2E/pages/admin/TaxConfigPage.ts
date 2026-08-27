@@ -18,7 +18,6 @@ export class TaxConfigPage {
   readonly testConnectionResult: Locator;
   readonly saveButton: Locator;
   readonly exemptionsEnabled: Locator;
-  readonly exemptCustomerGroups: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -31,7 +30,6 @@ export class TaxConfigPage {
     this.testConnectionResult = page.locator('#taxcloud_test_connection_result');
     this.saveButton = page.locator('#save');
     this.exemptionsEnabled = page.locator('#tax_taxcloud_exemptions_enabled');
-    this.exemptCustomerGroups = page.locator('#tax_taxcloud_exempt_customer_groups');
   }
 
   async open(): Promise<void> {
@@ -80,15 +78,8 @@ export class TaxConfigPage {
    * @param enabled whether to offer exemption certificates
    * @param exemptGroupIds customer groups treated as exempt; ignored when disabling
    */
-  async setExemptions(enabled: boolean, exemptGroupIds: string[] = []): Promise<void> {
+  async setExemptions(enabled: boolean): Promise<void> {
     await this.exemptionsEnabled.selectOption(enabled ? '1' : '0');
-
-    if (enabled && exemptGroupIds.length) {
-      // The group multiselect only exists once the master switch is on — its
-      // `depends` hides it otherwise.
-      await expect(this.exemptCustomerGroups).toBeVisible({ timeout: 10_000 });
-      await this.exemptCustomerGroups.selectOption(exemptGroupIds);
-    }
   }
 
   /**

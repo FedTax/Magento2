@@ -38,108 +38,47 @@ class ExemptionPolicyTest extends TestCase
     private function policy(array $settings = []): ExemptionPolicy
     {
         $config = $this->createStub(TaxcloudConfig::class);
-        $config->method('isEnabled')->willReturn($settings['moduleEnabled'] ?? true);
+        $config->method('isEnabled')->willReturn($settings['module'] ?? true);
         $config->method('areExemptionsEnabled')->willReturn($settings['exemptions'] ?? false);
-        $config->method('getExemptCustomerGroups')->willReturn($settings['groups'] ?? []);
-        $config->method('isRestrictedToExemptGroups')->willReturn($settings['restricted'] ?? false);
 
         return new ExemptionPolicy($config);
     }
 
-    private function customer($groupId = 1, $entityId = 42)
+    private function customer($entityId = 1)
     {
         $customer = $this->createStub(\Magento\Customer\Api\Data\CustomerInterface::class);
         $customer->method('getId')->willReturn($entityId);
-        $customer->method('getGroupId')->willReturn($groupId);
 
         return $customer;
     }
 
-    /**
-     * The single most important assertion in this file.
-     */
     public function testEverythingIsOffByDefault()
     {
-        $policy = $this->policy();
+        $this->assertFalse($this->policy()->isEnabled());
+        $this->assertFalse($this->policy()->isVisibleTo($this->customer()));
+    }
+
+    public function testDisablingTheModuleDisablesExemptions()
+    {
+        $policy = $this->policy(['module' => false, 'exemptions' => true]);
 
         $this->assertFalse($policy->isEnabled());
         $this->assertFalse($policy->isVisibleTo($this->customer()));
-        $this->assertFalse($policy->isTreatedAsExempt($this->customer()));
-        $this->assertFalse($policy->mayCreate($this->customer()));
     }
 
-    /**
-     * The module's own master switch still wins: exemptions cannot be offered
-     * by a store that is not using TaxCloud at all.
-     */
-    public function testDisablingTheModuleDisablesExemptions()
+    public function testAnySignedInCustomerSeesTheInterfaceWhenItIsOn()
     {
-        $policy = $this->policy(['moduleEnabled' => false, 'exemptions' => true, 'groups' => [7]]);
-
-        $this->assertFalse($policy->isEnabled());
-        $this->assertFalse($policy->isTreatedAsExempt($this->customer(7)));
+        // There is no narrower notion of who exemptions are "for": a
+        // certificate belongs to a customer, and an administrator decides which
+        // one applies by attaching it.
+        $this->assertTrue($this->policy(['exemptions' => true])->isVisibleTo($this->customer()));
     }
 
-    public function testEnabledAndUnrestrictedIsVisibleToAnySignedInCustomer()
+    public function testGuestsNeverSeeIt()
     {
         $policy = $this->policy(['exemptions' => true]);
 
-        $this->assertTrue($policy->isVisibleTo($this->customer(1)));
-    }
-
-    public function testRestrictedModeHidesTheInterfaceOutsideTheGroups()
-    {
-        $policy = $this->policy(['exemptions' => true, 'groups' => [7], 'restricted' => true]);
-
-        $this->assertTrue($policy->isVisibleTo($this->customer(7)));
-        $this->assertFalse($policy->isVisibleTo($this->customer(1)));
-    }
-
-    public function testOnlyExemptGroupCustomersAreTreatedAsExempt()
-    {
-        $policy = $this->policy(['exemptions' => true, 'groups' => [7, 9]]);
-
-        $this->assertTrue($policy->isTreatedAsExempt($this->customer(9)));
-        $this->assertFalse($policy->isTreatedAsExempt($this->customer(1)));
-    }
-
-    /**
-     * Seeing the interface and creating a certificate are different acts.
-     * Creating one asserts an exemption nobody checks, so it stays with
-     * customers the merchant has vouched for — even where the interface itself
-     * is open to everyone.
-     */
-    public function testCreationIsNarrowerThanVisibility()
-    {
-        $policy = $this->policy(['exemptions' => true, 'groups' => [7]]);
-
-        $this->assertTrue($policy->isVisibleTo($this->customer(1)), 'unrestricted: visible to all');
-        $this->assertFalse($policy->mayCreate($this->customer(1)), 'but creation needs an exempt group');
-        $this->assertTrue($policy->mayCreate($this->customer(7)));
-    }
-
-    /**
-     * Nominating no groups is not "everyone is exempt" — it is "nobody is",
-     * which is the safe reading of an unconfigured setting.
-     */
-    public function testNoNominatedGroupsMeansNobodyIsAutoExempt()
-    {
-        $policy = $this->policy(['exemptions' => true, 'groups' => []]);
-
-        $this->assertFalse($policy->isTreatedAsExempt($this->customer(1)));
-        $this->assertFalse($policy->mayCreate($this->customer(1)));
-    }
-
-    public function testGuestsAreNeverExempt()
-    {
-        $policy = $this->policy(['exemptions' => true, 'groups' => [0, 1, 7]]);
-
         $this->assertFalse($policy->isVisibleTo(null));
-        $this->assertFalse($policy->isTreatedAsExempt(null));
-        $this->assertFalse($policy->mayCreate(null));
-        $this->assertFalse(
-            $policy->isTreatedAsExempt($this->customer(0, null)),
-            'a customer object without an entity id is a guest'
-        );
+        $this->assertFalse($policy->isVisibleTo($this->customer(null)));
     }
 }

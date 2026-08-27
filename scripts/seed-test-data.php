@@ -212,8 +212,6 @@ $configValues = $productsOnly ? [] : [
     // (see specs/exemptions-mode.setup.ts), the same way the REST projects flip
     // api_type rather than the seed pinning it.
     'tax/taxcloud_settings/exemptions_enabled'     => '0',
-    'tax/taxcloud_settings/exempt_customer_groups' => '',
-    'tax/taxcloud_settings/restrict_to_exempt_groups' => '0',
     'tax/taxcloud_settings/company_name'           => 'TaxCloud Test Store',
 
     // Ship-from origin: 1401 Lavaca St, Austin TX 78701 (region 57 = Texas)

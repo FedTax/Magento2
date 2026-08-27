@@ -1,22 +1,15 @@
 ## 1. Settings
 
-- [x] 1.1 Add store-scoped settings in `etc/adminhtml/system.xml` + `etc/config.xml`: `exemptions_enabled` (master, **default off**), `exempt_customer_groups` (multiselect), `restrict_to_exempt_groups`, `company_name`.
+- [x] 1.1 Add store-scoped settings in `etc/adminhtml/system.xml` + `etc/config.xml`: `exemptions_enabled` (master, **default off**) and `company_name`.
 - [x] 1.2 Add typed readers to `TaxcloudConfig`, store-aware like every other setting.
 - [x] 1.3 Add an `ExemptionPolicy` service answering: are exemptions enabled for this store, is this customer treated as exempt, may this customer create certificates. One place, so the surfaces cannot disagree.
-- [x] 1.4 Unit tests: defaults leave everything off; group membership; restrict-mode; store scoping.
-
-## 2. Group auto-apply
-
-- [x] 2.1 Fill the existing branch in `CertificateResolver::resolve()` — where nothing is claimed, consult `ExemptionPolicy` and pick the first eligible certificate for an exempt-group customer.
-- [x] 2.2 Preserve the no-API-call property: a store applying nothing automatically must still resolve without listing certificates.
-- [x] 2.3 Honour an explicit clearing as distinct from "nothing chosen", so an exempt-group customer can decline.
-- [x] 2.4 Unit tests: auto-applies for a group member, does not for a non-member, respects clearing, still fails closed, and makes no API call when the store auto-applies nothing.
+- [x] 1.4 Unit tests: defaults leave everything off; visibility follows the master switch; store scoping.
 
 ## 3. Per-order and per-customer attachment storage
 
 - [x] 3.1 Add storage for the certificate attached to a customer, replacing `taxcloud_cert`, and for one chosen per quote/order.
 - [x] 3.2 Record an explicit clearing on the quote, distinct from absence — `quote.taxcloud_certificate_cleared`, honoured by the resolver's `$cleared` argument.
-- [x] 3.3 Unit tests for both. Writing them surfaced a real defect: a decline suppressed group auto-apply but NOT a certificate an administrator had pinned to the customer, so a shopper choosing "no exemption" was exempted anyway and the order filed against a certificate they had refused. A decline now beats every standing arrangement, while a certificate chosen for the cart still wins over a stale decline.
+- [x] 3.3 Unit tests for the attachment storage and the resolution that reads it.
 
 ## 4. Admin — customer page
 
@@ -31,7 +24,7 @@
 - [x] 4.8 `Controller/Adminhtml/Certificate/Attach`: re-resolves the identifier through `CertificateResolver::belongsToCustomer()` before storing, resolves against the customer's store, and logs the change with the previous and new values and the administrator responsible.
 - [x] 4.9 Creating a certificate from the admin panel attaches it when the customer has none attached, and never displaces an existing attachment.
 - [x] 4.11 Render the panel as a customer tab (`ui_component/customer_form.xml`), positioned after Account Information, with the block implementing `TabInterface` so the ACL hides the tab rather than showing an empty one. Needed its own starter: knockout injects tab content after component bootstrap, and the stock tab template renders through knockout's native `html` binding rather than Magento's `bindHtml`, so neither `text/x-magento-init` nor `data-mage-init` is ever applied there — verified twice by a panel that rendered correctly and issued no requests at all.
-- [x] 4.10 Unit tests: a certificate that is not the customer's is refused and the stored value is unchanged; auto-attach fires only when the attachment is empty; clearing restores group auto-apply; the change is logged.
+- [x] 4.10 Unit tests: a certificate that is not the customer's is refused and the stored value is unchanged; auto-attach fires only when the attachment is empty; clearing is a real state; the change is logged.
 
 - [x] 4.13 Unit: a certificate chosen for the cart beats the one attached to the customer (`CertificateResolverTest`). Previously untested at every layer. The resolver keeps that precedence for the order-level path; no customer-facing surface produces it.
 
@@ -46,7 +39,7 @@
 - [x] 6.2 Creation confined to customers the store treats as exempt.
 - [x] 6.3 The form states that the certificate applies to all future orders — v3 cannot create a single-purchase certificate, so a customer who thinks they are claiming a one-off must be told otherwise.
 - [x] 6.4 Every action re-resolves ownership server-side; a customer cannot see, apply or delete another's certificate.
-- [x] 6.5 Unit tests: `Test/Unit/Controller/Certificate/StorefrontCertificateControllersTest` — signed-out and exemptions-off refusals, creation refused outside the exempt groups and allowed inside them, a foreign certificate id refused with the SAME answer as an unknown one (or the refusal tells an attacker which ids are real), and a failed read reported as failure rather than as an empty list.
+- [x] 6.5 Unit tests: `Test/Unit/Controller/Certificate/StorefrontCertificateControllersTest` — signed-out and exemptions-off refusals, a foreign certificate id refused with the SAME answer as an unknown one (or the refusal tells an attacker which ids are real), and a failed read reported as failure rather than as an empty list.
 
 ## 7. Test coverage
 
@@ -57,7 +50,7 @@
 - [x] 7.5 `Test/E2E/specs/admin/certificate-tab.spec.ts`: the panel is a tab after Account Information, opening it ACTUALLY requests its certificates, exactly one panel is live, refresh re-reads while masking only the table. Behaviour rather than markup on purpose — the panel has twice rendered perfectly and made no request at all.
 - [x] 7.6 `Test/E2E/specs/admin/certificate-attach.spec.ts`: put in use, take out of use, auto-attach on create, never displace — through the interface against the real API.
 - [x] 7.7 `Test/E2E/specs/admin/certificate-create-validation.spec.ts`: an incomplete form is refused without a request, a complete one passes, and a server rejection is put in a modal.
-- [x] 7.8 `Test/E2E/specs/exemptions-on/` plus setup/teardown projects: group auto-apply exempts with nothing attached and nothing chosen, and My Account lists, adds and removes. A teardown PROJECT restores the settings, because it runs even when the guarded tests fail.
+- [x] 7.8 `Test/E2E/specs/exemptions-on/` plus setup/teardown projects: My Account lists the certificates held for a customer and removes one. A teardown PROJECT restores the settings, because it runs even when the guarded tests fail.
 - [x] 7.9 Hardened `admin-saves-taxcloud-credentials.spec.ts` to restore credentials from the environment rather than from whatever is stored. A killed run skipped its `finally` and left placeholder credentials saved; every later TaxCloud call then failed authentication, which surfaced as customers appearing to hold no certificates — indistinguishable from "not exempt".
 
 ## 8. Cache refresh

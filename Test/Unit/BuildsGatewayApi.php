@@ -95,7 +95,6 @@ trait BuildsGatewayApi
                 $leaf['cacheType']
             ),
             new \Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity(),
-            new \Taxcloud\Magento2\Model\Certificate\ExemptionPolicy($config),
             new NullLogger()
         );
         $eventDispatcher = new GatewayEventDispatcher($leaf['eventManager'], $leaf['objectFactory']);

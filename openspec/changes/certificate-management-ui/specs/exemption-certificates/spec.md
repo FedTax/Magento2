@@ -10,28 +10,6 @@ A store SHALL additionally be able to nominate customer groups it treats as exem
 - **WHEN** a store upgrades without changing any setting
 - **THEN** no exemption surface is shown to customers or administrators, and orders are taxed as before
 
-#### Scenario: Restricting to exempt groups hides the surfaces from everyone else
-- **WHEN** a store enables exemptions and restricts them to nominated customer groups
-- **THEN** a customer outside those groups sees no exemption surface, and a certificate identifier submitted by one is not applied
-
-### Requirement: Customers in an exempt group are exempted without choosing
-
-A merchant who has vetted a customer and placed them in an exempt group has already made the exemption decision; asking them to re-make it on every order is friction without value. For a customer in a nominated exempt group, when no certificate has been explicitly chosen for the order, a certificate covering the destination state SHALL be applied automatically. A customer who explicitly clears the applied certificate SHALL NOT have one re-applied for that order.
-
-Automatic application SHALL be subject to the same eligibility and ownership rules as an explicit choice: only the customer's own certificates, only ones covering the destination, never disabled or single-purchase ones.
-
-#### Scenario: Exempt-group customer needs no interaction
-- **WHEN** a customer in a nominated exempt group holds a certificate covering the destination and chooses nothing
-- **THEN** that certificate is applied and the order is untaxed
-
-#### Scenario: Customers outside the groups are not auto-applied
-- **WHEN** a customer who holds a covering certificate but is in no nominated group chooses nothing
-- **THEN** no certificate is applied and the order is taxed
-
-#### Scenario: An explicit clearing is respected
-- **WHEN** a customer in an exempt group removes the applied certificate from their order
-- **THEN** no certificate is re-applied automatically for that order
-
 ### Requirement: Administrators manage a customer's certificates
 
 An administrator holding the certificate-management permission SHALL be able to see every certificate a customer holds, view one in detail, add one, and delete one, from the customer's admin page. The customer's TaxCloud identity SHALL be shown and editable alongside, together with an action that reports what that identity currently resolves to.
@@ -63,8 +41,6 @@ The certificate identifier SHALL be re-resolved against the customer's own certi
 Attaching grants exemptions, so each change SHALL be recorded in the store's TaxCloud log with the customer, the previous and new values, and the administrator responsible.
 
 Attachment SHALL be settable only by an administrator holding the certificate-management permission, and SHALL NOT be readable or writable through any customer-facing interface.
-
-This adds no precedence: an attached certificate already outranks group auto-apply, and an explicit decline still beats both.
 
 #### Scenario: Attaching a certificate makes it apply
 - **WHEN** an administrator attaches a certificate to a customer and that customer orders to a state the certificate covers
@@ -102,21 +78,13 @@ A certificate created here applies to all of the customer's subsequent orders, a
 
 Creating a certificate SHALL be available only to customers the store treats as exempt. A merchant vetting a customer into an exempt group is the control that stands in for the verification neither TaxCloud nor this module performs.
 
-#### Scenario: Customer adds and removes their own certificate
-- **WHEN** a customer permitted to create certificates adds one from their account area
-- **THEN** it is filed under their TaxCloud identity, appears in their list, and applies to their subsequent orders
-
-#### Scenario: The permanence is stated before creation
-- **WHEN** a customer is presented with the certificate creation form
-- **THEN** it states that the certificate will apply to all of their future orders
+#### Scenario: Customer removes a certificate held for them
+- **WHEN** a customer removes one of their certificates from My Account
+- **THEN** it is deleted at TaxCloud and no longer applies to their orders
 
 #### Scenario: A customer cannot reach another's certificates
 - **WHEN** a request from one customer names a certificate belonging to another
 - **THEN** it is neither displayed, applied, nor deleted
-
-#### Scenario: Creation is confined to exempt customers
-- **WHEN** a customer the store does not treat as exempt attempts to create a certificate
-- **THEN** the attempt is refused
 
 ### Requirement: A stale certificate list can be refreshed on demand
 

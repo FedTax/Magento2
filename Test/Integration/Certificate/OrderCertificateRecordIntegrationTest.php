@@ -90,10 +90,6 @@ class OrderCertificateRecordIntegrationTest extends IntegrationTestCase
             },
         ]));
         $this->setScopedConfig('tax/taxcloud_settings/exemptions_enabled', '1');
-        // Pinned, not inherited: leaving this to the environment made the taxed
-        // case impossible whenever a previous run had nominated a group, and the
-        // customer below belongs to group 1.
-        $this->setScopedConfig('tax/taxcloud_settings/exempt_customer_groups', '');
 
         // A real, persisted customer: placeOrder() reloads the quote by id, so a
         // customer data object set on the in-memory quote is discarded and the
@@ -223,7 +219,7 @@ class OrderCertificateRecordIntegrationTest extends IntegrationTestCase
 
     public function testATaxedOrderCarriesNoRecord(): void
     {
-        // Nothing attached and no exempt group: the order is taxed, and there is
+        // Nothing attached: the order is taxed, and there is
         // no certificate to record. An empty record here is the difference
         // between "no exemption" and "we forgot to write it down".
         $order = $this->placeOrderForCustomer(null);
