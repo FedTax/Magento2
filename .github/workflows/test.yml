@@ -287,6 +287,17 @@ jobs:
           docker compose exec -T -w /var/www/html app \
             vendor/bin/phpunit -c /srv/module/phpunit.integration.xml.dist --testdox
 
+      # always(): the certificates this job filed at TaxCloud outlive the
+      # container, and a failed run is exactly when cleanup gets skipped and the
+      # sandbox grows. The script never fails the build — the tests have already
+      # had their say, and an uncleaned certificate is untidy, not broken.
+      - name: Remove certificates this run filed at TaxCloud
+        if: always() && steps.gate.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          docker compose exec -T -w /var/www/html app \
+            php /srv/module/scripts/cleanup-test-certificates.php
+
       - name: Collect debug logs on failure
         if: failure() && steps.gate.outputs.skip != 'true'
         run: |
@@ -434,6 +445,15 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         working-directory: Test/E2E
         run: npx playwright test
+
+      # See the integration job: same reasoning, same always().
+      - name: Remove certificates this run filed at TaxCloud
+        if: always() && steps.gate.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml \
+            exec -T -w /var/www/html app \
+            php /srv/module/scripts/cleanup-test-certificates.php
 
       - name: Upload Playwright artifacts
         if: failure() && steps.gate.outputs.skip != 'true'

@@ -1,7 +1,7 @@
 .PHONY: test test-unit test-unit-version lint lint-fix phpstan analyse help \
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
-        e2e-trace e2e-clean
+        e2e-trace e2e-clean e2e-cleanup-certificates
 
 # Defaults — override on the command line, e.g.:
 #   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
@@ -48,6 +48,7 @@ help:
 	@echo "  make e2e-test-ui       - Open Playwright's interactive UI mode"
 	@echo "  make e2e-test-headed   - Run headed (visible browser) for debugging"
 	@echo "  make e2e-trace         - Open the trace viewer for the last failed run"
+	@echo "  make e2e-cleanup-certificates - Delete the certificates this run filed at TaxCloud"
 	@echo "  make e2e-clean         - Remove E2E artifacts (test-results, playwright-report)"
 	@echo "                           First run from scratch:"
 	@echo "                             make e2e-setup && make e2e-test"
@@ -225,6 +226,14 @@ e2e-test-headed:
 
 # Open the trace viewer for the most recent failed test (traces are
 # retain-on-failure, so this only finds something after a failure).
+# Certificates are filed at TaxCloud under a run-unique identity and outlive the
+# containers, so they need an explicit delete. CI does this automatically after
+# every run; locally it is worth doing after an interrupted one.
+e2e-cleanup-certificates:
+	@docker compose -f docker-compose.yml -f docker-compose.e2e.yml \
+		exec -T -w /var/www/html app \
+		php /srv/module/scripts/cleanup-test-certificates.php
+
 e2e-trace:
 	@cd $(E2E_DIR) && latest=$$(ls -dt test-results/*/trace.zip 2>/dev/null | head -1); \
 	if [ -z "$$latest" ]; then \

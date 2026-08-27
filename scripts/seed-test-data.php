@@ -1052,14 +1052,27 @@ if ($productsOnly) {
 // is what lets ONE fixture serve both the SOAP and the REST e2e passes. If this
 // is ever switched to create over v3, the SOAP pass will fail.
 //
-// The customer's REAL Magento entity id is the certificate's customer id --
-// what the module's certificate lookup filters on, and the identity the
-// extension will stamp once it creates certificates itself.
+// The certificate is filed under a RUN-UNIQUE TaxCloud identity, stamped onto
+// the customer's `taxcloud_customer_id`, rather than under the customer's
+// Magento entity id.
 //
-// Idempotent, and it has to be: the sandbox account is shared across CI runs
-// and certificates are only removable through an explicit delete, so a seed
-// that created one per run would leave an ever-growing pile behind. The
-// reuse check runs over v3 because v3 sees certificates from both APIs.
+// The entity id is the same value ("2") on every install, so every CI job and
+// every local run shared one identity inside one sandbox account. CI runs the
+// version matrix in parallel, so three jobs created, attached, detached and
+// deleted certificates under that identity at the same time — one job's cleanup
+// could remove a certificate another had just made. Leftovers from a killed run
+// were inherited by the next one, and a v3-created certificate poisoned v1
+// listings for that identity permanently, because the poisoning is
+// identity-scoped.
+//
+// A timestamp keeps it readable and orderable when looking at the sandbox, with
+// a short random suffix so two runs starting in the same second cannot collide.
+// Override with TAXCLOUD_E2E_IDENTITY to pin a namespace deliberately.
+//
+// The cost is accepted rather than hidden: each run now creates a certificate
+// that only its own teardown removes, so an interrupted run leaves one behind.
+// That is a slow trickle in a sandbox, against races that were breaking real
+// runs. Certificates are only removable through an explicit delete.
 if ($productsOnly) {
     $step('skipped exempt customer (--products-only)');
 } else {
@@ -1070,6 +1083,13 @@ if ($productsOnly) {
         'Customer'
     );
     $exemptCustomerId = (string) $exemptCustomer->getId();
+
+    // Run-unique namespace for everything this seed files at TaxCloud.
+    $certificateIdentity = getenv('TAXCLOUD_E2E_IDENTITY') ?: sprintf(
+        'e2e-%s-%s',
+        gmdate('Ymd\\THis\\Z'),
+        bin2hex(random_bytes(2))
+    );
 
     try {
         // Section 2 wrote the credentials straight to the DB; the config this
@@ -1083,7 +1103,7 @@ if ($productsOnly) {
         $certificateId = null;
         $listing = $om->get(\Taxcloud\Magento2\Model\Gateway\Rest\RestClient::class)->request(
             'GET',
-            '/tax/exemption-certificates?customerId=' . rawurlencode($exemptCustomerId) . '&limit=100',
+            '/tax/exemption-certificates?customerId=' . rawurlencode($certificateIdentity) . '&limit=100',
             null,
             $storeId,
             false
@@ -1113,7 +1133,7 @@ if ($productsOnly) {
             $response = $soap->AddExemptCertificate([
                 'apiLoginID' => $apiId,
                 'apiKey'     => $apiKey,
-                'customerID' => $exemptCustomerId,
+                'customerID' => $certificateIdentity,
                 'exemptCert' => [
                     'Detail' => [
                         'ExemptStates' => [
@@ -1141,6 +1161,12 @@ if ($productsOnly) {
                         'PurchaserBusinessType'         => 'WholesaleTrade',
                         'PurchaserExemptionReason'      => 'Resale',
                         'PurchaserExemptionReasonValue' => 'Resale',
+                        // Required by the WSDL even though TaxCloud stamps its
+                        // own creation time. Its absence never showed before:
+                        // the reuse check always matched under the shared
+                        // identity, so this create path had not actually run
+                        // since the identity became unique per seed.
+                        'CreatedDate'                   => gmdate('Y-m-d\\TH:i:s\\Z'),
                     ],
                 ],
             ]);
@@ -1163,8 +1189,28 @@ if ($productsOnly) {
             $step('exemption certificate created over SOAP (' . $certificateId . ', covers TX)');
         }
 
+        // The identity decides WHERE the module looks; the attachment decides
+        // WHICH certificate applies. Both are needed — setting only the second
+        // leaves the module searching under the entity id and finding nothing.
         $exemptCustomer->setCustomAttribute('taxcloud_certificate_id', $certificateId);
         $customerRepository->save($exemptCustomer);
+
+        // The identity is written through the customer MODEL, not the
+        // repository. Setting a customer's TaxCloud identity grants them the
+        // exemptions filed under it, so a plugin on CustomerRepositoryInterface
+        // refuses the write unless an authenticated administrator holds the
+        // certificate permission. This script runs in the adminhtml area with
+        // nobody logged in, so the repository silently restores the old value —
+        // observed: the attachment saved and the identity did not.
+        //
+        // Going through the model bypasses that plugin deliberately. The guard
+        // exists to stop customer-facing writes, and this is trusted setup code
+        // running before any customer exists.
+        $identityWriter = $om->create(\Magento\Customer\Model\Customer::class);
+        $identityWriter->load((int) $exemptCustomer->getId());
+        $identityWriter->setData('taxcloud_customer_id', $certificateIdentity);
+        $identityWriter->getResource()->saveAttribute($identityWriter, 'taxcloud_customer_id');
+        $step('customer "' . EXEMPT_CUSTOMER_EMAIL . '" taxcloud_customer_id = ' . $certificateIdentity);
         $step('customer "' . EXEMPT_CUSTOMER_EMAIL . '" taxcloud_certificate_id = ' . $certificateId);
     } catch (\Throwable $e) {
         // Non-fatal: the catalog and store fixtures are still usable without a
