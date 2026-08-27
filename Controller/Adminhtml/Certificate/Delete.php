@@ -50,6 +50,19 @@ class Delete extends AbstractCertificateAction implements HttpPostActionInterfac
             return $this->error(__('That certificate does not belong to this customer.')->render());
         }
 
+        // Refuse to delete the certificate the customer's orders are currently
+        // filed against. Deleting it is irreversible at TaxCloud and would leave
+        // the attachment pointing at something that no longer exists — the
+        // customer silently stops being exempt, with nothing on the screen
+        // saying so. Clearing the attachment first makes that consequence an
+        // explicit act rather than a side effect.
+        if ($this->resolver->attachedCertificateId($customer) === $certificateId) {
+            return $this->error(
+                __('This certificate is in use for this customer. Choose "Stop using" first, then delete it.')
+                    ->render()
+            );
+        }
+
         try {
             $this->certificates->delete($certificateId, $this->identity->resolve($customer), $storeId);
         } catch (\Throwable $e) {

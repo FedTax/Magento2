@@ -182,6 +182,29 @@ define([
         }
 
         /**
+         * Delete, unless this is the certificate in use.
+         *
+         * Offered-then-refused is a worse experience than not offered: the
+         * endpoint rejects it either way, so the button says why up front. The
+         * order matters — deleting is irreversible at TaxCloud, and doing it to
+         * the certificate in force would silently stop the customer being exempt.
+         *
+         * @param {Object} certificate
+         * @param {Boolean} isAttached
+         * @return {String}
+         */
+        function deleteCell(certificate, isAttached) {
+            if (isAttached) {
+                return '<button type="button" class="action-secondary" disabled ' +
+                    'title="' + escapeHtml($t('In use — choose "Stop using" before deleting.')) + '">' +
+                    escapeHtml($t('Delete')) + '</button>';
+            }
+
+            return '<button type="button" class="action-secondary" data-delete="' +
+                escapeHtml(certificate.certificateId) + '">' + escapeHtml($t('Delete')) + '</button>';
+        }
+
+        /**
          * Whether this certificate is the one the customer's orders are filed
          * against, and the control to change that.
          *
@@ -234,8 +257,7 @@ define([
                     '<td>' + detail(certificate, 'purchaserName') + '</td>' +
                     '<td>' + detail(certificate, 'reason') + '</td>' +
                     '<td>' + inUseCell(certificate, isAttached) + '</td>' +
-                    '<td><button type="button" class="action-secondary" data-delete="' +
-                    escapeHtml(certificate.certificateId) + '">' + escapeHtml($t('Delete')) + '</button></td>' +
+                    '<td>' + deleteCell(certificate, isAttached) + '</td>' +
                     '</tr>'
                 );
             });
