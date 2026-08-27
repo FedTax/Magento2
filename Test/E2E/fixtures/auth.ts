@@ -36,6 +36,27 @@ export async function loginAsCustomer(
   email: string,
   password: string = CUSTOMER_PASSWORD,
 ): Promise<void> {
+  // Attempted twice. Magento invalidates a customer's storefront session when
+  // their record is saved — the CustomerNotification plugin forces a reload on
+  // the next request and can drop the session — so a suite that edits a
+  // customer from the admin (attaching a certificate, say) intermittently lands
+  // a later storefront login on a session that is discarded underneath it. The
+  // symptom is a checkout page rendering "Sign In", far from the cause.
+  //
+  // One retry, not a longer timeout: the first attempt does not time out, it
+  // completes and is then thrown away.
+  try {
+    await attemptLogin(page, email, password);
+
+    return;
+  } catch (firstAttempt) {
+    await page.context().clearCookies();
+  }
+
+  await attemptLogin(page, email, password);
+}
+
+async function attemptLogin(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/customer/account/login/');
 
   // Scoped to the login FORM, not the page. Luma also renders a hidden

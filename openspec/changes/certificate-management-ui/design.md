@@ -68,7 +68,6 @@ The customer-facing creation form is available only to customers the store treat
 - **Removing `taxcloud_cert` breaks anything reading it.** → Values migrate; the attribute does not. This is the release's upgrade note and the reason both changes ship together.
 - **Group auto-apply can exempt a customer nobody consciously exempted for that order.** → It is off by default, requires nominating groups, and is exactly what a merchant asks for when they place a customer in an exempt group. The order's record still captures what was applied.
 - **A customer creating their own certificate is asserting something legally binding.** → The form states the attestation and the permanence. The module cannot verify either, and does not pretend to.
-- **Checkout selection recalculates tax on change, so a slow TaxCloud makes checkout feel slow.** → Same round trip the totals already make; the certificate list itself is cached.
 
 ## Migration Plan
 
@@ -83,3 +82,19 @@ Rollback restores the attribute definition but not values written after the upgr
 None blocking.
 
 One to settle with the first merchant who asks rather than now: whether the admin grid should offer bulk actions across customers (import a list of identities, or apply one certificate to several customers). It is additive, and speculating at the shape before anyone has described their workflow would produce a screen built for an imagined process.
+
+## Attaching a certificate to a customer
+
+Resolution prefers `taxcloud_certificate_id` on the customer, and the foundation built the storage, but no surface ever wrote it. On a store with no exempt groups nominated — the default — a customer could hold a covering certificate and still be taxed, with nothing in the log to explain it, because the resolver reaches its decision before any API call. The read path was complete and the write path did not exist.
+
+Two writers, deliberately:
+
+**An explicit control** on each row of the admin panel, showing which certificate is attached and allowing it to be cleared. This is the general answer: a customer may hold several certificates and only an administrator can say which one stands.
+
+**Auto-attach on creation, only when nothing is attached.** An administrator who adds a certificate for a customer has already expressed the intent; requiring a second click on a control they have not yet noticed is how the original gap felt from the outside. It is confined to the empty case because displacing an existing attachment would silently re-file a customer against a different certificate — the opposite of what the person adding a second certificate usually means.
+
+The identifier is re-resolved through `CertificateResolver::belongsToCustomer()` before being stored, the same guard `Delete` already uses, so an identifier from a browser is never trusted. Refusal is deliberately indistinguishable between "belongs to someone else" and "does not exist".
+
+Attaching grants exemptions, so it is logged exactly as identity changes are, and gated by the same `Taxcloud_Magento2::certificates` ACL on the shared controller base.
+
+No precedence changes. An attached certificate already beat group auto-apply, and an explicit decline already beat both.

@@ -110,7 +110,7 @@ class RecordCertificate implements ObserverInterface
         }
 
         try {
-            $certificate = $this->resolver->resolve($customer, $destinationState, null, $storeId);
+            $certificate = $this->resolver->resolve($customer, $destinationState, $storeId);
         } catch (\Throwable $e) {
             // Recording is evidence-keeping, not control flow: an order must
             // never fail to place because we could not describe its exemption.

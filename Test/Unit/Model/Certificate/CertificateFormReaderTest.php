@@ -61,7 +61,6 @@ class CertificateFormReaderTest extends TestCase
             'businessType' => 'WholesaleTrade',
             'reason' => 'Resale',
             'reasonDescription' => 'Resale',
-            'taxId' => '12-3456789',
         ], $overrides));
     }
 
@@ -111,13 +110,13 @@ class CertificateFormReaderTest extends TestCase
     }
 
     /**
-     * v1 tolerates an empty description and v3 requires one. Requiring it on
-     * both keeps a certificate's meaning independent of which transport the
-     * store happened to be using when it was created.
+     * Optional, not required — checked against the live v3 API, which accepts an
+     * empty description (201) and only rejects the key being absent altogether.
+     * Demanding content here would impose a rule TaxCloud does not have.
      */
-    public function testReasonDescriptionIsRequiredOnBothTransports()
+    public function testReasonDescriptionIsOptional()
     {
-        $this->assertNotNull($this->reader->firstProblem($this->form(['reasonDescription' => ''])));
+        $this->assertNull($this->reader->firstProblem($this->form(['reasonDescription' => ''])));
     }
 
     /**
@@ -146,10 +145,62 @@ class CertificateFormReaderTest extends TestCase
         $this->assertArrayNotHasKey('customerIdentity', $data);
     }
 
-    public function testTaxTypeDefaultsRatherThanBeingRequired()
+    /**
+     * v3 has no field for a tax id, so collecting one would mean accepting a
+     * value a REST store silently discards and can never show back. It lives on
+     * the signed certificate the merchant keeps instead.
+     */
+    public function testNoTaxIdIsCollected()
     {
-        $this->assertSame('FEIN', $this->form(['taxType' => ''])['taxType']);
-        $this->assertSame('SSN', $this->form(['taxType' => 'SSN'])['taxType']);
+        $data = $this->reader->read([
+            'states' => ['TX'],
+            'taxId' => '12-3456789',
+            'taxType' => 'FEIN',
+        ]);
+
+        $this->assertArrayNotHasKey('taxId', $data);
+        $this->assertArrayNotHasKey('taxType', $data);
+    }
+
+    /**
+     * Every value both APIs accept must be offerable with a name a merchant
+     * recognises — a gap here is a dropdown entry rendering as an identifier.
+     */
+    public function testEveryEnumValueHasAReadableLabel()
+    {
+        foreach ([CertificateFormReader::REASONS, CertificateFormReader::BUSINESS_TYPES] as $map) {
+            $this->assertNotEmpty($map);
+
+            foreach ($map as $value => $label) {
+                $this->assertIsString($value);
+                $this->assertNotSame('', $label, $value . ' must have a label');
+
+                // The property is "reads as words", not "differs from the
+                // value" — Resale, Mining and Utilities are already fine as
+                // they stand. What must never survive is a CamelCase run,
+                // which is what an unlabelled API value looks like.
+                $this->assertDoesNotMatchRegularExpression(
+                    '/[a-z][A-Z]/',
+                    $label,
+                    $value . ' still reads as an API identifier'
+                );
+            }
+        }
+    }
+
+    /**
+     * The labels match the WooCommerce plugin's, so a merchant running both —
+     * or a support agent reading a ticket — is not left working out that two
+     * different words describe one certificate.
+     */
+    public function testLabelsMatchTheSiblingProduct()
+    {
+        $this->assertSame('Wholesale Trade', CertificateFormReader::BUSINESS_TYPES['WholesaleTrade']);
+        $this->assertSame(
+            'Industrial Production or Manufacturing',
+            CertificateFormReader::REASONS['IndustrialProductionOrManufacturing']
+        );
+        $this->assertSame('Direct Pay Permit', CertificateFormReader::REASONS['DirectPayPermit']);
     }
 
     public function testNonScalarInputIsIgnoredRatherThanCrashing()

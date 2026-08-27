@@ -21,7 +21,7 @@ use Magento\Framework\App\Action\HttpGetActionInterface;
 use Magento\Framework\Controller\ResultFactory;
 
 /**
- * The "Exemption Certificates" page in My Account.
+ * The "Tax Exemption Certificates" page in My Account.
  *
  * Renders a page; the certificates themselves are fetched by
  * {@see Listing}. A signed-out visitor is sent to log in — the page is
@@ -54,7 +54,7 @@ class Index extends AbstractCustomerAction implements HttpGetActionInterface
 
         /** @var \Magento\Framework\View\Result\Page $page */
         $page = $this->resultFactory->create(ResultFactory::TYPE_PAGE);
-        $page->getConfig()->getTitle()->set(__('Exemption Certificates'));
+        $page->getConfig()->getTitle()->set(__('Tax Exemption Certificates'));
 
         return $page;
     }

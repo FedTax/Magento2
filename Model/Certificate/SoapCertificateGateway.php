@@ -134,7 +134,10 @@ class SoapCertificateGateway implements CertificateGatewayInterface
             $exemptStates[] = [
                 'StateAbbr' => $abbreviation,
                 'ReasonForExemption' => $data['reason'] ?? 'Other',
-                'IdentificationNumber' => $data['taxId'] ?? '',
+                // No identification number: the forms no longer collect one,
+                // because v3 has no field for it and a value recorded on only
+                // one transport describes the same certificate two ways.
+                'IdentificationNumber' => '',
             ];
         }
 
@@ -155,10 +158,11 @@ class SoapCertificateGateway implements CertificateGatewayInterface
                     'PurchaserCity' => $data['city'] ?? '',
                     'PurchaserState' => $data['state'] ?? '',
                     'PurchaserZip' => $data['zip'] ?? '',
+                    // Required by the WSDL, left empty deliberately — see above.
                     'PurchaserTaxID' => [
-                        'TaxType' => $data['taxType'] ?? 'FEIN',
-                        'IDNumber' => $data['taxId'] ?? '',
-                        'StateOfIssue' => $data['taxStateOfIssue'] ?? '',
+                        'TaxType' => 'FEIN',
+                        'IDNumber' => '',
+                        'StateOfIssue' => '',
                     ],
                     'PurchaserBusinessType' => $data['businessType'] ?? 'Other',
                     'PurchaserBusinessTypeOtherValue' => $data['businessTypeDescription'] ?? '',

@@ -67,6 +67,11 @@ class Index extends AbstractCertificateAction implements HttpGetActionInterface
             'success' => true,
             'identity' => $identity,
             'identityIsDefault' => !$this->identity->isOverridden($customer),
+            // Which certificate this customer's orders are filed against. The
+            // panel needs it to say which row is in force; without it an
+            // administrator cannot tell an attached certificate from one the
+            // customer merely holds.
+            'attached' => $this->resolver->attachedCertificateId($customer),
             'storeId' => $storeId,
             'certificates' => array_map([$this, 'present'], $certificates),
         ]);

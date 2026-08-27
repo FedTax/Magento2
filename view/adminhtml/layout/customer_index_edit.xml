@@ -3,16 +3,11 @@
 /**
  * Taxcloud_Magento2
  *
- * NOTICE OF LICENSE
- *
- * This source file is subject to the Open Software License (OSL 3.0)
- * that is bundled with this package in the file LICENSE.txt.
- * It is also available through the world-wide-web at this URL:
- * http://opensource.org/licenses/osl-3.0.php
+ * The certificate panel itself is a tab (see ui_component/customer_form.xml).
+ * Only its starter lives here, in the page proper, because component bootstrap
+ * never reaches content knockout injects into a tab.
  *
  * @package    Taxcloud_Magento2
- * @author     TaxCloud <service@taxcloud.net>
- * @copyright  2026 The Federal Tax Authority, LLC d/b/a TaxCloud
  * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
  */
 -->
@@ -20,9 +15,9 @@
       xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
     <body>
         <referenceContainer name="content">
-            <block class="Taxcloud\Magento2\Block\Adminhtml\Customer\Edit\Tab\Certificates"
-                   name="taxcloud_customer_certificates"
-                   template="Taxcloud_Magento2::customer/certificates.phtml"/>
+            <block class="Magento\Backend\Block\Template"
+                   name="taxcloud_certificates_bootstrap"
+                   template="Taxcloud_Magento2::customer/certificates-bootstrap.phtml"/>
         </referenceContainer>
     </body>
 </page>

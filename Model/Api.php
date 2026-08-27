@@ -362,16 +362,10 @@ class Api implements GatewayInterface
         // over in two lookup paths. `taxcloud_cert` is the explicitly attached
         // certificate — untrusted like any other inbound identifier, and
         // honoured only if it turns out to be this customer's.
-        // The certificate chosen for THIS cart takes precedence over the one
-        // attached to the customer, and an explicit decline is passed through
-        // so an exempt customer group cannot overrule it.
-        $chosenCertificateId = $quote->getData('taxcloud_certificate_id');
         $resolvedCertificate = $this->certificateResolver->resolve(
             $customer,
             $destination['State'],
-            is_string($chosenCertificateId) && $chosenCertificateId !== '' ? $chosenCertificateId : null,
-            $storeId,
-            (bool) $quote->getData('taxcloud_certificate_cleared')
+            $storeId
         );
         $certificateID = $resolvedCertificate ? $resolvedCertificate->getCertificateId() : null;
 

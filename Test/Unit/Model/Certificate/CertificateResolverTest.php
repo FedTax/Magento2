@@ -40,6 +40,9 @@ class CertificateResolverTest extends TestCase
     private const TX_CERT = 'cert-tx';
     private const NY_CERT = 'cert-ny';
 
+    /** A second certificate covering the same state, so precedence is the only thing under test. */
+    private const SECOND_TX_CERT = 'cert-tx-2';
+
     /**
      * A stub by default: most tests here only need the repository to answer,
      * not to be asserted against. The few that assert HOW it was called swap in
@@ -89,23 +92,39 @@ class CertificateResolverTest extends TestCase
     }
 
     /**
-     * @param string|null $configured
+     * Attributes are keyed by code. The earlier version answered every code with
+     * the same value, which quietly made a configured identity double as an
+     * attached certificate — fine while a caller could pass the certificate in
+     * directly, misleading now that the attachment is the only way to claim one.
+     *
+     * @param string|null $identity Value of taxcloud_customer_id, null to default
      * @param int|null $entityId
+     * @param int $groupId
+     * @param string|null $attached Certificate attached to the customer
      */
-    private function customer($configured = null, $entityId = 42, $groupId = 1)
+    private function customer($identity = null, $entityId = 42, $groupId = 1, $attached = null)
     {
         $customer = $this->createStub(\Magento\Customer\Api\Data\CustomerInterface::class);
         $customer->method('getId')->willReturn($entityId);
         $customer->method('getGroupId')->willReturn($groupId);
 
-        if ($configured === null) {
-            $customer->method('getCustomAttribute')->willReturn(null);
-            return $customer;
-        }
+        $byCode = [
+            TaxCloudCustomerIdentity::ATTRIBUTE => $identity,
+            CertificateResolver::ATTACHED_ATTRIBUTE => $attached,
+        ];
 
-        $attribute = $this->createStub(\Magento\Framework\Api\AttributeInterface::class);
-        $attribute->method('getValue')->willReturn($configured);
-        $customer->method('getCustomAttribute')->willReturn($attribute);
+        $customer->method('getCustomAttribute')->willReturnCallback(function ($code) use ($byCode) {
+            $value = $byCode[$code] ?? null;
+
+            if ($value === null) {
+                return null;
+            }
+
+            $attribute = $this->createStub(\Magento\Framework\Api\AttributeInterface::class);
+            $attribute->method('getValue')->willReturn($value);
+
+            return $attribute;
+        });
 
         return $customer;
     }
@@ -129,7 +148,7 @@ class CertificateResolverTest extends TestCase
     {
         $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
 
-        $resolved = $this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT);
+        $resolved = $this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX');
 
         $this->assertNotNull($resolved);
         $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
@@ -139,7 +158,7 @@ class CertificateResolverTest extends TestCase
     {
         $this->holding([$this->certificate(self::NY_CERT, ['NY'])]);
 
-        $this->assertNull($this->resolver()->resolve($this->customer(), 'TX', self::NY_CERT));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1, self::NY_CERT), 'TX'));
     }
 
     public function testTheRightCertificateIsPickedFromSeveral()
@@ -149,7 +168,7 @@ class CertificateResolverTest extends TestCase
             $this->certificate(self::TX_CERT, ['TX']),
         ]);
 
-        $resolved = $this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT);
+        $resolved = $this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX');
 
         $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
     }
@@ -158,7 +177,7 @@ class CertificateResolverTest extends TestCase
     {
         $this->holding([$this->certificate(self::TX_CERT, ['TX'], true)]);
 
-        $this->assertNull($this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX'));
     }
 
     /**
@@ -169,7 +188,7 @@ class CertificateResolverTest extends TestCase
     {
         $this->holding([$this->certificate(self::TX_CERT, ['TX'], false, true)]);
 
-        $this->assertNull($this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX'));
     }
 
     // ─── ownership ───────────────────────────────────────────────────────
@@ -183,7 +202,7 @@ class CertificateResolverTest extends TestCase
         $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
 
         $this->assertNull(
-            $this->resolver()->resolve($this->customer(), 'TX', 'someone-elses-certificate'),
+            $this->resolver()->resolve($this->customer(null, 42, 1, 'someone-elses-certificate'), 'TX'),
             'an identifier outside the customer\'s own set must never be applied'
         );
     }
@@ -197,7 +216,7 @@ class CertificateResolverTest extends TestCase
     {
         $this->holding([]);
 
-        $this->assertNull($this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX'));
     }
 
     public function testBelongsToCustomerAnswersOwnershipForWritePaths()
@@ -230,7 +249,7 @@ class CertificateResolverTest extends TestCase
     {
         $this->repository->method('forCustomer')->willThrowException(new RuntimeException('taxcloud down'));
 
-        $this->assertNull($this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX'));
     }
 
     public function testRetrievalFailureDeniesOwnership()
@@ -254,21 +273,21 @@ class CertificateResolverTest extends TestCase
     {
         $this->expectRepository()->expects($this->never())->method('forCustomer');
 
-        $this->assertNull($this->resolver()->resolve(null, 'TX', self::TX_CERT));
+        $this->assertNull($this->resolver()->resolve(null, 'TX'));
     }
 
     public function testCustomerWithoutAnEntityIdIsTreatedAsAGuest()
     {
         $this->expectRepository()->expects($this->never())->method('forCustomer');
 
-        $this->assertNull($this->resolver()->resolve($this->customer(null, null), 'TX', self::TX_CERT));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, null, 1, self::TX_CERT), 'TX'));
     }
 
     public function testMissingDestinationStateResolvesToNothing()
     {
         $this->expectRepository()->expects($this->never())->method('forCustomer');
 
-        $this->assertNull($this->resolver()->resolve($this->customer(), '', self::TX_CERT));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), ''));
     }
 
     // ─── identity ────────────────────────────────────────────────────────
@@ -280,7 +299,7 @@ class CertificateResolverTest extends TestCase
             ->with('acme-corp', 7)
             ->willReturn([$this->certificate(self::TX_CERT, ['TX'])]);
 
-        $resolved = $this->resolver()->resolve($this->customer('acme-corp'), 'TX', self::TX_CERT, 7);
+        $resolved = $this->resolver()->resolve($this->customer('acme-corp', 42, 1, self::TX_CERT), 'TX', 7);
 
         $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
     }
@@ -292,7 +311,7 @@ class CertificateResolverTest extends TestCase
             ->with('42', null)
             ->willReturn([]);
 
-        $this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT);
+        $this->resolver()->resolve($this->customer(null, 42, 1, self::TX_CERT), 'TX');
     }
 
     // ─── auto-apply slot ─────────────────────────────────────────────────
@@ -309,7 +328,7 @@ class CertificateResolverTest extends TestCase
         $this->exemptGroups = [7];
         $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
 
-        $resolved = $this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null);
+        $resolved = $this->resolver()->resolve($this->customer(null, 42, 7), 'TX');
 
         $this->assertNotNull($resolved);
         $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
@@ -320,7 +339,7 @@ class CertificateResolverTest extends TestCase
         $this->exemptGroups = [7];
         $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
 
-        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1), 'TX', null));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 1), 'TX'));
     }
 
     public function testAutoApplyStillRequiresTheCertificateToCoverTheDestination()
@@ -328,25 +347,13 @@ class CertificateResolverTest extends TestCase
         $this->exemptGroups = [7];
         $this->holding([$this->certificate(self::NY_CERT, ['NY'])]);
 
-        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null));
+        $this->assertNull($this->resolver()->resolve($this->customer(null, 42, 7), 'TX'));
     }
 
     /**
      * An exempt-group customer who declines must stay declined; otherwise they
      * could never remove an exemption they are entitled not to use.
      */
-    public function testAnExplicitClearingIsNotOverruledByTheGroup()
-    {
-        $this->exemptGroups = [7];
-        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
-
-        $this->assertNull(
-            $this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null, null, true)
-        );
-    }
-
-    // ─── declining ───────────────────────────────────────────────────────
-
     /**
      * A decline must beat the certificate an administrator pinned to the
      * customer, not just their exempt group.
@@ -354,52 +361,22 @@ class CertificateResolverTest extends TestCase
      * Getting this wrong gives the shopper a control that appears to work and
      * does nothing — and files the order against a certificate they refused.
      */
-    public function testDecliningBeatsACertificatePinnedToTheCustomer()
-    {
-        $this->exemptGroups = [];
-        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
-
-        // The customer has cert-tx attached to their account...
-        $customer = $this->customer(self::TX_CERT, 42, 1);
-
-        $this->assertNotNull(
-            $this->resolver()->resolve($customer, 'TX', null, null, false),
-            'precondition: the attached certificate applies when nothing was declined'
-        );
-
-        $this->assertNull(
-            $this->resolver()->resolve($customer, 'TX', null, null, true),
-            'a declined order must not be exempted by the attached certificate'
-        );
-    }
-
     /**
      * Choosing a certificate for this cart is not a decline — the two cannot
      * both be true, and the choice must win.
      */
-    public function testChoosingACertificateOverridesAStaleDeclineFlag()
-    {
-        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
-
-        $resolved = $this->resolver()->resolve($this->customer(), 'TX', self::TX_CERT, null, true);
-
-        $this->assertNotNull($resolved);
-        $this->assertSame(self::TX_CERT, $resolved->getCertificateId());
-    }
-
+    /**
+     * The one precedence pair nothing covered at any layer.
+     *
+     * A shopper who picks a certificate for this cart has said something more
+     * recent, and more specific, than whatever an administrator pinned to their
+     * account months ago. If the attachment won instead, the order would be
+     * filed against a certificate the shopper did not choose — and the
+     * selector at checkout would be a control that silently does nothing.
+     */
     /**
      * A decline costs no API call either: there is nothing to look up.
      */
-    public function testDecliningMakesNoApiCall()
-    {
-        $this->exemptGroups = [7];
-        $this->expectRepository()->expects($this->never())->method('forCustomer');
-
-        $this->assertNull(
-            $this->resolver()->resolve($this->customer(null, 42, 7), 'TX', null, null, true)
-        );
-    }
-
     /**
      * The property the foundation established, which auto-apply must not cost:
      * a store applying nothing automatically pays no API call per cart.
@@ -409,6 +386,6 @@ class CertificateResolverTest extends TestCase
         $this->exemptGroups = [];
         $this->expectRepository()->expects($this->never())->method('forCustomer');
 
-        $this->assertNull($this->resolver()->resolve($this->customer(), 'TX', null));
+        $this->assertNull($this->resolver()->resolve($this->customer(), 'TX'));
     }
 }

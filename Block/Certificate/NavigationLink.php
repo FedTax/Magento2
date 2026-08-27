@@ -25,7 +25,7 @@ use Magento\Framework\App\DefaultPathInterface;
 use Taxcloud\Magento2\Model\Certificate\ExemptionPolicy;
 
 /**
- * The "Exemption Certificates" item in the My Account menu.
+ * The "Tax Exemption Certificates" item in the My Account menu.
  *
  * Hidden by exactly the policy that guards the page it points at, so a customer
  * is never shown a menu item that answers with a 404 — and a consumer

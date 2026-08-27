@@ -52,6 +52,48 @@ Because certificates are account-level while stores may use different TaxCloud a
 - **WHEN** an administrator without the certificate-management permission opens a customer
 - **THEN** no certificate management is offered and any attempt to reach its endpoints is refused
 
+### Requirement: A certificate can be attached to a customer
+
+Resolution already prefers the certificate explicitly attached to a customer, but nothing writes that attachment. An administrator holding the certificate-management permission SHALL be able to attach any certificate the customer holds to that customer, and to clear the attachment, from the customer's admin page. The panel SHALL show which certificate is currently attached.
+
+Creating a certificate from the customer's admin page SHALL attach it when the customer has none attached, so that an administrator who adds a certificate for a customer does not have to perform a second, undiscoverable step to make it apply. It SHALL NOT displace an attachment that already exists.
+
+The certificate identifier SHALL be re-resolved against the customer's own certificates before being stored; an identifier that is not theirs SHALL be refused with the same answer whether it belongs to someone else or does not exist.
+
+Attaching grants exemptions, so each change SHALL be recorded in the store's TaxCloud log with the customer, the previous and new values, and the administrator responsible.
+
+Attachment SHALL be settable only by an administrator holding the certificate-management permission, and SHALL NOT be readable or writable through any customer-facing interface.
+
+This adds no precedence: an attached certificate already outranks group auto-apply, and an explicit decline still beats both.
+
+#### Scenario: Attaching a certificate makes it apply
+- **WHEN** an administrator attaches a certificate to a customer and that customer orders to a state the certificate covers
+- **THEN** the certificate is applied, whether or not the customer belongs to an exempt group
+
+#### Scenario: Creating a certificate attaches it when none is attached
+- **WHEN** an administrator creates a certificate for a customer who has none attached
+- **THEN** the new certificate becomes the customer's attached certificate, and applies to covered destinations without any further action
+
+#### Scenario: Creating does not displace an existing attachment
+- **WHEN** an administrator creates a certificate for a customer who already has one attached
+- **THEN** the existing attachment is left as it is, and the new certificate is merely available to attach
+
+#### Scenario: Clearing the attachment falls back to what the store does automatically
+- **WHEN** an administrator clears a customer's attached certificate
+- **THEN** the customer is resolved as if none had been attached: a covering certificate is applied automatically when they are in an exempt group, and otherwise the order is taxed
+
+#### Scenario: A certificate that is not the customer's is refused
+- **WHEN** an attachment request names a certificate that the customer does not hold
+- **THEN** the attachment is refused and the stored value is unchanged, with the same answer whether the certificate belongs to someone else or does not exist
+
+#### Scenario: Attachment changes are logged
+- **WHEN** an administrator attaches or clears a customer's certificate
+- **THEN** the change is recorded with the customer, the previous and new values, and the administrator who made it
+
+#### Scenario: Customers cannot reach the attachment
+- **WHEN** a customer-facing request attempts to read or set the attached certificate, whether through a storefront page, an API, or a form submission
+- **THEN** the attempt has no effect on the stored attachment
+
 ### Requirement: Customers manage their own certificates
 
 Where the store allows it, a signed-in customer SHALL be able to list, view, add and delete their own exemption certificates from their account area, and SHALL NOT be able to reach any other customer's.
@@ -75,38 +117,6 @@ Creating a certificate SHALL be available only to customers the store treats as 
 #### Scenario: Creation is confined to exempt customers
 - **WHEN** a customer the store does not treat as exempt attempts to create a certificate
 - **THEN** the attempt is refused
-
-### Requirement: Checkout selects a certificate but never creates one
-
-At checkout a signed-in customer SHALL be able to choose among their certificates that cover the destination state, and to choose none. Certificates that do not cover the destination SHALL NOT be offered, since choosing one could only mislead.
-
-Checkout SHALL NOT create certificates. Creation is a deliberate, permanent act belonging in the account area; offering it inside a checkout step invites a customer to make themselves permanently exempt while trying to complete one order.
-
-Changing the selection SHALL recalculate the order's tax.
-
-#### Scenario: Only covering certificates are offered
-- **WHEN** a customer at checkout holds certificates covering different states
-- **THEN** only those covering the destination are offered for selection
-
-#### Scenario: Selecting a certificate recalculates tax
-- **WHEN** a customer selects a covering certificate at checkout
-- **THEN** the order's tax is recalculated and the exemption is reflected in the totals
-
-#### Scenario: Checkout offers no way to create a certificate
-- **WHEN** a customer at checkout holds no certificate covering the destination
-- **THEN** they are directed to their account area rather than offered a creation form
-
-### Requirement: An order's certificate can be changed until it is filed
-
-An administrator SHALL be able to change the certificate applied to an order while it has not yet been captured in TaxCloud, and the order's tax SHALL be recalculated accordingly. Once captured, the applied certificate SHALL be shown but SHALL NOT be changeable: the sale has been filed, and the order's record is evidence of what was relied on rather than a current preference.
-
-#### Scenario: Uncaptured order can be corrected
-- **WHEN** an administrator changes the certificate on an order not yet captured
-- **THEN** the certificate is applied and the order's tax recalculated
-
-#### Scenario: A filed order is read-only
-- **WHEN** an administrator opens an order already captured in TaxCloud
-- **THEN** the applied certificate is shown and cannot be changed
 
 ### Requirement: A stale certificate list can be refreshed on demand
 

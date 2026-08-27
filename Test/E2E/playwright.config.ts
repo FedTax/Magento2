@@ -67,6 +67,11 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      // specs/exemptions-on/ needs the feature switched on, which only the
+      // exemptions-on project arranges. Without this they would also run here,
+      // against the seeded default of OFF, and fail for the right reason at the
+      // wrong time.
+      testIgnore: /specs\/exemptions-on\//,
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -93,6 +98,34 @@ export default defineConfig({
     {
       name: 'rest-teardown',
       testMatch: /rest-mode\.teardown\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Exemptions switched ON. The seeded store mirrors production, where they
+    // are off, so anything needing them enabled runs in this pass — with a
+    // teardown PROJECT restoring the setting, which runs even when the guarded
+    // tests fail. Chained after the REST pass so the two never interleave.
+    {
+      name: 'exemptions-on-setup',
+      testMatch: /exemptions-on\.setup\.ts/,
+      // After the REST pass, not merely after chromium. Depending on chromium
+      // alone let this project switch exemptions on while checkout-rest was
+      // still running, which broke two specs there for reasons invisible from
+      // their own code: exemptions-disabled-by-default failed its precondition,
+      // and logged-in-checkout lost its tax because the nominated group
+      // auto-exempted the customer.
+      dependencies: ['checkout-rest'],
+      teardown: 'exemptions-on-teardown',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'exemptions-on',
+      testMatch: /specs\/exemptions-on\/.*\.spec\.ts/,
+      dependencies: ['exemptions-on-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'exemptions-on-teardown',
+      testMatch: /exemptions-on\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
   ],

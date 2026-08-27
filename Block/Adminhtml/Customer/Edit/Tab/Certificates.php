@@ -21,7 +21,9 @@ use Magento\Backend\Block\Template;
 use Magento\Backend\Block\Template\Context;
 use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Registry;
+use Magento\Directory\Model\ResourceModel\Region\CollectionFactory as RegionCollectionFactory;
 use Magento\Store\Model\StoreManagerInterface;
+use Magento\Ui\Component\Layout\Tabs\TabInterface;
 use Taxcloud\Magento2\Model\Certificate\CertificateFormReader;
 use Taxcloud\Magento2\Model\Certificate\CustomerIdentityGuard;
 
@@ -37,7 +39,7 @@ use Taxcloud\Magento2\Model\Certificate\CustomerIdentityGuard;
  * It also lets the panel say WHY it is empty. "No certificates" and "could not
  * ask TaxCloud" look identical in a rendered list and mean opposite things.
  */
-class Certificates extends Template
+class Certificates extends Template implements TabInterface
 {
     /**
      * @var Registry
@@ -55,10 +57,16 @@ class Certificates extends Template
     private $storeManager;
 
     /**
+     * @var RegionCollectionFactory
+     */
+    private $regionCollectionFactory;
+
+    /**
      * @param Context $context
      * @param Registry $registry
      * @param AuthorizationInterface $authorization
      * @param StoreManagerInterface $storeManager
+     * @param RegionCollectionFactory $regionCollectionFactory
      * @param array<string, mixed> $data
      */
     public function __construct(
@@ -66,13 +74,59 @@ class Certificates extends Template
         Registry $registry,
         AuthorizationInterface $authorization,
         StoreManagerInterface $storeManager,
+        RegionCollectionFactory $regionCollectionFactory,
         array $data = []
     ) {
         parent::__construct($context, $data);
         $this->registry = $registry;
         $this->authorization = $authorization;
         $this->storeManager = $storeManager;
+        $this->regionCollectionFactory = $regionCollectionFactory;
     }
+
+    /**
+     * US states, from Magento's own region list rather than a hand-written one:
+     * the store already has them, already translated, and a second list is a
+     * second place to be wrong.
+     *
+     * US only because every tax lookup in this module is US-gated — offering a
+     * region that could never take effect would be offering a choice that
+     * silently does nothing.
+     *
+     * @return array<string, string> region code => name
+     */
+    public function getUsStates(): array
+    {
+        $states = [];
+
+        foreach ($this->regionCollectionFactory->create()->addCountryFilter('US') as $region) {
+            $code = (string) $region->getCode();
+            if ($code !== '') {
+                $states[$code] = (string) $region->getName();
+            }
+        }
+
+        asort($states);
+
+        return $states;
+    }
+
+    /**
+     * @return int
+     */
+    public function getReasonDescriptionLimit(): int
+    {
+        return CertificateFormReader::REASON_DESCRIPTION_LIMIT;
+    }
+
+    /**
+     * @return string
+     */
+    public function getGuidanceUrl(): string
+    {
+        return CertificateFormReader::GUIDANCE_URL;
+    }
+
 
     /**
      * Whether to render at all.
@@ -159,9 +213,77 @@ class Certificates extends Template
                 'add' => $this->getEndpoint('add'),
                 'delete' => $this->getEndpoint('delete'),
                 'refresh' => $this->getEndpoint('refresh'),
+                'attach' => $this->getEndpoint('attach'),
             ],
             'options' => $this->getFormOptions(),
+            'guidanceUrl' => CertificateFormReader::GUIDANCE_URL,
             'reasonDescriptionLimit' => CertificateFormReader::REASON_DESCRIPTION_LIMIT,
         ]);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getTabLabel()
+    {
+        return __('TaxCloud Exemption Certificates');
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getTabTitle()
+    {
+        return __('TaxCloud Exemption Certificates');
+    }
+
+    /**
+     * Whether this tab appears at all.
+     *
+     * The ACL decides, so an administrator without the permission is not shown
+     * an empty tab bearing the customer's name — `Tabs::addWrappedBlock()` calls
+     * this before rendering, which is why this block implements the interface
+     * rather than being a plain template.
+     *
+     * @return bool
+     */
+    public function canShowTab()
+    {
+        return $this->canManageCertificates();
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function isHidden()
+    {
+        return false;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getTabClass()
+    {
+        return '';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getTabUrl()
+    {
+        return '';
+    }
+
+    /**
+     * Rendered inline: the panel already fetches its own certificates over
+     * Ajax, so an Ajax-loaded tab would add a second round trip for nothing.
+     *
+     * @return bool
+     */
+    public function isAjaxLoaded()
+    {
+        return false;
     }
 }

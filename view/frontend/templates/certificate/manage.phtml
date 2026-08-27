@@ -7,7 +7,7 @@
  */
 ?>
 <div class="block taxcloud-certificates" data-taxcloud-certificates>
-    <div class="block-title"><strong><?= $escaper->escapeHtml(__('Exemption Certificates')) ?></strong></div>
+    <div class="block-title"><strong><?= $escaper->escapeHtml(__('Tax Exemption Certificates')) ?></strong></div>
 
     <div class="block-content">
         <p>
@@ -58,37 +58,68 @@
                 </p>
 
                 <div class="field required">
-                    <label class="label"><span><?= $escaper->escapeHtml(__('States this applies in')) ?></span></label>
+                    <label class="label" for="tc_states"><span><?= $escaper->escapeHtml(__('States this applies in')) ?></span></label>
                     <div class="control">
-                        <input class="input-text" data-field="states" placeholder="TX, NY"/>
-                        <span class="note"><?= $escaper->escapeHtml(__('Two-letter codes, separated by commas.')) ?></span>
+                        <select id="tc_states" class="select required-entry" multiple size="8" name="tc_states" data-field="states">
+                            <?php foreach ($block->getUsStates() as $code => $name): ?>
+                                <option value="<?= $escaper->escapeHtmlAttr($code) ?>"><?= $escaper->escapeHtml($name) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="actions-toolbar">
+                            <button type="button" class="action secondary" data-role="states-all">
+                                <span><?= $escaper->escapeHtml(__('Select all states')) ?></span>
+                            </button>
+                            <button type="button" class="action secondary" data-role="states-none">
+                                <span><?= $escaper->escapeHtml(__('Clear')) ?></span>
+                            </button>
+                        </div>
+                        <span class="note">
+                            <?= $escaper->escapeHtml(__('Choose every state this certificate covers. Exemptions apply to US destinations only.')) ?>
+                        </span>
                     </div>
                 </div>
 
                 <div class="field required">
                     <label class="label"><span><?= $escaper->escapeHtml(__('Your name')) ?></span></label>
                     <div class="control">
-                        <input class="input-text" data-field="firstName" placeholder="<?= $escaper->escapeHtmlAttr(__('First name')) ?>"/>
-                        <input class="input-text" data-field="lastName" placeholder="<?= $escaper->escapeHtmlAttr(__('Last name')) ?>"/>
+                        <input class="input-text required-entry" name="tc_firstname" data-field="firstName" placeholder="<?= $escaper->escapeHtmlAttr(__('First name')) ?>"/>
+                        <input class="input-text required-entry" name="tc_lastname" data-field="lastName" placeholder="<?= $escaper->escapeHtmlAttr(__('Last name')) ?>"/>
                     </div>
                 </div>
 
                 <div class="field required">
-                    <label class="label"><span><?= $escaper->escapeHtml(__('Address')) ?></span></label>
+                    <label class="label" for="tc_address1"><span><?= $escaper->escapeHtml(__('Street address')) ?></span></label>
+                    <div class="control"><input id="tc_address1" class="input-text required-entry" name="tc_address1" data-field="address1"/></div>
+                </div>
+
+                <div class="field required">
+                    <label class="label" for="tc_city"><span><?= $escaper->escapeHtml(__('City')) ?></span></label>
+                    <div class="control"><input id="tc_city" class="input-text required-entry" name="tc_city" data-field="city"/></div>
+                </div>
+
+                <div class="field required">
+                    <label class="label" for="tc_state"><span><?= $escaper->escapeHtml(__('State')) ?></span></label>
                     <div class="control">
-                        <input class="input-text" data-field="address1" placeholder="<?= $escaper->escapeHtmlAttr(__('Street')) ?>"/>
-                        <input class="input-text" data-field="city" placeholder="<?= $escaper->escapeHtmlAttr(__('City')) ?>"/>
-                        <input class="input-text" data-field="state" placeholder="<?= $escaper->escapeHtmlAttr(__('State')) ?>"/>
-                        <input class="input-text" data-field="zip" placeholder="<?= $escaper->escapeHtmlAttr(__('ZIP')) ?>"/>
+                        <select id="tc_state" class="select required-entry" name="tc_state" data-field="state">
+                            <option value=""><?= $escaper->escapeHtml(__('Please select')) ?></option>
+                            <?php foreach ($block->getUsStates() as $code => $name): ?>
+                                <option value="<?= $escaper->escapeHtmlAttr($code) ?>"><?= $escaper->escapeHtml($name) ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
+                </div>
+
+                <div class="field required">
+                    <label class="label" for="tc_zip"><span><?= $escaper->escapeHtml(__('ZIP')) ?></span></label>
+                    <div class="control"><input id="tc_zip" class="input-text required-entry" name="tc_zip" data-field="zip"/></div>
                 </div>
 
                 <div class="field required">
                     <label class="label"><span><?= $escaper->escapeHtml(__('Type of business')) ?></span></label>
                     <div class="control">
                         <select class="select" data-field="businessType">
-                            <?php foreach ($block->getBusinessTypes() as $type): ?>
-                                <option value="<?= $escaper->escapeHtmlAttr($type) ?>"><?= $escaper->escapeHtml($type) ?></option>
+                            <?php foreach ($block->getBusinessTypes() as $value => $label): ?>
+                                <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml($label) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -98,19 +129,21 @@
                     <label class="label"><span><?= $escaper->escapeHtml(__('Reason for exemption')) ?></span></label>
                     <div class="control">
                         <select class="select" data-field="reason">
-                            <?php foreach ($block->getReasons() as $reason): ?>
-                                <option value="<?= $escaper->escapeHtmlAttr($reason) ?>"><?= $escaper->escapeHtml($reason) ?></option>
+                            <?php foreach ($block->getReasons() as $value => $label): ?>
+                                <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml($label) ?></option>
                             <?php endforeach; ?>
                         </select>
                         <input class="input-text" data-field="reasonDescription" maxlength="20"
-                               placeholder="<?= $escaper->escapeHtmlAttr(__('Briefly, in 20 characters or fewer')) ?>"/>
+                               placeholder="<?= $escaper->escapeHtmlAttr(__('Optional note, up to 20 characters')) ?>"/>
+                        <span class="note">
+                            <?= $escaper->escapeHtml(__('Not sure which reason applies?')) ?>
+                            <a href="<?= $escaper->escapeUrl($block->getGuidanceUrl()) ?>" target="_blank" rel="noopener noreferrer">
+                                <?= $escaper->escapeHtml(__('TaxCloud\'s guidance')) ?>
+                            </a>
+                        </span>
                     </div>
                 </div>
 
-                <div class="field">
-                    <label class="label"><span><?= $escaper->escapeHtml(__('Tax ID')) ?></span></label>
-                    <div class="control"><input class="input-text" data-field="taxId"/></div>
-                </div>
             </fieldset>
 
             <div class="actions-toolbar">

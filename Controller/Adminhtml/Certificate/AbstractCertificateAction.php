@@ -22,6 +22,7 @@ use Magento\Backend\App\Action\Context;
 use Magento\Customer\Api\CustomerRepositoryInterface;
 use Magento\Framework\Controller\ResultFactory;
 use Taxcloud\Magento2\Model\Certificate\Certificate;
+use Taxcloud\Magento2\Model\Certificate\CertificateAttachment;
 use Taxcloud\Magento2\Model\Certificate\CertificateRepository;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
 use Taxcloud\Magento2\Model\Certificate\CustomerIdentityGuard;
@@ -67,24 +68,44 @@ abstract class AbstractCertificateAction extends Action
     protected $identity;
 
     /**
+     * @var CertificateAttachment
+     */
+    protected $attachment;
+
+    /**
      * @param Context $context
      * @param CustomerRepositoryInterface $customerRepository
      * @param CertificateRepository $certificates
      * @param CertificateResolver $resolver
      * @param TaxCloudCustomerIdentity $identity
+     * @param CertificateAttachment $attachment
      */
     public function __construct(
         Context $context,
         CustomerRepositoryInterface $customerRepository,
         CertificateRepository $certificates,
         CertificateResolver $resolver,
-        TaxCloudCustomerIdentity $identity
+        TaxCloudCustomerIdentity $identity,
+        CertificateAttachment $attachment
     ) {
         parent::__construct($context);
         $this->customerRepository = $customerRepository;
         $this->certificates = $certificates;
         $this->resolver = $resolver;
         $this->identity = $identity;
+        $this->attachment = $attachment;
+    }
+
+    /**
+     * Who is making this change, for the log.
+     *
+     * @return string
+     */
+    protected function administrator()
+    {
+        $user = $this->_auth->getUser();
+
+        return $user === null ? '' : (string) $user->getUserName();
     }
 
     /**

@@ -39,17 +39,4 @@
                 comment="Certificate detail as it stood when this order was placed"/>
     </table>
 
-    <table name="quote">
-        <!-- The certificate a customer chose for THIS cart, before it becomes an
-             order. Distinct from the one attached to their account: a choice for
-             one purchase, not a standing preference. -->
-        <column xsi:type="varchar" name="taxcloud_certificate_id" length="64" nullable="true"
-                comment="Exemption certificate chosen for this cart"/>
-        <!-- Declining is not the same as not having chosen. A customer in an
-             exempt customer group has a certificate applied automatically, so
-             without recording the refusal they could never turn it off - the
-             next totals recalculation would simply re-apply it. -->
-        <column xsi:type="smallint" name="taxcloud_certificate_cleared" unsigned="true" nullable="true"
-                identity="false" default="0" comment="Customer declined an exemption on this cart"/>
-    </table>
 </schema>

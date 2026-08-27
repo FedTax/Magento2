@@ -14,8 +14,7 @@ Three consequences follow from that single text field:
 
 - **A certificate grid on the customer admin page** — list, view, add, delete — with the TaxCloud identity beside it and a discovery action that shows what that identity currently resolves.
 - **Certificate management in My Account**, so an exempt customer can add and remove their own certificates rather than emailing paperwork to a merchant.
-- **Certificate selection at checkout** for signed-in customers: choose among certificates that cover the destination. Selection only; creation lives in My Account.
-- **Certificate selection on the admin order screen**, while the order is still uncaptured.
+- **Attaching a certificate to a customer** from the admin page, with creation attaching it when nothing is attached yet — the write path for the attachment resolution already prefers.
 - **Customer-group auto-apply**, filling the slot the resolver already leaves: for customers in a nominated group, a covering certificate applies without anyone choosing it.
 - **Settings** gating all of it: a master switch defaulting to off, the exempt groups, restrict-to-those-groups, and the company name recorded on certificates.
 - **A cache-refresh control**, so a certificate changed in the TaxCloud portal can be picked up without waiting out the hour.
@@ -29,11 +28,11 @@ None. Everything here extends the capability the foundation introduced.
 
 ### Modified Capabilities
 
-- `exemption-certificates`: the capability currently describes what the module can do with certificates and says nothing about who may ask it to. This change adds the surfaces — administrator, customer, checkout, order — the settings that gate them, group auto-apply as a resolution step, and the retirement of the legacy attribute.
+- `exemption-certificates`: the capability currently describes what the module can do with certificates and says nothing about who may ask it to. This change adds the surfaces — administrator, customer, order — the settings that gate them, group auto-apply as a resolution step, and the retirement of the legacy attribute.
 
 ## Non-goals
 
-- **Single-purchase certificates.** v3 cannot create them; supporting them on SOAP alone would make a customer-visible feature appear and disappear with a store's API type. Checkout therefore selects rather than creates, which also removes the trap of a shopper accidentally making themselves permanently exempt from a checkout step.
+- **Single-purchase certificates.** v3 cannot create them; supporting them on SOAP alone would make a customer-visible feature appear and disappear with a store's API type.
 - **Guest exemptions.** Certificates hang off a customer account.
 - **Certificate expiry tracking, reminders, or document storage.** TaxCloud keeps neither the document nor an expiry date, and the merchant remains responsible for both. Presenting an expiry the module cannot know would be worse than presenting none.
 - **Validating exemption claims.** Certificates are attestations — a certificate created with an invented tax id is accepted without complaint, verified live. The gating settings are the control; the software is not.
@@ -51,7 +50,7 @@ The exempt customer groups are a store-scoped setting while a customer's group i
 
 - `Block/Adminhtml/`, `Ui/`, `view/adminhtml/` — customer certificate grid, identity field, discovery action, order-screen selector.
 - `Controller/Adminhtml/Certificate/` and `Controller/Certificate/` — admin and storefront endpoints for list, add, delete, refresh. Every one of them passes certificate identifiers through the resolver's ownership check rather than trusting them.
-- `view/frontend/` — My Account section and the checkout selector.
+- `view/frontend/` — My Account section.
 - `Model/Certificate/CertificateResolver` — the group auto-apply branch the foundation left as a slot.
 - `etc/adminhtml/system.xml`, `etc/config.xml` — the settings and their defaults.
 - `Setup/Patch/Data/` — migrate `taxcloud_cert` values, then remove the attribute.

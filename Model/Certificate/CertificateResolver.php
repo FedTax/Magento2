@@ -104,23 +104,11 @@ class CertificateResolver
      *
      * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer Null for a guest
      * @param string $destinationState Two-letter destination state
-     * @param string|null $requestedCertificateId An identifier from outside the
-     *        module — a form submission, an admin choice. Never trusted; only
-     *        honoured if it turns out to be this customer's. When null, the
-     *        certificate attached to the customer is used instead.
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
-     * @param bool $cleared The customer explicitly declined an exemption on this
-     *        order. Distinct from "nothing chosen": an exempt-group customer
-     *        must be able to decline without it being re-applied.
      * @return Certificate|null
      */
-    public function resolve(
-        $customer,
-        $destinationState,
-        $requestedCertificateId = null,
-        $store = null,
-        $cleared = false
-    ) {
+    public function resolve($customer, $destinationState, $store = null)
+    {
         // Guests hold no certificates. Bail before the API call rather than
         // querying under an empty identity, which would match whatever
         // TaxCloud happens to file under the empty string.
@@ -129,25 +117,8 @@ class CertificateResolver
             return null;
         }
 
-        $requested = $requestedCertificateId !== null && $requestedCertificateId !== ''
-            ? (string) $requestedCertificateId
-            : '';
-
-        // A decline beats every standing arrangement. Not just the customer's
-        // exempt group — also a certificate an administrator pinned to their
-        // account. Otherwise a shopper who chose "no exemption" would be
-        // exempted anyway, having been given a control that does nothing, and
-        // the order would be filed against a certificate they refused.
-        //
-        // It does not beat a certificate chosen for THIS cart, because
-        // choosing one clears the decline; the two cannot both be true.
-        if ($cleared && $requested === '') {
-            return null;
-        }
-
-        // What is being claimed: the per-cart choice, else the certificate
-        // attached to the customer.
-        $explicit = $requested !== '' ? $requested : $this->attachedCertificateId($customer);
+        // What is being claimed: the certificate attached to the customer.
+        $explicit = $this->attachedCertificateId($customer);
 
         // Nothing claimed. Before asking TaxCloud, decide whether anything
         // WOULD be applied on this customer's behalf: listing certificates for
@@ -179,7 +150,7 @@ class CertificateResolver
         }
 
         if ($explicit !== '') {
-            return $this->requested($eligible, $explicit, $customerIdentity);
+            return $this->claimed($eligible, $explicit, $customerIdentity);
         }
 
         // Auto-apply: the merchant vouched for this customer by putting them in
@@ -259,20 +230,20 @@ class CertificateResolver
      * happens is someone trying an identifier that is not theirs.
      *
      * @param Certificate[] $eligible
-     * @param string $requestedCertificateId
+     * @param string $attachedCertificateId
      * @param string $customerIdentity
      * @return Certificate|null
      */
-    private function requested(array $eligible, $requestedCertificateId, $customerIdentity)
+    private function claimed(array $eligible, $attachedCertificateId, $customerIdentity)
     {
         foreach ($eligible as $certificate) {
-            if ($certificate->getCertificateId() === $requestedCertificateId) {
+            if ($certificate->getCertificateId() === $attachedCertificateId) {
                 return $certificate;
             }
         }
 
         $this->logger->info(
-            'Certificate ' . $requestedCertificateId . ' is not an eligible certificate of identity '
+            'Certificate ' . $attachedCertificateId . ' is not an eligible certificate of identity '
             . $customerIdentity . '; taxing the order'
         );
 

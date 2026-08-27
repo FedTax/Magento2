@@ -46,49 +46,58 @@ class CertificateFormReader
      * records a reason the purchaser did not pick.
      */
     public const REASONS = [
-        'FederalGovernment',
-        'StateOrLocalGovernment',
-        'TribalGovernment',
-        'ForeignDiplomat',
-        'CharitableOrganization',
-        'ReligiousOrganization',
-        'EducationalOrganization',
-        'Resale',
-        'AgriculturalProduction',
-        'IndustrialProductionOrManufacturing',
-        'DirectPayPermit',
-        'DirectMail',
-        'Other',
+        'FederalGovernment' => 'Federal Government',
+        'StateOrLocalGovernment' => 'State or Local Government',
+        'TribalGovernment' => 'Tribal Government',
+        'ForeignDiplomat' => 'Foreign Diplomat',
+        'CharitableOrganization' => 'Charitable Organization',
+        'ReligiousOrganization' => 'Religious Organization',
+        'EducationalOrganization' => 'Educational Organization',
+        'Resale' => 'Resale',
+        'AgriculturalProduction' => 'Agricultural Production',
+        'IndustrialProductionOrManufacturing' => 'Industrial Production or Manufacturing',
+        'DirectPayPermit' => 'Direct Pay Permit',
+        'DirectMail' => 'Direct Mail',
+        'Other' => 'Other',
     ];
+
+    /**
+     * TaxCloud's own guidance on filling a certificate in. Which reason or
+     * business type applies is a tax question with a legal answer, and a
+     * paraphrase here that was subtly wrong would be worse than a link.
+     */
+    public const GUIDANCE_URL = 'https://support.taxcloud.com/article/94-how-to-upload-an-exemption-certificate';
 
     /**
      * Business types both APIs accept.
      */
     public const BUSINESS_TYPES = [
-        'AccommodationAndFoodServices',
-        'AgriculturalForestryFishingHunting',
-        'Construction',
-        'FinanceAndInsurance',
-        'InformationPublishingAndCommunications',
-        'Manufacturing',
-        'Mining',
-        'RealEstate',
-        'RentalAndLeasing',
-        'RetailTrade',
-        'TransportationAndWarehousing',
-        'Utilities',
-        'WholesaleTrade',
-        'BusinessServices',
-        'ProfessionalServices',
-        'EducationAndHealthCareServices',
-        'NonprofitOrganization',
-        'Government',
-        'NotABusiness',
-        'Other',
+        'AccommodationAndFoodServices' => 'Accommodation and Food Services',
+        'AgriculturalForestryFishingHunting' => 'Agricultural, Forestry, Fishing, Hunting',
+        'Construction' => 'Construction',
+        'FinanceAndInsurance' => 'Finance and Insurance',
+        'InformationPublishingAndCommunications' => 'Information, Publishing and Communications',
+        'Manufacturing' => 'Manufacturing',
+        'Mining' => 'Mining',
+        'RealEstate' => 'Real Estate',
+        'RentalAndLeasing' => 'Rental and Leasing',
+        'RetailTrade' => 'Retail Trade',
+        'TransportationAndWarehousing' => 'Transportation and Warehousing',
+        'Utilities' => 'Utilities',
+        'WholesaleTrade' => 'Wholesale Trade',
+        'BusinessServices' => 'Business Services',
+        'ProfessionalServices' => 'Professional Services',
+        'EducationAndHealthCareServices' => 'Education and Health Care Services',
+        'NonprofitOrganization' => 'Nonprofit Organization',
+        'Government' => 'Government',
+        'NotABusiness' => 'Not a Business',
+        'Other' => 'Other',
     ];
 
     /**
-     * v3 rejects a longer description outright.
+     * Longer descriptions are rejected outright by v3 (verified live: 21
+     * characters returns 422, 20 is accepted). The field itself is optional —
+     * an empty value is accepted — but the key must always be sent.
      */
     public const REASON_DESCRIPTION_LIMIT = 20;
 
@@ -127,8 +136,6 @@ class CertificateFormReader
             'businessTypeDescription' => $this->text($submitted, 'businessTypeDescription'),
             'reason' => $this->text($submitted, 'reason'),
             'reasonDescription' => $this->text($submitted, 'reasonDescription'),
-            'taxId' => $this->text($submitted, 'taxId'),
-            'taxType' => $this->text($submitted, 'taxType') ?: 'FEIN',
         ];
     }
 
@@ -154,21 +161,18 @@ class CertificateFormReader
             }
         }
 
-        if (!in_array($data['reason'], self::REASONS, true)) {
+        if (!isset(self::REASONS[$data['reason']])) {
             return (string) __('Choose a reason for the exemption.');
         }
 
-        if (!in_array($data['businessType'], self::BUSINESS_TYPES, true)) {
+        if (!isset(self::BUSINESS_TYPES[$data['businessType']])) {
             return (string) __('Choose a business type.');
         }
 
-        // v3 requires a description and caps it; v1 tolerates an empty one.
-        // Requiring it on both keeps a certificate's meaning independent of the
-        // transport that happened to create it.
-        if ($data['reasonDescription'] === '') {
-            return (string) __('Describe the exemption in a few words.');
-        }
-
+        // Deliberately NOT required. Verified against the live v3 API: an empty
+        // description is accepted (201), only the KEY must be present — omitting
+        // it entirely is what returns 422. The cap below is real, though: 21
+        // characters is rejected, 20 accepted.
         if (mb_strlen($data['reasonDescription']) > self::REASON_DESCRIPTION_LIMIT) {
             return (string) __(
                 'Keep the exemption description to %1 characters or fewer.',

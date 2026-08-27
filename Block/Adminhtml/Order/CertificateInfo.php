@@ -112,18 +112,6 @@ class CertificateInfo extends Template
     }
 
     /**
-     * Whether the applied certificate may still be changed.
-     *
-     * @return bool
-     */
-    public function isEditable(): bool
-    {
-        $order = $this->getOrder();
-
-        return $order !== null && !$order->getData('taxcloud_captured');
-    }
-
-    /**
      * Detail rows worth showing, skipping anything the transport did not carry.
      *
      * A v3 store records less about a certificate than a v1 store — no tax id,

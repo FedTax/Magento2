@@ -41,12 +41,10 @@ if (!$block->hasCertificate()) {
             <?php endforeach; ?>
         </table>
 
-        <?php if (!$block->isEditable()): ?>
             <p class="admin__field-note">
                 <?= $escaper->escapeHtml(__(
                     'This order has been filed with TaxCloud, so the certificate applied to it can no longer be changed.'
                 )) ?>
             </p>
-        <?php endif; ?>
     </div>
 </section>

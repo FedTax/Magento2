@@ -28,8 +28,8 @@
                    name="customer-account-navigation-taxcloud-certificates">
                 <arguments>
                     <argument name="path" xsi:type="string">taxcloud/certificate</argument>
-                    <argument name="label" xsi:type="string" translate="true">Exemption Certificates</argument>
-                    <argument name="sortOrder" xsi:type="number">260</argument>
+                    <argument name="label" xsi:type="string" translate="true">Tax Exemption Certificates</argument>
+                    <argument name="sortOrder" xsi:type="number">175</argument>
                 </arguments>
             </block>
         </referenceBlock>

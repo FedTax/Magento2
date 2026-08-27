@@ -21,6 +21,7 @@ use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Backend\App\Action\Context;
 use Magento\Customer\Api\CustomerRepositoryInterface;
 use Taxcloud\Magento2\Model\Certificate\CertificateFormReader;
+use Taxcloud\Magento2\Model\Certificate\CertificateAttachment;
 use Taxcloud\Magento2\Model\Certificate\CertificateRepository;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
 use Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity;
@@ -51,6 +52,7 @@ class Add extends AbstractCertificateAction implements HttpPostActionInterface
      * @param CertificateRepository $certificates
      * @param CertificateResolver $resolver
      * @param TaxCloudCustomerIdentity $identity
+     * @param CertificateAttachment $attachment
      * @param CertificateFormReader $formReader
      */
     public function __construct(
@@ -59,9 +61,10 @@ class Add extends AbstractCertificateAction implements HttpPostActionInterface
         CertificateRepository $certificates,
         CertificateResolver $resolver,
         TaxCloudCustomerIdentity $identity,
+        CertificateAttachment $attachment,
         CertificateFormReader $formReader
     ) {
-        parent::__construct($context, $customerRepository, $certificates, $resolver, $identity);
+        parent::__construct($context, $customerRepository, $certificates, $resolver, $identity, $attachment);
         $this->formReader = $formReader;
     }
 
@@ -96,6 +99,21 @@ class Add extends AbstractCertificateAction implements HttpPostActionInterface
             );
         }
 
-        return $this->json(['success' => true, 'certificateId' => $certificateId]);
+        // The administrator adding a certificate for this customer has already
+        // said what they mean. Requiring a second click on a control they have
+        // not yet noticed is exactly the gap this closes — but an existing
+        // attachment is never displaced.
+        $attached = $this->attachment->setIfUnattached(
+            $customer,
+            $certificateId,
+            $this->administrator(),
+            $this->storeId($customer)
+        );
+
+        return $this->json([
+            'success' => true,
+            'certificateId' => $certificateId,
+            'attached' => $attached,
+        ]);
     }
 }

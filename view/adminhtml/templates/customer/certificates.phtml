@@ -2,6 +2,10 @@
 /**
  * Taxcloud_Magento2 - exemption certificates on the customer edit page.
  *
+ * Field markup follows the admin's own conventions (admin__fieldset /
+ * admin__field / admin__field-label) so the panel reads as part of the customer
+ * page rather than something bolted onto it.
+ *
  * @var \Taxcloud\Magento2\Block\Adminhtml\Customer\Edit\Tab\Certificates $block
  * @var \Magento\Framework\Escaper $escaper
  */
@@ -9,122 +13,253 @@ if (!$block->canManageCertificates()) {
     return;
 }
 $options = $block->getFormOptions();
+$states = $block->getUsStates();
+$guidance = $block->getGuidanceUrl();
 ?>
-<section class="admin__page-section taxcloud-certificates" data-taxcloud-certificates>
+<?php
+/*
+ * This panel is tab content: knockout injects it after Magento's bootstrap has
+ * already collected the x-magento-init scripts present at parse time, and the
+ * stock htmlContent template renders through knockout's native `html` binding,
+ * which never calls mage.apply(). Both standard init routes therefore land in
+ * the DOM inert — verified, twice, by a panel that rendered perfectly and made
+ * no requests at all.
+ *
+ * So the config rides on an attribute of our own and
+ * js/certificate/tab-bootstrap.js initialises the panel when it appears. A
+ * dedicated attribute rather than data-mage-init on purpose: if a future
+ * Magento does apply injected content, data-mage-init would give two live
+ * instances of this panel, each issuing its own writes.
+ */
+?>
+<section class="admin__page-section taxcloud-certificates" data-taxcloud-certificates
+         data-taxcloud-config="<?= $escaper->escapeHtmlAttr($block->getJsConfig()) ?>">
     <div class="admin__page-section-title">
         <span class="title"><?= $escaper->escapeHtml(__('TaxCloud Exemption Certificates')) ?></span>
     </div>
 
-    <div class="admin__field-note">
-        <?= $escaper->escapeHtml(__(
-            'Certificates are held by TaxCloud, not by Magento. This panel shows what the account used by %1 holds for this customer.',
-            $block->getStoreLabel()
-        )) ?>
-    </div>
-
-    <div class="admin__field">
-        <label class="admin__field-label"><?= $escaper->escapeHtml(__('Resolved TaxCloud customer ID')) ?></label>
-        <div class="admin__field-control">
-            <span data-role="identity">&mdash;</span>
-            <span class="admin__field-note" data-role="identity-note"></span>
-        </div>
-    </div>
-
-    <div class="admin__field-note" data-role="status"></div>
-
-    <table class="admin__table-primary" data-role="certificate-table" style="display:none;">
-        <thead>
-        <tr>
-            <th><?= $escaper->escapeHtml(__('Certificate')) ?></th>
-            <th><?= $escaper->escapeHtml(__('Covers')) ?></th>
-            <th><?= $escaper->escapeHtml(__('Purchaser')) ?></th>
-            <th><?= $escaper->escapeHtml(__('Reason')) ?></th>
-            <th><?= $escaper->escapeHtml(__('Actions')) ?></th>
-        </tr>
-        </thead>
-        <tbody data-role="certificate-rows"></tbody>
-    </table>
-
-    <div class="admin__field" style="margin-top:1rem;">
-        <button type="button" class="action-secondary" data-role="refresh">
-            <?= $escaper->escapeHtml(__('Refresh from TaxCloud')) ?>
-        </button>
-        <button type="button" class="action-secondary" data-role="show-add">
-            <?= $escaper->escapeHtml(__('Add Certificate')) ?>
-        </button>
-    </div>
-
-    <fieldset class="admin__fieldset" data-role="add-form" style="display:none;">
-        <legend class="admin__legend"><?= $escaper->escapeHtml(__('New exemption certificate')) ?></legend>
+    <div class="admin__page-section-content">
         <div class="admin__field-note">
             <?= $escaper->escapeHtml(__(
-                'This certificate will apply to all of this customer\'s future orders in the states you choose. TaxCloud does not verify exemption claims — keep the signed certificate on file.'
+                'Certificates are held by TaxCloud, not by Magento. This shows what the account used by %1 holds for this customer. Exemptions apply to US destinations only.',
+                $block->getStoreLabel()
             )) ?>
         </div>
 
-        <div class="admin__field">
-            <label class="admin__field-label"><?= $escaper->escapeHtml(__('States (comma separated)')) ?></label>
-            <div class="admin__field-control"><input class="admin__control-text" data-field="states" placeholder="TX, NY"/></div>
-        </div>
-        <div class="admin__field">
-            <label class="admin__field-label"><?= $escaper->escapeHtml(__('Purchaser name')) ?></label>
-            <div class="admin__field-control">
-                <input class="admin__control-text" data-field="firstName" placeholder="<?= $escaper->escapeHtmlAttr(__('First')) ?>"/>
-                <input class="admin__control-text" data-field="lastName" placeholder="<?= $escaper->escapeHtmlAttr(__('Last')) ?>"/>
-            </div>
-        </div>
-        <div class="admin__field">
-            <label class="admin__field-label"><?= $escaper->escapeHtml(__('Address')) ?></label>
-            <div class="admin__field-control">
-                <input class="admin__control-text" data-field="address1" placeholder="<?= $escaper->escapeHtmlAttr(__('Street')) ?>"/>
-                <input class="admin__control-text" data-field="city" placeholder="<?= $escaper->escapeHtmlAttr(__('City')) ?>"/>
-                <input class="admin__control-text" data-field="state" placeholder="<?= $escaper->escapeHtmlAttr(__('State')) ?>"/>
-                <input class="admin__control-text" data-field="zip" placeholder="<?= $escaper->escapeHtmlAttr(__('ZIP')) ?>"/>
-            </div>
-        </div>
-        <div class="admin__field">
-            <label class="admin__field-label"><?= $escaper->escapeHtml(__('Business type')) ?></label>
-            <div class="admin__field-control">
-                <select class="admin__control-select" data-field="businessType">
-                    <?php foreach ($options['businessTypes'] as $type): ?>
-                        <option value="<?= $escaper->escapeHtmlAttr($type) ?>"><?= $escaper->escapeHtml($type) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-        </div>
-        <div class="admin__field">
-            <label class="admin__field-label"><?= $escaper->escapeHtml(__('Reason')) ?></label>
-            <div class="admin__field-control">
-                <select class="admin__control-select" data-field="reason">
-                    <?php foreach ($options['reasons'] as $reason): ?>
-                        <option value="<?= $escaper->escapeHtmlAttr($reason) ?>"><?= $escaper->escapeHtml($reason) ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <input class="admin__control-text" data-field="reasonDescription"
-                       maxlength="20"
-                       placeholder="<?= $escaper->escapeHtmlAttr(__('Short description (max 20 chars)')) ?>"/>
-            </div>
-        </div>
-        <div class="admin__field">
-            <label class="admin__field-label"><?= $escaper->escapeHtml(__('Tax ID')) ?></label>
-            <div class="admin__field-control">
-                <input class="admin__control-text" data-field="taxId"/>
-                <span class="admin__field-note">
-                    <?= $escaper->escapeHtml(__('Recorded on V1 SOAP stores. The V3 REST API has no field for it and will not show it back.')) ?>
-                </span>
-            </div>
-        </div>
-        <div class="admin__field">
-            <button type="button" class="action-primary" data-role="save"><?= $escaper->escapeHtml(__('Create Certificate')) ?></button>
-            <button type="button" class="action-secondary" data-role="cancel"><?= $escaper->escapeHtml(__('Cancel')) ?></button>
-        </div>
-    </fieldset>
-</section>
+        <div data-role="status"></div>
 
-<script type="text/x-magento-init">
-{
-    "[data-taxcloud-certificates]": {
-        "Taxcloud_Magento2/js/certificate/admin-certificates": <?= /* @noEscape */ $block->getJsConfig() ?>
-    }
-}
-</script>
+        <!--
+          The lookup identity. Written by the JS once the listing returns,
+          because what it needs to SAY depends on whether it is the default:
+          on most customers this is unremarkable and stays quiet, and it only
+          becomes prominent when someone has pointed this customer somewhere
+          else. Filled in rather than rendered here so the two cases can read
+          differently instead of both showing a bare number.
+        -->
+        <div class="admin__field-note" data-role="identity-line"></div>
+
+        <!-- Wrapper exists so the loader can span the table area rather than
+             covering the whole page: refreshing re-reads this list and nothing
+             else, and the spinner should say so. -->
+        <div data-role="table-region" style="position: relative;">
+        <table class="admin__table-primary" data-role="certificate-table" style="display:none;">
+            <thead>
+            <tr>
+                <th><?= $escaper->escapeHtml(__('Certificate')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Applies in')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Issued to')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Reason')) ?></th>
+                <th><?= $escaper->escapeHtml(__('In use')) ?></th>
+                <th><?= $escaper->escapeHtml(__('Action')) ?></th>
+            </tr>
+            </thead>
+            <tbody data-role="certificate-rows"></tbody>
+        </table>
+
+        <!--
+          The admin's own grid spinner, not mage/loader. Same markup every UI
+          grid uses, so it reads as part of the page instead of introducing a
+          third loader style; its styles ship with the admin theme and it needs
+          the positioned ancestor above to sit over the table.
+        -->
+        <div data-role="spinner" class="admin__data-grid-loading-mask" style="display: none;">
+            <div class="spinner">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+            </div>
+        </div>
+        </div>
+
+        <div class="admin__field admin__field-complex">
+            <button type="button" class="action-secondary" data-role="refresh">
+                <?= $escaper->escapeHtml(__('Refresh from TaxCloud')) ?>
+            </button>
+            <button type="button" class="action-secondary" data-role="show-add">
+                <?= $escaper->escapeHtml(__('Add Certificate')) ?>
+            </button>
+        </div>
+
+        <!--
+          A real form element, so Magento's own validation applies rather than
+          a `required` class that only looks like a rule. Verified safe: this
+          panel renders outside the customer edit form, so there is no nesting.
+          The required-entry classes below mirror CertificateFormReader
+          exactly — client and server must agree, or one of them is lying.
+        -->
+        <form data-role="add-form" id="tc_cert_form" action="#" method="post" style="display:none;">
+        <fieldset class="admin__fieldset">
+            <legend class="admin__legend">
+                <span><?= $escaper->escapeHtml(__('New exemption certificate')) ?></span>
+            </legend>
+            <br>
+
+            <div class="admin__field-note">
+                <?= $escaper->escapeHtml(__(
+                    'This certificate will apply to all of this customer\'s future orders shipped to the states you choose. TaxCloud does not verify exemption claims and does not keep the signed certificate — retain your copy.'
+                )) ?>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_states">
+                    <span><?= $escaper->escapeHtml(__('Applies in')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <select id="tc_cert_states" class="admin__control-multiselect required-entry" multiple size="8"
+                            name="tc_states" data-field="states">
+                        <?php foreach ($states as $code => $name): ?>
+                            <option value="<?= $escaper->escapeHtmlAttr($code) ?>"><?= $escaper->escapeHtml($name) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="admin__field-note">
+                        <button type="button" class="action-secondary" data-role="states-all">
+                            <?= $escaper->escapeHtml(__('Select all states')) ?>
+                        </button>
+                        <button type="button" class="action-secondary" data-role="states-none">
+                            <?= $escaper->escapeHtml(__('Clear')) ?>
+                        </button>
+                    </div>
+                    <div class="admin__field-note">
+                        <?= $escaper->escapeHtml(__(
+                            'Choose every state this certificate covers — TaxCloud records the list but does not enforce it, so this is what decides where the exemption applies.'
+                        )) ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_firstname">
+                    <span><?= $escaper->escapeHtml(__('Purchaser name')) ?></span>
+                </label>
+                <div class="admin__field-control admin__control-grouped">
+                    <div class="admin__field">
+                        <input id="tc_cert_firstname" class="admin__control-text required-entry" name="tc_firstname" data-field="firstName"
+                               placeholder="<?= $escaper->escapeHtmlAttr(__('First name')) ?>"/>
+                    </div>
+                    <div class="admin__field">
+                        <input class="admin__control-text required-entry" name="tc_lastname" data-field="lastName"
+                               placeholder="<?= $escaper->escapeHtmlAttr(__('Last name')) ?>"/>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_address1">
+                    <span><?= $escaper->escapeHtml(__('Street address')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <input id="tc_cert_address1" class="admin__control-text required-entry" name="tc_address1" data-field="address1"/>
+                </div>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_city">
+                    <span><?= $escaper->escapeHtml(__('City')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <input id="tc_cert_city" class="admin__control-text required-entry" name="tc_city" data-field="city"/>
+                </div>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_state">
+                    <span><?= $escaper->escapeHtml(__('State')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <select id="tc_cert_state" class="admin__control-select required-entry" name="tc_state" data-field="state">
+                        <option value=""><?= $escaper->escapeHtml(__('Please select')) ?></option>
+                        <?php foreach ($states as $code => $name): ?>
+                            <option value="<?= $escaper->escapeHtmlAttr($code) ?>"><?= $escaper->escapeHtml($name) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_zip">
+                    <span><?= $escaper->escapeHtml(__('ZIP')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <input id="tc_cert_zip" class="admin__control-text required-entry" name="tc_zip" data-field="zip"/>
+                </div>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_businesstype">
+                    <span><?= $escaper->escapeHtml(__('Type of business')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <select id="tc_cert_businesstype" class="admin__control-select" data-field="businessType">
+                        <?php foreach ($options['businessTypes'] as $value => $label): ?>
+                            <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+
+            <div class="admin__field required">
+                <label class="admin__field-label" for="tc_cert_reason">
+                    <span><?= $escaper->escapeHtml(__('Reason for exemption')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <select id="tc_cert_reason" class="admin__control-select" data-field="reason">
+                        <?php foreach ($options['reasons'] as $value => $label): ?>
+                            <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="admin__field-note">
+                        <?= $escaper->escapeHtml(__('Not sure which applies?')) ?>
+                        <a href="<?= $escaper->escapeUrl($guidance) ?>" target="_blank" rel="noopener noreferrer">
+                            <?= $escaper->escapeHtml(__('TaxCloud\'s guidance on exemption certificates')) ?>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin__field">
+                <label class="admin__field-label" for="tc_cert_reasondesc">
+                    <span><?= $escaper->escapeHtml(__('Description (optional)')) ?></span>
+                </label>
+                <div class="admin__field-control">
+                    <input id="tc_cert_reasondesc" class="admin__control-text" data-field="reasonDescription"
+                           maxlength="<?= (int) $block->getReasonDescriptionLimit() ?>"/>
+                    <div class="admin__field-note">
+                        <?= $escaper->escapeHtml(__(
+                            'Your own note about this exemption, up to %1 characters. Leave it blank if the reason above says enough.',
+                            $block->getReasonDescriptionLimit()
+                        )) ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin__field admin__field-complex">
+                <button type="button" class="action-primary" data-role="save">
+                    <?= $escaper->escapeHtml(__('Create Certificate')) ?>
+                </button>
+                <button type="button" class="action-secondary" data-role="cancel">
+                    <?= $escaper->escapeHtml(__('Cancel')) ?>
+                </button>
+            </div>
+        </fieldset>
+        </form>
+    </div>
+</section>
