@@ -11,11 +11,17 @@ selections. v3 refunds reference an order's item ids by name, so such an order
 could be sold and then never cleanly refunded. All three v3 payloads — cart,
 order and refund — now name the same lines.
 
+**This release contains a breaking change**: the `taxcloud_cert` customer
+attribute is removed and its values migrated. Existing exemptions keep working
+with nothing to re-enter, but anything reading that attribute directly needs
+updating — see *Changed*, below.
+
 Run `bin/magento setup:upgrade` after updating: this release pins existing
-installs to their current API via a data patch. In production mode also run
-`bin/magento setup:di:compile` — this release adds dependency-injection
-preferences, and an install still holding a compiled container from 1.3.0 will
-fail with "Cannot instantiate interface" when TIC search is used.
+installs to their current API via a data patch, and migrates exemption
+certificate data. In production mode also run `bin/magento setup:di:compile` —
+this release adds dependency-injection preferences and removes classes, and an
+install still holding a compiled container from 1.3.0 will fail with "Cannot
+instantiate interface" when TIC search is used.
 
 ### Added
 
@@ -83,6 +89,52 @@ fail with "Cannot instantiate interface" when TIC search is used.
   installation and carries no credential, connection id, store id or customer
   data — it is safe to share in full when sending logs to support. There is no
   setting to change it, and nothing else about your requests changes.
+- **Exemption certificate management.** Exempt customers can now hold and use
+  TaxCloud exemption certificates without anyone copying identifiers out of the
+  TaxCloud portal by hand.
+
+  - **Customer admin page** — a certificate panel listing what TaxCloud holds
+    for a customer, with add, view and delete, plus a **TaxCloud Customer ID**
+    field and a discovery action reporting what that ID currently resolves.
+    That last part is the diagnostic the integration never had: a certificate
+    created in the TaxCloud portal is filed under whatever customer id a person
+    typed there, and if it does not match, the customer holds nothing as far as
+    Magento is concerned. Previously that was indistinguishable from having no
+    certificate, and produced a silently taxed customer.
+  - **My Account** — customers manage their own certificates, where the store
+    allows it.
+  - **Checkout** — a signed-in customer chooses among certificates that cover
+    the destination, or declines. Declining is remembered, so an exemption is
+    not silently re-applied on the next recalculation.
+  - **Customer groups** — nominate groups your store treats as exempt, and a
+    covering certificate applies to their orders automatically.
+  - **Orders record the certificate that untaxed them**, including a copy of
+    what it said at the time of sale. TaxCloud stores neither the certificate
+    document nor an expiry date, and certificates can be deleted — so an order
+    keeps its own evidence of what was relied on.
+
+  **Off by default.** Nothing appears until an admin turns on *Enable Exemption
+  Certificates* (*Stores → Configuration → Sales → Tax → TaxCloud Settings*).
+  Certificates are attestations that neither TaxCloud nor this extension
+  verifies; you remain responsible for holding valid certificates on file and
+  for their expiry.
+
+  Certificates work identically on V1 SOAP and V3 REST, and a certificate
+  created on one is readable on the other.
+
+### Changed
+
+- **BREAKING: the `taxcloud_cert` customer attribute has been removed.** Its
+  values are migrated automatically at `setup:upgrade` to a new attribute that
+  supports more than one certificate per customer, so **customers exempt before
+  this release stay exempt with nothing to re-enter**. Integrations, data
+  imports or custom code reading `taxcloud_cert` directly must be updated to
+  read `taxcloud_certificate_id`.
+
+- This release removes PHP classes. In production mode run
+  `bin/magento setup:di:compile` after updating — an install still holding a
+  compiled container from the previous version fails with "Class ... not found"
+  rather than anything self-explanatory.
 
 ## 1.3.1
 

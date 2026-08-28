@@ -232,11 +232,16 @@ class RestClientRequestTest extends TestCase
         }
     }
 
+    /**
+     * DELETE became supported when certificate deletion arrived — v3 offers it
+     * no other way. PATCH and PUT stay rejected: nothing in the module needs
+     * them, and a typo'd verb should fail loudly rather than be sent.
+     */
     public function testUnsupportedMethodIsRejected()
     {
         $client = $this->client(self::apiKeyScopeConfig());
 
         $this->expectException(\InvalidArgumentException::class);
-        $client->request('DELETE', '/carts', null);
+        $client->request('PATCH', '/carts', null);
     }
 }

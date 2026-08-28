@@ -81,7 +81,6 @@
   <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
   <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
   <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
-  <preference for="Taxcloud\Magento2\Api\ExemptionGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
 
   <!-- SOAP transport is the default client provider for the gateway. -->
   <preference for="Taxcloud\Magento2\Model\Gateway\Soap\SoapClientProviderInterface"
@@ -111,13 +110,6 @@
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
     </arguments>
   </type>
-  <type name="Taxcloud\Magento2\Model\Gateway\ExemptionValidator">
-    <arguments>
-      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
-      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
-    </arguments>
-  </type>
-
   <!--
     REST transport collaborators: the same config-gated logger discipline as
     their SOAP counterparts, and the module's own cache type for the
@@ -149,11 +141,51 @@
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
     </arguments>
   </type>
-  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestExemptionValidator">
+  <!--
+    Certificate transports get the config-gated logger like every other gateway
+    collaborator, so their output honours the store's logging settings.
+  -->
+  <type name="Taxcloud\Magento2\Model\Certificate\SoapCertificateGateway">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <type name="Taxcloud\Magento2\Model\Certificate\RestCertificateGateway">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <preference for="Taxcloud\Magento2\Api\CertificateGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+
+  <type name="Taxcloud\Magento2\Model\Certificate\CertificateRepository">
+    <arguments>
+      <!--
+        Proxied deliberately. The router holds the SOAP gateway, which holds the
+        certificate resolver, which holds this repository - so a non-lazy
+        argument here would be a construction cycle.
+      -->
+      <argument name="gateway" xsi:type="object">Taxcloud\Magento2\Model\Gateway\Router\Proxy</argument>
       <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
     </arguments>
+  </type>
+
+  <type name="Taxcloud\Magento2\Model\Certificate\CertificateResolver">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <!--
+    Guards the TaxCloud customer identity on EVERY write path - admin form,
+    storefront account edit, REST, GraphQL, import - by sitting on the
+    repository rather than on any one controller.
+  -->
+  <type name="Magento\Customer\Api\CustomerRepositoryInterface">
+    <plugin name="taxcloud_guard_customer_identity"
+            type="Taxcloud\Magento2\Plugin\Customer\GuardTaxCloudIdentity"
+            sortOrder="10"/>
   </type>
 
   <!--

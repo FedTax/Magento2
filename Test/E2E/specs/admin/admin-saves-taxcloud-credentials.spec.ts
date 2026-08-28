@@ -33,7 +33,24 @@ test('admin saves TaxCloud credentials and they persist', async ({ page }) => {
   // spec doesn't depend on what an earlier test left saved.
   await config.selectApiType('soap');
 
-  const original = await config.readCredentials();
+  // Restore from the environment, not from whatever is currently stored.
+  // A killed run — a timeout, a Ctrl-C — skips the finally below and leaves the
+  // placeholders saved; a later run would then faithfully "restore" those, and
+  // the store keeps failing every TaxCloud call with "Invalid apiLoginID and/or
+  // apiKey". Observed exactly that: certificate panels reporting a customer
+  // holds nothing, which reads as "not exempt" rather than "not authenticated".
+  const stored = await config.readCredentials();
+  const original = {
+    apiId: process.env.TAXCLOUD_API_ID || stored.apiId,
+    apiKey: process.env.TAXCLOUD_API_KEY || stored.apiKey,
+  };
+
+  // Heal first if a previous run died mid-test.
+  if (stored.apiId === TEST_API_ID || stored.apiKey === TEST_API_KEY) {
+    await config.setCredentials(original.apiId, original.apiKey);
+    await config.save();
+    await config.open();
+  }
 
   try {
     // Enter and save new credentials.
@@ -47,6 +64,8 @@ test('admin saves TaxCloud credentials and they persist', async ({ page }) => {
     expect(saved.apiKey).toBe(TEST_API_KEY);
   } finally {
     // Restore the real sandbox credentials so the rest of the suite still works.
+    // Sourced from the environment above, so this is a restore to truth rather
+    // than a restore to whatever happened to be there.
     await config.open();
     await config.setCredentials(original.apiId, original.apiKey);
     await config.save();

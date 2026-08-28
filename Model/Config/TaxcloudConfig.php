@@ -107,6 +107,16 @@ class TaxcloudConfig
     public const XML_PATH_CACHE_LIFETIME = 'tax/taxcloud_settings/cache_lifetime';
     public const XML_PATH_FALLBACK_TO_MAGENTO = 'tax/taxcloud_settings/fallback_to_magento';
     public const XML_PATH_CALCULATIONS_ONLY = 'tax/taxcloud_settings/calculations_only';
+
+    /**
+     * Master switch for exemption certificates. Off by default.
+     */
+    public const XML_PATH_EXEMPTIONS_ENABLED = 'tax/taxcloud_settings/exemptions_enabled';
+
+    /**
+     * Seller name recorded on certificates customers create.
+     */
+    public const XML_PATH_COMPANY_NAME = 'tax/taxcloud_settings/company_name';
     public const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
     public const XML_PATH_WSDL_URL = 'tax/taxcloud_settings/wsdl_url';
     public const XML_PATH_REST_API_KEY = 'tax/taxcloud_settings/rest_api_key';
@@ -464,5 +474,41 @@ class TaxcloudConfig
         $value = $this->scopeConfig->getValue(self::XML_PATH_SHIPPING_TIC, ScopeInterface::SCOPE_STORE, $store);
 
         return ($value !== null && $value !== '') ? (string) $value : self::DEFAULT_SHIPPING_TIC;
+    }
+
+    /**
+     * Whether exemption certificates are offered at all for this store.
+     *
+     * Defaults to false. A certificate is an unverified attestation, so a store
+     * gains the feature only by an admin turning it on, never by upgrading.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function areExemptionsEnabled($store = null): bool
+    {
+        // getValue + cast, like isEnabled() above, rather than isSetFlag():
+        // consistent with the rest of this class and immune to a scope-config
+        // double that only implements getValue.
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_EXEMPTIONS_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+    }
+
+    /**
+     * Seller name recorded on certificates customers create.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getCompanyName($store = null): string
+    {
+        return (string) $this->scopeConfig->getValue(
+            self::XML_PATH_COMPANY_NAME,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
     }
 }

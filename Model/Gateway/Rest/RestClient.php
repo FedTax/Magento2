@@ -105,7 +105,7 @@ class RestClient
      * The store must be the store of the entity being processed, never the
      * ambient one; it scopes the endpoint, credentials, auth mode and timeout.
      *
-     * @param string $method 'GET' or 'POST'
+     * @param string $method 'GET', 'POST' or 'DELETE'
      * @param string $path Leading-slash path, with query string if any
      * @param array<string, mixed>|null $body JSON-encoded for POST; null for GET
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
@@ -254,7 +254,7 @@ class RestClient
     {
         // Programming error, not a transport outcome — reject before the
         // try so it can never be wrapped as a RestTransportException.
-        if ($method !== 'POST' && $method !== 'GET') {
+        if ($method !== 'POST' && $method !== 'GET' && $method !== 'DELETE') {
             throw new \InvalidArgumentException('Unsupported HTTP method: ' . $method);
         }
 
@@ -275,6 +275,13 @@ class RestClient
         try {
             if ($method === 'POST') {
                 $curl->post($url, $body !== null ? (string) json_encode($body) : '');
+            } elseif ($method === 'DELETE') {
+                // Magento's Curl adapter exposes no delete(); setting the verb
+                // explicitly and issuing an empty POST body is how it sends any
+                // other method. Needed for certificate deletion, which v3 offers
+                // only as DELETE.
+                $curl->setOption(CURLOPT_CUSTOMREQUEST, 'DELETE');
+                $curl->post($url, '');
             } else {
                 $curl->get($url);
             }

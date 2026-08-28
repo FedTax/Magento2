@@ -1055,7 +1055,9 @@ class ApiTest extends TestCase
         $customer->method('getId')->willReturn(42);
         $customer->method('getCustomAttribute')
             ->willReturnCallback(function ($attr) use ($certAttr) {
-                return $attr === 'taxcloud_cert' ? $certAttr : null;
+                return $attr === \Taxcloud\Magento2\Model\Certificate\CertificateResolver::ATTACHED_ATTRIBUTE
+                    ? $certAttr
+                    : null;
             });
 
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
@@ -1213,12 +1215,22 @@ class ApiTest extends TestCase
             $this->setUpLookupWithCert($certID, $destinationState);
         $lookupParams = &$this->capturedLookupParams;
 
-        // Cache key is scoped per (customer, certificate, TaxCloud account);
-        // customer ID is 42 in setUpLookupWithCert(), api_id is test_api_id.
-        $certCacheKey = 'taxcloud_cert_states_42_' . $certID . '_' . hash('sha256', 'test_api_id');
-        $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedStates) {
+        // The cached unit is now the customer's whole certificate SET, keyed on
+        // the TaxCloud identity and the account — not one certificate's states.
+        // The identity is unset here, so it defaults to customer id 42; the
+        // account discriminator is the api_id, test_api_id.
+        $certCacheKey = 'taxcloud_customer_certs_' . hash('sha256', '42') . '_' . hash('sha256', 'test_api_id');
+        $cachedSet = json_encode([[
+            'id' => $certID,
+            'customer' => '42',
+            'states' => $cachedStates,
+            'disabled' => false,
+            'single' => false,
+            'detail' => [],
+        ]]);
+        $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedSet) {
             if ($key === $certCacheKey) {
-                return json_encode($cachedStates);
+                return $cachedSet;
             }
             return false;
         });

@@ -17,7 +17,6 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Event\GatewayEventDispatcher;
 use Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback;
 use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
-use Taxcloud\Magento2\Model\Gateway\ExemptionValidator;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
 use Taxcloud\Magento2\Model\Gateway\RetryPolicy;
@@ -74,20 +73,28 @@ trait BuildsGatewayApi
             $config,
             $timezone
         );
-        $exemptionValidator = new ExemptionValidator(
-            $soapGateway,
-            $config,
-            $leaf['cacheType'],
-            $cacheKeyBuilder,
-            $responseMapper,
-            new NullLogger()
-        );
         $fallback = new MagentoTaxFallback(
             $leaf['customerAddressFactory'],
             $leaf['quoteDetailsFactory'],
             $leaf['quoteDetailsItemFactory'],
             $leaf['taxClassKeyFactory'],
             $leaf['taxCalculationService'],
+            new NullLogger()
+        );
+        $certificateGateway = new \Taxcloud\Magento2\Model\Certificate\SoapCertificateGateway(
+            $soapGateway,
+            $config,
+            new \Taxcloud\Magento2\Model\Certificate\SoapCertificateMapper(),
+            new NullLogger()
+        );
+        $certificateResolver = new \Taxcloud\Magento2\Model\Certificate\CertificateResolver(
+            new \Taxcloud\Magento2\Model\Certificate\CertificateRepository(
+                $certificateGateway,
+                $config,
+                $cacheKeyBuilder,
+                $leaf['cacheType']
+            ),
+            new \Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity(),
             new NullLogger()
         );
         $eventDispatcher = new GatewayEventDispatcher($leaf['eventManager'], $leaf['objectFactory']);
@@ -103,7 +110,8 @@ trait BuildsGatewayApi
             $requestBuilder,
             $responseMapper,
             $resultCache,
-            $exemptionValidator,
+            $certificateGateway,
+            $certificateResolver,
             $fallback,
             $eventDispatcher,
             $retryPolicy,

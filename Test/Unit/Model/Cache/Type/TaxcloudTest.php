@@ -107,7 +107,7 @@ class TaxcloudTest extends TestCase
     {
         return [
             'result cache' => ['Taxcloud\Magento2\Model\Cache\ResultCache'],
-            'exemption validator' => ['Taxcloud\Magento2\Model\Gateway\ExemptionValidator'],
+            'certificate repository' => ['Taxcloud\Magento2\Model\Certificate\CertificateRepository'],
         ];
     }
 }

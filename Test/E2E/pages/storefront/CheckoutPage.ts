@@ -58,6 +58,95 @@ export class CheckoutPage {
     await this.email.waitFor({ timeout: 40_000 });
   }
 
+  /**
+   * Empty the cart before starting.
+   *
+   * Guest specs do not need this — a guest cart dies with the session. A
+   * SIGNED-IN customer's cart is persisted against their account, so anything
+   * left behind by an earlier run (especially one that failed before placing
+   * the order) is still there on the next, and every total silently doubles.
+   * Cheap insurance for a confusing failure.
+   */
+  async emptyCart(): Promise<void> {
+    await this.page.goto('/checkout/cart/');
+
+    // Each removal re-renders the cart, so re-query rather than iterating a
+    // stale list.
+    for (let guard = 0; guard < 20; guard++) {
+      const remove = this.page.locator('a.action-delete, .action.action-delete').first();
+      if ((await remove.count()) === 0) {
+        return;
+      }
+      await remove.click();
+      await this.page.waitForLoadState('domcontentloaded');
+    }
+  }
+
+  /**
+   * Open the checkout as a signed-in customer.
+   *
+   * The guest entry point does not transfer: with an account there is no
+   * `#customer-email` field to wait on (Magento already knows who this is), and
+   * the seeded default address is pre-selected, so there is no address form to
+   * fill either. What both flows share is the shipping-method step, so that is
+   * what this waits for.
+   *
+   * Call after {@link loginAsCustomer}; opening this as a guest will time out
+   * waiting for a shipping method that never renders.
+   */
+  async openAsCustomer(storeCode?: string): Promise<void> {
+    const prefix = storeCode ? `/${storeCode}` : '';
+    await this.page.goto(`${prefix}/checkout/`);
+    await this.page
+      .locator('input[type="radio"][value="flatrate_flatrate"]')
+      .waitFor({ timeout: 60_000 });
+  }
+
+  /**
+   * As a signed-in customer, add and select a NEW shipping address instead of
+   * the account's default.
+   *
+   * Needed to ship a customer somewhere other than where they usually do —
+   * which is how a certificate's state coverage gets exercised, since a
+   * certificate that covers the customer's home state proves nothing about
+   * one that does not.
+   *
+   * Luma renders this as a modal over the saved-address list; the form fields
+   * are the same names as the guest form, but they only exist once the modal
+   * is open.
+   */
+  async addNewShippingAddress(a: Omit<GuestAddress, 'email'>): Promise<void> {
+    await this.page.locator('button.action.action-show-popup').click();
+
+    const modal = this.page.locator('.modal-inner-wrap').filter({ has: this.page.locator('form') }).last();
+    await modal.locator('input[name="firstname"]').waitFor({ timeout: 30_000 });
+
+    await modal.locator('input[name="firstname"]').fill(a.firstname);
+    await modal.locator('input[name="lastname"]').fill(a.lastname);
+    await modal.locator('input[name="street[0]"]').fill(a.street);
+    await modal.locator('input[name="city"]').fill(a.city);
+    await modal.locator('select[name="region_id"]').selectOption({ label: a.region });
+    await modal.locator('input[name="postcode"]').fill(a.postcode);
+    await modal.locator('input[name="telephone"]').fill(a.telephone);
+
+    await modal.locator('button.action.primary.action-save-address').click();
+    await modal.waitFor({ state: 'hidden', timeout: 30_000 });
+
+    // The saved address becomes the selected one and totals recalculate.
+    await this.page.locator('input[type="radio"][value="flatrate_flatrate"]').waitFor({ timeout: 60_000 });
+  }
+
+  /**
+   * Whether the summary shows a Tax row at all.
+   *
+   * Luma omits the row entirely when tax is zero rather than rendering
+   * "$0.00", so an exempt order is asserted by the row's ABSENCE. Reading
+   * `tax` directly in that case would hang rather than report zero.
+   */
+  async hasTaxRow(): Promise<boolean> {
+    return (await this.summary.locator('.totals-tax').count()) > 0;
+  }
+
   async fillGuestShipping(a: GuestAddress): Promise<void> {
     await this.email.fill(a.email);
     await this.page.fill('input[name="firstname"]', a.firstname);
@@ -115,5 +204,21 @@ export class CheckoutPage {
   async orderNumber(): Promise<string> {
     const text = await this.successBlock.innerText();
     return text.match(/(\d{6,})/)?.[1] ?? '';
+  }
+
+  /**
+   * Assert the order was placed, for either checkout flow.
+   *
+   * The two success pages do not read the same: a guest gets "Your order # is:
+   * 000000123" as plain text, while a signed-in customer gets "Your order
+   * number is:" followed by the number as a link to their order history.
+   * Asserting the guest wording against a signed-in checkout fails on an order
+   * that was in fact placed successfully — observed here first-hand.
+   */
+  async expectOrderPlaced(): Promise<string> {
+    await expect(this.successBlock).toContainText(/Your order (#|number) is:/);
+    const number = await this.orderNumber();
+    expect(number).toMatch(/^\d{6,}$/);
+    return number;
   }
 }

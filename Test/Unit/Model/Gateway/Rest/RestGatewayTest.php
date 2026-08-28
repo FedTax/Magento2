@@ -21,7 +21,6 @@ use Taxcloud\Magento2\Model\Event\GatewayEventDispatcher;
 use Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestClient;
-use Taxcloud\Magento2\Model\Gateway\Rest\RestExemptionValidator;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestGateway;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestRequestBuilder;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestResponse;
@@ -57,11 +56,6 @@ class RestGatewayTest extends TestCase
     private $requestBuilder;
 
     /**
-     * @var RestExemptionValidator&\PHPUnit\Framework\MockObject\MockObject
-     */
-    private $exemptionValidator;
-
-    /**
      * @var ResultCache&\PHPUnit\Framework\MockObject\MockObject
      */
     private $resultCache;
@@ -94,13 +88,37 @@ class RestGatewayTest extends TestCase
      */
     private $beforeEventOverride;
 
+    /**
+     * @var \Taxcloud\Magento2\Model\Certificate\Certificate[] What the stubbed
+     *      repository reports the customer holds
+     */
+    private $customerCertificates = [];
+
+    /**
+     * A resolver over a STUBBED repository. Lookups unrelated to exemptions must
+     * not gain an extra REST call, which would disturb the request expectations
+     * most tests in this file are built on. Exemption tests populate
+     * {@see $customerCertificates}.
+     */
+    private function certificateResolver(): \Taxcloud\Magento2\Model\Certificate\CertificateResolver
+    {
+        $repository = $this->createStub(\Taxcloud\Magento2\Model\Certificate\CertificateRepository::class);
+        $repository->method('forCustomer')->willReturnCallback(function () {
+            return $this->customerCertificates;
+        });
+
+        return new \Taxcloud\Magento2\Model\Certificate\CertificateResolver(
+            $repository,
+            new \Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity()
+        );
+    }
+
     private function gateway(): RestGateway
     {
         $this->beforeEventOverride = null;
         $this->restClient = $this->createMock(RestClient::class);
         $this->restRequestBuilder = $this->createMock(RestRequestBuilder::class);
         $this->requestBuilder = $this->createMock(RequestBuilder::class);
-        $this->exemptionValidator = $this->createMock(RestExemptionValidator::class);
         $this->resultCache = $this->createMock(ResultCache::class);
         $this->fallback = $this->createMock(MagentoTaxFallback::class);
         $this->config = $this->createMock(TaxcloudConfig::class);
@@ -130,7 +148,12 @@ class RestGatewayTest extends TestCase
             $this->restRequestBuilder,
             new RestResponseMapper(),
             $this->requestBuilder,
-            $this->exemptionValidator,
+            new \Taxcloud\Magento2\Model\Certificate\RestCertificateGateway(
+                $this->restClient,
+                $this->config,
+                new \Taxcloud\Magento2\Model\Certificate\RestCertificateMapper()
+            ),
+            $this->certificateResolver(),
             $this->resultCache,
             $this->fallback,
             $this->events,
@@ -153,13 +176,21 @@ class RestGatewayTest extends TestCase
      */
     private function lookupInputs(?string $certValue = null, array $addressOverrides = []): array
     {
-        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer = $this->createStub(\Magento\Customer\Api\Data\CustomerInterface::class);
         $customer->method('getId')->willReturn(42);
-        $attribute = $this->createMock(\Magento\Framework\Api\AttributeInterface::class);
+        $attribute = $this->createStub(\Magento\Framework\Api\AttributeInterface::class);
         $attribute->method('getValue')->willReturn($certValue);
-        $customer->method('getCustomAttribute')
-            ->with('taxcloud_cert')
-            ->willReturn($certValue !== null ? $attribute : null);
+        // Two attributes are read now: the attached certificate, and the
+        // TaxCloud customer identity (left unset, so it defaults to the
+        // entity id).
+        $customer->method('getCustomAttribute')->willReturnCallback(
+            function ($code) use ($certValue, $attribute) {
+                if ($code === \Taxcloud\Magento2\Model\Certificate\CertificateResolver::ATTACHED_ATTRIBUTE) {
+                    return $certValue !== null ? $attribute : null;
+                }
+                return null;
+            }
+        );
 
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $quote->method('getStoreId')->willReturn(self::STORE_ID);
@@ -336,10 +367,10 @@ class RestGatewayTest extends TestCase
         $this->resultCache->method('getLookup')->willReturn(false);
         $this->restClient->method('request')->willReturn($this->cartResponse([]));
 
-        $this->exemptionValidator->expects($this->once())
-            ->method('validate')
-            ->with('cert-9', '42', 'NY', self::STORE_ID)
-            ->willReturn('cert-9');
+        // The customer holds cert-9 and it covers the destination.
+        $this->customerCertificates = [
+            new \Taxcloud\Magento2\Model\Certificate\Certificate('cert-9', '42', ['NY']),
+        ];
         $this->restRequestBuilder->expects($this->once())
             ->method('buildCartPayload')
             ->with(
@@ -716,16 +747,5 @@ class RestGatewayTest extends TestCase
         $this->resultCache->method('getAddress')->willReturn(false);
         $this->restClient->method('request')->willThrowException(new RestTransportException('boom'));
         $this->assertFalse($gateway->verifyAddress(self::V1_ADDRESS_INPUT, self::STORE_ID));
-    }
-
-    public function testGetValidatedCertificateIdDelegatesToTheRestValidator()
-    {
-        $gateway = $this->gateway();
-        $this->exemptionValidator->expects($this->once())
-            ->method('validate')
-            ->with('cert-1', 'cust-1', 'NY', self::STORE_ID)
-            ->willReturn('cert-1');
-
-        $this->assertSame('cert-1', $gateway->getValidatedCertificateID('cert-1', 'cust-1', 'NY', self::STORE_ID));
     }
 }

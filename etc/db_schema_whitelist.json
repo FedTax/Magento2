@@ -1,7 +1,9 @@
 {
     "sales_order": {
         "column": {
-            "taxcloud_captured": true
+            "taxcloud_captured": true,
+            "taxcloud_certificate_id": true,
+            "taxcloud_certificate_snapshot": true
         }
     }
 }

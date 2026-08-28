@@ -19,6 +19,7 @@ declare(strict_types=1);
 
 namespace Taxcloud\Magento2\Test\Integration\Rest;
 
+use Taxcloud\Magento2\Model\Certificate\RestCertificateGateway;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestClient;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestGateway;
@@ -35,7 +36,10 @@ use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
  *    ErrorModel wording the capture path treats as benign, and fractional
  *    refund quantities
  *  - verify-address ZIP+4 shape
- *  - the exemption-certificates listing envelope (items/nextCursor)
+ *  - the exemption-certificates listing envelope (items/nextCursor), and the
+ *    item shape inside it — states as objects carrying a two-letter
+ *    `abbreviation`, which the REST path originally read as bare strings and
+ *    so never matched
  *
  * These tests talk to the real TaxCloud API with the credentials seeded by
  * scripts/seed-test-data.php: the real v3 key (TAXCLOUD_API_V3_KEY, required)
@@ -306,12 +310,104 @@ class RestLiveApiTest extends IntegrationTestCase
     {
         $client = $this->restClient();
 
-        // RestExemptionValidator reads exactly these envelope keys.
+        // CertificateRepository reads exactly these envelope keys.
         $response = $client->request('GET', '/tax/exemption-certificates?limit=2', null, null, false);
 
         $this->assertTrue($response->isSuccess(), 'certificate listing failed: ' . $response->errorDetail());
         $body = $response->getBody();
         $this->assertIsArray($body['items'] ?? null, 'the listing envelope must carry items[]');
         $this->assertArrayHasKey('nextCursor', $body, 'the listing envelope must carry nextCursor');
+    }
+
+    /**
+     * The item-level contract, which the envelope assertions above cannot
+     * reach.
+     *
+     * This is the test that was missing when the REST validator shipped reading
+     * `states` as a list of plain strings: v3 returns objects carrying an
+     * `abbreviation`, so every certificate resolved to "covers no state" and no
+     * exemption was ever applied. An envelope-only assertion could not catch
+     * that, and against an account holding no certificates it could not catch
+     * anything at all — which is why this asserts a non-empty listing before
+     * anything else.
+     *
+     * seed-test-data.php provisions the certificate this reads (section 4j).
+     */
+    public function testExemptionCertificateItemShape(): void
+    {
+        $client = $this->restClient();
+
+        $response = $client->request('GET', '/tax/exemption-certificates?limit=100', null, null, false);
+        $this->assertTrue($response->isSuccess(), 'certificate listing failed: ' . $response->errorDetail());
+
+        $items = $response->getBody()['items'] ?? [];
+        $this->assertIsArray($items);
+        $this->assertNotEmpty(
+            $items,
+            'no certificates on the account — run scripts/seed-test-data.php, which seeds one for '
+            . 'exempt-customer@example.com. Without one this test proves nothing.'
+        );
+
+        $certificate = $items[0];
+        $this->assertIsString($certificate['certificateId'] ?? null, 'certificateId must be a string');
+        $this->assertIsString($certificate['customerId'] ?? null, 'customerId must be a string');
+        $this->assertArrayHasKey('disabledAt', $certificate, 'disabledAt gates whether a cert may be applied');
+
+        // The crux: states are OBJECTS carrying a two-letter abbreviation, not
+        // bare strings. RestCertificateMapper depends on exactly this.
+        $this->assertIsArray($certificate['states'] ?? null, 'states must be an array');
+        $this->assertNotEmpty($certificate['states'], 'the seeded certificate must cover at least one state');
+        foreach ($certificate['states'] as $state) {
+            $this->assertIsArray($state, 'each state entry must be an object, not a bare abbreviation string');
+            $this->assertArrayHasKey('abbreviation', $state, 'each state entry must carry an abbreviation');
+            $this->assertMatchesRegularExpression('/^[A-Z]{2}$/', $state['abbreviation']);
+        }
+    }
+
+    /**
+     * End of the same thread: the validator resolves the seeded certificate
+     * against the live API and reports the state it actually covers. Fails
+     * against the pre-fix parse, which returned null for every certificate.
+     */
+    public function testSeededCertificateValidatesForItsCoveredState(): void
+    {
+        $client = $this->restClient();
+
+        $response = $client->request('GET', '/tax/exemption-certificates?limit=100', null, null, false);
+        $this->assertTrue($response->isSuccess(), 'certificate listing failed: ' . $response->errorDetail());
+
+        $items = $response->getBody()['items'] ?? [];
+        $certificate = null;
+        foreach ($items as $item) {
+            if (is_array($item) && empty($item['disabledAt']) && !empty($item['states'])) {
+                $certificate = $item;
+                break;
+            }
+        }
+        $this->assertNotNull(
+            $certificate,
+            'no live certificate with covered states on the account — run scripts/seed-test-data.php'
+        );
+
+        $gateway = $this->get(RestCertificateGateway::class);
+        $covered = $certificate['states'][0]['abbreviation'];
+
+        $mapped = null;
+        foreach ($gateway->listCertificates($certificate['customerId']) as $candidate) {
+            if ($candidate->getCertificateId() === $certificate['certificateId']) {
+                $mapped = $candidate;
+                break;
+            }
+        }
+
+        $this->assertNotNull($mapped, 'the certificate must come back from a listing by its own customer identity');
+        $this->assertTrue(
+            $mapped->covers($covered),
+            'a certificate covering ' . $covered . ' must cover a ' . $covered . ' destination'
+        );
+        $this->assertFalse(
+            $mapped->covers($covered === 'CA' ? 'NY' : 'CA'),
+            'a certificate must not cover a state it does not list'
+        );
     }
 }

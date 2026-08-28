@@ -55,18 +55,49 @@ bin/magento setup:di:compile
 
 #### Install via Composer
 
+The extension is published on the [Adobe Commerce Marketplace](https://commercedeveloper.adobe.com/extensions/versions/taxcloud-magento2), so it installs from `repo.magento.com` using the authentication keys your Magento project is already configured with:
+
+```bash
+composer require taxcloud/magento2
+bin/magento setup:upgrade
+bin/magento setup:di:compile
 ```
-{
-    "repositories": [
-        {
-            "url": "https://github.com/FedTax/Magento2.git",
-            "type": "git"
-        }
-    ],
-    "require": {
-        "taxcloud/magento2": "*"
+
+##### Installing the latest release directly from GitHub
+
+Every Marketplace submission is reviewed by Adobe's Extension Quality Program (EQP) before it is published. That review is not instantaneous — it can take anywhere from a few days to several weeks — so for a period after each release the version served by the Marketplace lags behind the latest release tagged in this repository.
+
+To install a release as soon as it is tagged here, without waiting for the Marketplace listing to catch up, register this repository as a VCS repository in your Magento project's `composer.json`:
+
+```bash
+composer config repositories.taxcloud vcs https://github.com/FedTax/Magento2.git
+composer require taxcloud/magento2:^1.3
+```
+
+The first command adds the following to your `composer.json`:
+
+```json
+"repositories": {
+    "taxcloud": {
+        "type": "vcs",
+        "url": "https://github.com/FedTax/Magento2.git"
     }
 }
+```
+
+A few things worth knowing:
+
+- **No credentials are needed for this repository.** It is public, so Composer reads its tags anonymously. Your existing `repo.magento.com` keys are still required for Magento's own packages.
+- **Composer installs the highest version that satisfies your constraint across every configured repository.** With the VCS repository registered, a newer tagged release here therefore takes precedence over an older Marketplace copy of the same package, and no further configuration is required.
+- **Prefer an explicit constraint over `*`.** `^1.3` keeps you on the current major version and makes upgrades deliberate; `*` will silently follow a future major release with breaking changes.
+- **Releases are tagged `vX.Y.Z`** and Composer normalises those to `X.Y.Z`. Only stable tags are considered under Composer's default `minimum-stability` of `stable`.
+
+Once the repository is registered, subsequent upgrades are ordinary Composer operations:
+
+```bash
+composer update taxcloud/magento2
+bin/magento setup:upgrade
+bin/magento setup:di:compile
 ```
 
 ### Uninstalling the Module

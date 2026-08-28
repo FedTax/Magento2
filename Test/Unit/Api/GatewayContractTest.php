@@ -12,7 +12,7 @@ namespace Taxcloud\Magento2\Test\Unit\Api;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Api\AddressGatewayInterface;
-use Taxcloud\Magento2\Api\ExemptionGatewayInterface;
+use Taxcloud\Magento2\Api\CertificateGatewayInterface;
 use Taxcloud\Magento2\Api\GatewayInterface;
 use Taxcloud\Magento2\Api\LookupGatewayInterface;
 use Taxcloud\Magento2\Api\OrderGatewayInterface;
@@ -35,7 +35,7 @@ class GatewayContractTest extends TestCase
         $this->assertTrue(is_subclass_of(Api::class, LookupGatewayInterface::class));
         $this->assertTrue(is_subclass_of(Api::class, OrderGatewayInterface::class));
         $this->assertTrue(is_subclass_of(Api::class, AddressGatewayInterface::class));
-        $this->assertTrue(is_subclass_of(Api::class, ExemptionGatewayInterface::class));
+        $this->assertTrue(is_subclass_of(Api::class, CertificateGatewayInterface::class));
         $this->assertTrue(is_subclass_of(Api::class, GatewayInterface::class));
     }
 
@@ -44,7 +44,7 @@ class GatewayContractTest extends TestCase
         $this->assertTrue(is_subclass_of(GatewayInterface::class, LookupGatewayInterface::class));
         $this->assertTrue(is_subclass_of(GatewayInterface::class, OrderGatewayInterface::class));
         $this->assertTrue(is_subclass_of(GatewayInterface::class, AddressGatewayInterface::class));
-        $this->assertTrue(is_subclass_of(GatewayInterface::class, ExemptionGatewayInterface::class));
+        $this->assertTrue(is_subclass_of(GatewayInterface::class, CertificateGatewayInterface::class));
     }
 
     /**
@@ -75,7 +75,7 @@ class GatewayContractTest extends TestCase
                 ['authorizeCapture', 'returnOrder', 'getOrderDetails', 'returnOrderCancellation'],
             ],
             'address' => [AddressGatewayInterface::class, ['verifyAddress']],
-            'exemption' => [ExemptionGatewayInterface::class, ['getValidatedCertificateID']],
+            'certificates' => [CertificateGatewayInterface::class, ['listCertificates', 'createCertificate', 'deleteCertificate']],
         ];
     }
 

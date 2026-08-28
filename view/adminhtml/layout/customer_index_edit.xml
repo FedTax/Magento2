@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * The certificate panel itself is a tab (see ui_component/customer_form.xml).
+ * Only its starter lives here, in the page proper, because component bootstrap
+ * never reaches content knockout injects into a tab.
+ *
+ * @package    Taxcloud_Magento2
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceContainer name="content">
+            <block class="Magento\Backend\Block\Template"
+                   name="taxcloud_certificates_bootstrap"
+                   template="Taxcloud_Magento2::customer/certificates-bootstrap.phtml"/>
+        </referenceContainer>
+    </body>
+</page>
