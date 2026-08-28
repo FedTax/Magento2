@@ -4,137 +4,71 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ## 1.4.0
 
-Includes every fix listed under 1.3.1 below, plus one that only affects the v3
-REST transport: a dynamic-price bundle was filed to `POST /orders` under the
-bundle's own item id while its cart had been filed under the item ids of its
-selections. v3 refunds reference an order's item ids by name, so such an order
-could be sold and then never cleanly refunded. All three v3 payloads — cart,
-order and refund — now name the same lines.
+This release makes TaxCloud's v3 REST API a fully supported transport alongside
+V1 SOAP, adds exemption certificate management, and adds TIC search to the
+admin. It includes every fix listed under 1.3.1 below.
+
+Run `bin/magento setup:upgrade` after updating: existing installs are pinned to
+their current API and exemption certificate data is migrated. In production
+mode also run `bin/magento setup:di:compile` — this release adds
+dependency-injection preferences and removes classes.
 
 **This release contains a breaking change**: the `taxcloud_cert` customer
 attribute is removed and its values migrated. Existing exemptions keep working
 with nothing to re-enter, but anything reading that attribute directly needs
 updating — see *Changed*, below.
 
-Run `bin/magento setup:upgrade` after updating: this release pins existing
-installs to their current API via a data patch, and migrates exemption
-certificate data. In production mode also run `bin/magento setup:di:compile` —
-this release adds dependency-injection preferences and removes classes, and an
-install still holding a compiled container from 1.3.0 will fail with "Cannot
-instantiate interface" when TIC search is used.
-
 ### Added
 
-- **New "API Type" setting** (*Stores → Configuration → Sales → Tax → TaxCloud
-  Settings*) choosing between **V1 SOAP (legacy)** and **V3 REST**. Fresh
-  installs default to V3 REST; installs upgrading with saved V1 credentials
-  are pinned to V1 SOAP, so nothing changes until an admin switches. The
-  setting is store-scoped, like every other TaxCloud setting.
-- **V3 REST credentials.** With V3 REST selected, the form asks for the API
-  Key (*Developer → API* in TaxCloud, stored encrypted) and the Connection ID
-  (*Integrations → Custom API*) instead of the V1 API ID / API Key pair.
-- **"Test Connection" button** for both API types. Verifies the credentials
-  as currently entered (even unsaved) against TaxCloud — the v3 ping endpoint
-  for REST, the SOAP `Ping` operation for V1 — and reports success, a wrong
-  key, an unknown Connection ID, or a transport problem, per the scope being
-  edited.
-- **Store-aware gateway routing (internal).** All TaxCloud operations now
-  dispatch through a router keyed on the store's API Type, preparing the REST
-  migration. Until REST tax operations ship, both selections transact over
-  SOAP, so this release changes no tax behavior.
+- **Full support for TaxCloud's v3 REST API.** A new store-scoped **API Type**
+  setting (*Stores → Configuration → Sales → Tax → TaxCloud Settings*) chooses
+  between **V1 SOAP (legacy)** and **V3 REST**, with the matching credential
+  fields for each (the V3 API Key is stored encrypted). Every TaxCloud
+  operation — tax calculation, order capture, refunds, cancellations, address
+  verification and exemption certificates — runs over whichever API the store
+  selects. Fresh installs default to V3 REST; installs upgrading with saved V1
+  credentials are pinned to V1 SOAP, so nothing changes until an admin
+  switches. A **Test Connection** button verifies the credentials as entered,
+  for either API, before saving.
 - **Automatic V1 → V3 credential migration.** At `setup:upgrade`, every scope
-  (default / website / store view) storing its own V1 API ID / API Key pair is
-  validated against TaxCloud and its V3 Connection ID is filled in
-  automatically (the V1 API Key doubles as the v3 connection id). Invalid
-  credentials or an unreachable validation service abort the upgrade with a
-  message naming the scope to fix — set `TAXCLOUD_SKIP_CREDENTIAL_MIGRATION=1`
-  to defer, then run the new **`bin/magento taxcloud:migrate-credentials`**
-  command to complete the migration later. Already-configured scopes are never
-  overwritten.
-- **Bearer-token authentication for migrated scopes.** Scopes with V1
-  credentials but no saved V3 API Key authenticate v3 REST calls (including
-  the Test Connection button) with short-lived Bearer tokens exchanged from
-  the V1 pair — cached until shortly before expiry and refreshed
-  automatically — so migrated merchants get a working REST connection with no
-  portal action. A saved V3 API Key always takes precedence.
-- **TIC search on every field that takes a TIC.** The product TIC, the category
-  TIC, the Default TIC and the Shipping TIC now offer autocomplete: type what
-  you sell ("candy", "combined shipping and handling") and pick from matching
-  Taxability Information Codes, each shown with its code *and* its description.
-  A code already saved is displayed with its meaning, so `40010` reads as
-  "Candy" without a trip to the TaxCloud site, and an empty field tells you what
-  it will fall back to.
-
-  The fields stay free-text. Search fills them in; it never restricts them. A
-  code TaxCloud does not recognise is kept exactly as entered, with a note
-  saying so — useful when TaxCloud issues a TIC newer than the list your store
-  has cached. Saving is never blocked, and if search is unavailable (no
-  credentials saved yet, or TaxCloud unreachable) the field goes on working as
-  the plain text box it was.
-
-  Which API answers follows the store's **API Type**: V3 REST stores use
-  TaxCloud's semantic TIC search, V1 SOAP stores search a locally cached copy of
-  the full TIC list, refreshed daily. *The two do not return identical results —
-  V3 understands descriptions ("beans for espresso"), V1 matches text.* That
-  difference is expected, not a fault. Clearing the `taxcloud` cache refreshes
-  the V1 list on demand.
-- **Requests now identify the extension, Magento and PHP versions.** Every
-  call to TaxCloud — on both API generations, including address verification,
-  order capture and returns, the Test Connection button, the credential
-  exchange and the V1 WSDL fetch — carries a `User-Agent` such as
-  `TaxCloud-Magento2/1.4.0 Magento/2.4.7-p3 (Community) PHP/8.3.14`, so
-  TaxCloud support can tell which versions produced a request without asking.
-  A version that cannot be determined is reported as `unknown` rather than
-  breaking the header. The value is identical across every request from an
-  installation and carries no credential, connection id, store id or customer
-  data — it is safe to share in full when sending logs to support. There is no
-  setting to change it, and nothing else about your requests changes.
-- **Exemption certificate management.** Exempt customers can now hold and use
-  TaxCloud exemption certificates without anyone copying identifiers out of the
-  TaxCloud portal by hand.
-
-  - **Customer admin page** — a certificate panel listing what TaxCloud holds
-    for a customer, with add, view and delete, plus a **TaxCloud Customer ID**
-    field and a discovery action reporting what that ID currently resolves.
-    That last part is the diagnostic the integration never had: a certificate
-    created in the TaxCloud portal is filed under whatever customer id a person
-    typed there, and if it does not match, the customer holds nothing as far as
-    Magento is concerned. Previously that was indistinguishable from having no
-    certificate, and produced a silently taxed customer.
-  - **My Account** — customers manage their own certificates, where the store
-    allows it.
-  - **Checkout** — a signed-in customer chooses among certificates that cover
-    the destination, or declines. Declining is remembered, so an exemption is
-    not silently re-applied on the next recalculation.
-  - **Customer groups** — nominate groups your store treats as exempt, and a
-    covering certificate applies to their orders automatically.
-  - **Orders record the certificate that untaxed them**, including a copy of
-    what it said at the time of sale. TaxCloud stores neither the certificate
-    document nor an expiry date, and certificates can be deleted — so an order
-    keeps its own evidence of what was relied on.
-
-  **Off by default.** Nothing appears until an admin turns on *Enable Exemption
-  Certificates* (*Stores → Configuration → Sales → Tax → TaxCloud Settings*).
-  Certificates are attestations that neither TaxCloud nor this extension
-  verifies; you remain responsible for holding valid certificates on file and
-  for their expiry.
-
-  Certificates work identically on V1 SOAP and V3 REST, and a certificate
-  created on one is readable on the other.
+  with its own V1 credentials is validated against TaxCloud and its V3
+  Connection ID filled in automatically. Until a V3 API Key is saved, REST
+  calls for migrated scopes authenticate with short-lived tokens exchanged
+  from the V1 credentials — so migrated merchants get a working REST
+  connection with no portal action. If validation fails, the upgrade stops
+  naming the scope to fix; set `TAXCLOUD_SKIP_CREDENTIAL_MIGRATION=1` to defer
+  and run `bin/magento taxcloud:migrate-credentials` later.
+- **TIC search.** Every field that takes a Taxability Information Code — the
+  product TIC, the category TIC, the Default TIC and the Shipping TIC — now
+  offers autocomplete: type what you sell and pick from matching codes, each
+  shown with its description. A code already saved is displayed with its
+  meaning. The fields stay free-text: a code TaxCloud doesn't recognise is
+  kept exactly as entered, and saving is never blocked.
+- **Exemption certificate management.** Exempt customers can hold multiple
+  TaxCloud exemption certificates, managed without copying identifiers out of
+  the TaxCloud portal by hand: a certificate panel on the customer admin page
+  (including a diagnostic showing what a customer's TaxCloud ID actually
+  resolves to — previously a mismatch meant a silently taxed customer),
+  self-service in My Account, and a certificate choice at checkout. Customer
+  groups can be nominated as exempt, and orders record the certificate that
+  untaxed them. Off by default — enable via *Enable Exemption Certificates* in
+  TaxCloud Settings. Works identically on both APIs.
+- **Requests identify the extension.** Every call to TaxCloud carries a
+  `User-Agent` naming the extension, Magento and PHP versions, so TaxCloud
+  support can tell which versions produced a request without asking. It
+  contains no credentials or customer data.
 
 ### Changed
 
 - **BREAKING: the `taxcloud_cert` customer attribute has been removed.** Its
-  values are migrated automatically at `setup:upgrade` to a new attribute that
-  supports more than one certificate per customer, so **customers exempt before
-  this release stay exempt with nothing to re-enter**. Integrations, data
+  values are migrated automatically at `setup:upgrade` to a new attribute
+  supporting more than one certificate per customer, so customers exempt
+  before this release stay exempt with nothing to re-enter. Integrations, data
   imports or custom code reading `taxcloud_cert` directly must be updated to
   read `taxcloud_certificate_id`.
-
-- This release removes PHP classes. In production mode run
-  `bin/magento setup:di:compile` after updating — an install still holding a
-  compiled container from the previous version fails with "Class ... not found"
-  rather than anything self-explanatory.
+- Composite products (bundles, configurables) are now described identically in
+  every payload sent to TaxCloud — calculation, capture and refund — on both
+  APIs, so a composite order can always be cleanly refunded.
 
 ## 1.3.1
 
