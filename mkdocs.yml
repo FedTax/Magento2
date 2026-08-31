@@ -1,0 +1,50 @@
+# Documentation site — built by .github/workflows/docs.yml and published to
+# GitHub Pages at https://fedtax.github.io/Magento2/. Source pages live in
+# docs/ as plain Markdown; run `mkdocs serve` (pip install mkdocs-material)
+# for a live-reloading local preview at http://127.0.0.1:8000.
+site_name: TaxCloud for Magento 2
+site_description: Documentation for the TaxCloud sales tax extension for Magento 2 / Adobe Commerce
+site_url: https://fedtax.github.io/Magento2/
+repo_url: https://github.com/FedTax/Magento2
+repo_name: FedTax/Magento2
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.action.edit
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Development:
+      - Integration tests: INTEGRATION_TESTS.md
+      - E2E tests: E2E_TESTS.md

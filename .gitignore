@@ -20,3 +20,6 @@ phpunit.integration.xml
 # Integration test environment
 .env
 .composer-cache/
+
+# MkDocs build output (docs site)
+/site/

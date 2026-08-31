@@ -7,9 +7,8 @@ Test/ export-ignore
 Makefile export-ignore
 run-test.sh export-ignore
 scripts/ export-ignore
-docs/images/ export-ignore
-docs/E2E_TESTS.md export-ignore
-docs/INTEGRATION_TESTS.md export-ignore
+docs/ export-ignore
+mkdocs.yml export-ignore
 .env.example export-ignore
 docker-compose.yml export-ignore
 docker-compose.e2e.yml export-ignore
