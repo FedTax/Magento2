@@ -112,6 +112,10 @@ class MagentoTaxFallback
 
         $result = [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
 
+        // Typed as core types it (CommonTaxCollector::mapAddress): a shipping
+        // assignment's address is the concrete quote address setFromAddress()
+        // copies from.
+        /** @var \Magento\Quote\Model\Quote\Address $address */
         $address = $shippingAssignment->getShipping()->getAddress();
         if (!$address) {
             $this->logger->critical(
@@ -138,6 +142,7 @@ class MagentoTaxFallback
             // accessors below live on AbstractItem, not CartItemInterface.
             /** @var \Magento\Quote\Model\Quote\Item\AbstractItem[] $keyedAddressItems */
             $keyedAddressItems = [];
+            /** @var \Magento\Quote\Model\Quote\Item\AbstractItem $item */
             foreach ($shippingAssignment->getItems() as $item) {
                 // Skip composite child lines with no tax calculation id (null
                 // array key is a PHP 8 deprecation, fatal in developer mode).

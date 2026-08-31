@@ -306,6 +306,10 @@ class Api implements GatewayInterface
         /** @var \Magento\Customer\Api\Data\CustomerInterface|null $customer */
         $customer = $quote->getCustomer();
 
+        // Typed as core types it (CommonTaxCollector::mapAddress): a shipping
+        // assignment's address is the concrete quote address, which is what
+        // the request builder needs.
+        /** @var \Magento\Quote\Model\Quote\Address $address */
         $address = $shippingAssignment->getShipping()->getAddress();
         if (!$address || !$address->getPostcode()) {
             $this->tclogger->info('No address, returning 0');
@@ -338,6 +342,10 @@ class Api implements GatewayInterface
         }
 
         $keyedAddressItems = [];
+        // Typed as core types them (CommonTaxCollector::processProductItems):
+        // a shipping assignment's items are quote items, and the accessor
+        // below lives on AbstractItem rather than CartItemInterface.
+        /** @var \Magento\Quote\Model\Quote\Item\AbstractItem $item */
         foreach ($shippingAssignment->getItems() as $item) {
             // Skip composite child lines with no tax calculation id (null array
             // key is a PHP 8 deprecation, fatal in developer mode).

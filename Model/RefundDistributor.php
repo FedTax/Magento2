@@ -17,8 +17,6 @@
 
 namespace Taxcloud\Magento2\Model;
 
-use Taxcloud\Magento2\Logger\Logger;
-
 /**
  * Distributes adjustment-only refund amounts proportionally across the
  * remaining (unrefunded) items and shipping of an order, so TaxCloud's
@@ -58,20 +56,12 @@ class RefundDistributor
     private $productTicService;
 
     /**
-     * @var Logger
-     */
-    private $tclogger;
-
-    /**
      * @param ProductTicService $productTicService
-     * @param Logger $tclogger
      */
     public function __construct(
-        ProductTicService $productTicService,
-        Logger $tclogger
+        ProductTicService $productTicService
     ) {
         $this->productTicService = $productTicService;
-        $this->tclogger = $tclogger;
     }
 
     /**

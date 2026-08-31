@@ -134,6 +134,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         // accessors below live on AbstractItem rather than CartItemInterface.
         /** @var \Magento\Quote\Model\Quote\Item\AbstractItem[] $keyedAddressItems */
         $keyedAddressItems = [];
+        /** @var \Magento\Quote\Model\Quote\Item\AbstractItem $item */
         foreach ($shippingAssignment->getItems() as $item) {
             // Configurable/composite lines expose a child item with no tax
             // calculation id; using null as an array key is a PHP 8 deprecation

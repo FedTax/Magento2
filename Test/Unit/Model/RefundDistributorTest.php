@@ -23,7 +23,6 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use Taxcloud\Magento2\Model\RefundDistributor;
 use Taxcloud\Magento2\Model\ProductTicService;
-use Taxcloud\Magento2\Logger\Logger;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Item;
 use Magento\Sales\Model\Order\Creditmemo;
@@ -33,7 +32,6 @@ class RefundDistributorTest extends TestCase
 {
     private $distributor;
     private $ticService;
-    private $logger;
 
     protected function setUp(): void
     {
@@ -41,9 +39,7 @@ class RefundDistributorTest extends TestCase
         $this->ticService->method('getProductTic')->willReturn('20010');
         $this->ticService->method('getShippingTic')->willReturn('11010');
 
-        $this->logger = $this->createMock(Logger::class);
-
-        $this->distributor = new RefundDistributor($this->ticService, $this->logger);
+        $this->distributor = new RefundDistributor($this->ticService);
     }
 
     /**

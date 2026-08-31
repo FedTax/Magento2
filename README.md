@@ -102,15 +102,22 @@ bin/magento setup:di:compile
 
 ### Uninstalling the Module
 
-Installing the module adds three EAV attributes via two data patches:
+Installing the module adds four EAV attributes via data patches:
 
-- `taxcloud_tic` on products (the TaxCloud TIC) and `taxcloud_cert` on
-  customers (the exemption certificate ID), both from `InstallTaxcloudData`;
+- `taxcloud_tic` on products (the TaxCloud TIC), from `InstallTaxcloudData`;
 - `taxcloud_tic` on categories (the inherited TIC), from
-  `AddCategoryTicAttribute`.
+  `AddCategoryTicAttribute`;
+- `taxcloud_certificate_id` on customers (the attached exemption
+  certificate), from `AddCertificateAttachmentAttribute`;
+- `taxcloud_customer_id` on customers (the TaxCloud identity certificates are
+  filed under), from `AddTaxcloudCustomerIdAttribute`.
 
-Both patches are revertable (they implement `PatchRevertableInterface`), so
-these attributes are cleaned up automatically when the module is uninstalled.
+(The legacy `taxcloud_cert` attribute is created and immediately removed
+again during a fresh install, purely so upgrades from 1.3.x have an attribute
+to migrate values from.)
+
+These patches are revertable (they implement `PatchRevertableInterface`), so
+the attributes are cleaned up automatically when the module is uninstalled.
 Magento invokes each patch's `revert()` from the uninstall-data flow:
 
 ```
@@ -120,7 +127,7 @@ bin/magento module:uninstall Taxcloud_Magento2
 (`module:uninstall` applies to Composer-installed modules; it runs the data
 patch's `revert()` before removing the module's files.)
 
-Reverting drops all three attributes (and, because EAV value storage cascades on
+Reverting drops all four attributes (and, because EAV value storage cascades on
 the attribute, any TIC/certificate values stored against products, categories
 and customers).
 Re-installing and running `bin/magento setup:upgrade` re-applies the patch and
@@ -239,8 +246,10 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 * **API Key (Developer → API)** - *V3 REST.* Optional direct v3 key, generated in your TaxCloud dashboard under Developer → API. When present it takes precedence over the exchanged V1 pair.
 * **Connection ID** - *V3 REST.* The UUID of your Custom API connection, found under Integrations → Custom API. The connection determines whether requests are processed as test or production.
 * **Guest Customer ID** - Enter the customer ID to send to TaxCloud during a guest checkout. Unless there is a special reason to change this for your store, use the default value of `-1`.
-* **Default TIC** - Enter the Taxability Information Code you would like to use for products where no TIC has been specified on the product or on any of its categories. See [How a TIC is chosen](#how-a-tic-is-chosen).
+* **Default TIC** - Enter the Taxability Information Code you would like to use for products where no TIC has been specified on the product or on any of its categories. See [How a TIC is chosen](#how-a-tic-is-chosen). Like every TIC field in the admin, it autocompletes: type what you sell and pick from matching codes, each shown with its description. The field stays free-text — a code TaxCloud doesn't recognize is kept exactly as entered, and saving is never blocked.
 * **Shipping TIC** - Enter the Taxability Information Code you would like to use for shipping costs. Use `11010` if you charge only postage, and `11000` for shipping & handling.
+* **Enable Exemption Certificates** - Select `Yes` to let exempt customers hold TaxCloud exemption certificates and have them applied at checkout — see [Customer Settings](#customer-settings). TaxCloud does not verify exemption claims; you remain responsible for holding valid certificates on file. Defaults to `No`, which reproduces the pre-1.4 behavior exactly.
+* **Company Name** - *Shown when exemption certificates are enabled.* Your business name, recorded on certificates created through the module as the seller the exemption is claimed from.
 * **Cache Lifetime** - Enter the amount of time in seconds you would like to cache the sales tax lookup and verify address API calls. The default value is `86400` (24 hours), or enter `0` to disable caching for development purposes.
 * **WSDL Endpoint** - *Advanced.* The TaxCloud SOAP endpoint the module calls. Defaults to the production endpoint `https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl`; leave it alone unless TaxCloud support has directed you to a sandbox or staging endpoint. Clearing the field restores the production default. Because the setting is store-scoped, you can point a staging store at a sandbox endpoint while production keeps using the default. Note that tax lookups are cached by request payload, not by endpoint — if you switch endpoints while reusing the same API credentials, clear the TaxCloud cache type so results from the previous endpoint are not reused (see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache)).
 * **Only do tax calculations without further Taxcloud integration** - Select `Enabled` to keep tax calculation running while sending nothing back to TaxCloud that records or reverses a sale. Lookup, address verification and exempt-certificate validation still happen, so the storefront charges the right tax; `AuthorizedWithCapture` (order capture), `Returned` (credit memos and canceled unpaid orders) and `OrderDetails` are all skipped. Useful for merchants that push orders to other systems (i.e. Quickbooks) that are themselves connected to TaxCloud, where a second push from Magento would report the same sale twice. Because the setting is store-scoped, you can run one store view calculation-only while another keeps the full integration. Defaults to `Disabled`. When enabled, **Capture in TaxCloud** is hidden — there is no capture left for it to schedule.
@@ -259,7 +268,7 @@ From the main product grid, you will be able to see and sort by each product's T
 There are two main fields you should properly set per product.
 
 * **Tax Class** - In most cases, you should select `Taxable Goods` for this, even if the product you are selling may be tax exempt under certain, or all, circumstances. If you select `None`, then this product will never be sent to TaxCloud's API during checkout. ___It is strongly discouraged to select `None`___ as you will not have an audit trail of the sale of this item in your TaxCloud account!
-* **Taxcloud TIC** - The five digit Taxability Information Code for this product. For more information, see [Taxability Information Codes](https://taxcloud.com/tic).
+* **Taxcloud TIC** - The five digit Taxability Information Code for this product. The field autocompletes: type what you sell and pick from matching codes, each shown with its description; a code already saved is displayed with its meaning. For more information, see [Taxability Information Codes](https://taxcloud.com/tic).
 
 ##### Bulk Updating
 
@@ -277,7 +286,7 @@ Find the Taxcloud TIC textbox and click the *Change* checkbox below it. Enter a 
 
 Rather than setting a TIC on every product, you can set one on a category and let the products inside it inherit it. Navigate to *Catalog → Categories*, select a category, and open the **TaxCloud** section.
 
-* **TaxCloud TIC** - The five digit Taxability Information Code applied to products in this category that have no TIC of their own.
+* **TaxCloud TIC** - The five digit Taxability Information Code applied to products in this category that have no TIC of their own. The field autocompletes against TaxCloud's code list, like the product TIC field.
 
 The field is store-view scoped, like most category attributes: switch the store view at the top left of the category page to give one store view a different TIC, and leave the *Use Default Value* checkbox ticked everywhere else.
 
@@ -302,19 +311,36 @@ Leaving every category TIC empty reproduces the previous behavior exactly: produ
 
 #### Customer Settings
 
-If you have tax exempt customers, you can add an exemption certificate ID per user. Currently, there is no method to create an exemption certificate through the Magento 2 module, but if you have an existing exemption certificate in TaxCloud, you can link it to a customer's profile.
+If you have tax exempt customers, you can manage their TaxCloud exemption certificates directly from the Magento admin — listing, creating, attaching and deleting certificates without copying identifiers out of the TaxCloud portal by hand. The feature is off by default; turn on **Enable Exemption Certificates** in [TaxCloud Settings](#taxcloud-settings) first.
 
-Navigate to *Customers → All Customers*, click on the *Edit* link for a specific customer, and then click on *Account Information*.
+##### Managing certificates in the admin
 
-![Customer Edit](docs/images/configuration-admin-customer-edit.png)
+Navigate to *Customers → All Customers*, click the *Edit* link for a specific customer, and open the **TaxCloud Exemption Certificates** tab. The panel is guarded by its own ACL permission (*TaxCloud Exemption Certificates*), so you can grant certificate management to specific admin roles.
 
-Here you can add the 36 character plus dashes UUID for the already existing exemption certificate.
+From the panel you can:
 
-##### Exemption certificate validation and caching
+* **See every certificate** filed under the customer's TaxCloud identity, with its covered states, exemption reason and status. The panel also shows what the customer's TaxCloud ID actually resolves to — previously a mismatch between Magento's customer ID and the identity a certificate was filed under meant a silently taxed customer.
+* **Create a certificate** with a form that offers states, exemption reasons and business types as readable choices (matching the names TaxCloud's WooCommerce plugin uses). Nothing verifies an exemption claim — you remain responsible for holding a valid signed certificate on file.
+* **Attach a certificate** to the customer. The attached certificate is what exempts their orders — see [How an order becomes exempt](#how-an-order-becomes-exempt).
+* **Delete a certificate**. Deletion is permanent: TaxCloud cannot restore a deleted certificate.
 
-At checkout, the extension calls TaxCloud's `GetExemptCertificates` API to confirm that the linked certificate actually covers the destination state — a certificate registered for NY does not exempt a shipment to GA. The list of states covered by a certificate is cached **per (customer, certificate) for 1 hour** so that repeated checkouts do not call `GetExemptCertificates` on every page load.
+The customer's **TaxCloud Customer ID** attribute controls which identity their certificates are filed under. It defaults to the customer's Magento ID and normally never needs touching; set it only to point several buyers at one company's shared certificates. Changes are recorded in the TaxCloud log.
 
-The trade-off is a propagation window: if a certificate is revoked or its covered-states list is edited in the TaxCloud dashboard, this extension may continue to apply the previous covered-states list to that customer's checkouts for up to one hour. Cache entries expire on their own; there is no admin action required, and the next request after expiry validates against TaxCloud and refreshes the cache. The "Cache Lifetime" admin setting controls the tax-lookup and address-verification caches separately and does **not** shorten this 1-hour exempt-states window. If you have just revoked or modified a certificate and need the change reflected at checkout immediately, clear the TaxCloud cache type — see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache).
+##### Certificates in My Account
+
+Customers on a store with exemptions enabled get a **Tax Exemption Certificates** section in My Account, where they can review the certificates held for them and delete ones no longer valid. Certificates are created by an administrator, not by the customer.
+
+##### How an order becomes exempt
+
+At checkout, the certificate attached to the customer is applied automatically when it covers the order's destination state — a certificate registered for NY does not exempt a shipment to GA. A certificate that is disabled, single-purchase, or filed under someone else's identity is never applied, and if the customer's certificates cannot be retrieved the order is taxed rather than exempted. An exempted order records the certificate's identifier and a copy of what it said at the time of sale, so the evidence survives later changes in TaxCloud; the record is shown on the admin order view.
+
+##### Certificate caching
+
+A customer's certificates are cached **per customer identity and store account for 1 hour**, so repeated checkouts do not query TaxCloud on every page load. Certificates created or deleted through the module refresh the cache immediately; the propagation window only matters for changes made directly in the TaxCloud dashboard, which can take up to an hour to be reflected at checkout. The "Cache Lifetime" admin setting controls the tax-lookup and address-verification caches separately and does **not** shorten this window. If you have just revoked or modified a certificate in the TaxCloud dashboard and need the change reflected immediately, clear the TaxCloud cache type — see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache).
+
+##### Upgrading from 1.3.x
+
+Earlier releases stored a single certificate UUID in the `taxcloud_cert` customer attribute. That attribute has been **removed**: `bin/magento setup:upgrade` migrates its values to the new `taxcloud_certificate_id` attribute, so customers exempt before 1.4.0 stay exempt with nothing to re-enter. Integrations, data imports or custom code reading `taxcloud_cert` directly must be updated to read `taxcloud_certificate_id`.
 
 ## Testing the TaxCloud Module
 

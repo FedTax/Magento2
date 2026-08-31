@@ -47,12 +47,14 @@ updating — see *Changed*, below.
 - **Exemption certificate management.** Exempt customers can hold multiple
   TaxCloud exemption certificates, managed without copying identifiers out of
   the TaxCloud portal by hand: a certificate panel on the customer admin page
-  (including a diagnostic showing what a customer's TaxCloud ID actually
-  resolves to — previously a mismatch meant a silently taxed customer),
-  self-service in My Account, and a certificate choice at checkout. Customer
-  groups can be nominated as exempt, and orders record the certificate that
-  untaxed them. Off by default — enable via *Enable Exemption Certificates* in
-  TaxCloud Settings. Works identically on both APIs.
+  lists, creates, attaches and deletes certificates (including a diagnostic
+  showing what a customer's TaxCloud ID actually resolves to — previously a
+  mismatch meant a silently taxed customer), and customers can review and
+  delete their own certificates from My Account. The certificate an
+  administrator attaches to a customer applies automatically at checkout
+  whenever it covers the destination state, and orders record the certificate
+  that untaxed them. Off by default — enable via *Enable Exemption
+  Certificates* in TaxCloud Settings. Works identically on both APIs.
 - **Requests identify the extension.** Every call to TaxCloud carries a
   `User-Agent` naming the extension, Magento and PHP versions, so TaxCloud
   support can tell which versions produced a request without asking. It
