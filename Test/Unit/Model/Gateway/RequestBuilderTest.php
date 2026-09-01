@@ -663,6 +663,64 @@ class RequestBuilderTest extends TestCase
         $this->assertSame('100000003-exempt', $params['cartID']);
     }
 
+    /**
+     * The SOAP capture files under the date of the document that triggered it,
+     * not the clock at the moment the params are built. Both date fields move
+     * together — they have always carried the same instant, and splitting them
+     * would invent an asymmetry the API never had.
+     */
+    public function testBuildAuthorizeCaptureParamsFilesUnderTheSuppliedCompletionTime()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getCustomerId')->willReturn(7);
+        $order->method('getQuoteId')->willReturn(555);
+        $order->method('getIncrementId')->willReturn('100000002');
+
+        $params = $this->builder->buildAuthorizeCaptureParams($order, null, '2026-03-14 09:15:00');
+
+        $expected = date('c', strtotime('2026-03-14 09:15:00 UTC'));
+        $this->assertSame($expected, $params['dateAuthorized']);
+        $this->assertSame($expected, $params['dateCaptured']);
+    }
+
+    /**
+     * The rendering stays the offset-bearing ISO-8601 form this transport has
+     * always sent; only which instant it names changes.
+     */
+    public function testBuildAuthorizeCaptureParamsKeepsTheIso8601OffsetFormat()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getCustomerId')->willReturn(7);
+        $order->method('getIncrementId')->willReturn('100000002');
+
+        $params = $this->builder->buildAuthorizeCaptureParams($order, null, '2026-03-14 09:15:00');
+
+        $this->assertMatchesRegularExpression(
+            '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/',
+            $params['dateCaptured']
+        );
+    }
+
+    /**
+     * No completion time falls back to now — the real path at order placement,
+     * where the order is not yet persisted and has no created_at.
+     */
+    public function testBuildAuthorizeCaptureParamsFallsBackToNowWithoutACompletionTime()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getCustomerId')->willReturn(7);
+        $order->method('getIncrementId')->willReturn('100000002');
+
+        $before = time();
+        $params = $this->builder->buildAuthorizeCaptureParams($order, null, null);
+        $after = time();
+
+        $stamped = strtotime($params['dateCaptured']);
+        $this->assertGreaterThanOrEqual($before, $stamped);
+        $this->assertLessThanOrEqual($after, $stamped);
+        $this->assertSame($params['dateAuthorized'], $params['dateCaptured']);
+    }
+
     public function testBuildReturnParams()
     {
         $order = $this->createMock(Order::class);

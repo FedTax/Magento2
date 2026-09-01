@@ -50,3 +50,12 @@ require $magentoUnitBootstrap;
 // Unit-test doubles (declare Magento magic accessors / SOAP ops as real methods so
 // they can be stubbed with onlyMethods() — PHPUnit 12 removed addMethods()).
 require __DIR__ . '/Double/Doubles.php';
+
+// Shared test traits. Required explicitly rather than autoloaded: composer's
+// PSR-4 root for Taxcloud\Magento2\ is the module's app/code location, and the
+// versioned unit runs (make test-unit-version) link only production paths into
+// app/code while running the suite from the full module mount — so Test/ is
+// outside the autoloader's reach there and a `use` of one of these traits is a
+// fatal error. Same reason the doubles above are required by hand.
+require_once __DIR__ . '/BuildsUserAgent.php';
+require_once __DIR__ . '/BuildsGatewayApi.php';

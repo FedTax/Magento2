@@ -516,13 +516,23 @@ class RequestBuilder
     /**
      * Build the AuthorizedWithCapture request params for an order.
      *
+     * $completedAt is the creation time of the document that triggered the
+     * capture (order, invoice or shipment, per the store's capture trigger), as
+     * a Magento datetime string in UTC. Filing under it rather than under the
+     * call's wall clock keeps a capture retried at a later fulfillment document
+     * in the period that document belongs to. Null falls back to now — a real
+     * path at order placement, where the order is not yet persisted and has no
+     * created_at.
+     *
      * @param \Magento\Sales\Model\Order $order
      * @param string|null $cartId Override cart ID; defaults to the order's quote ID
+     * @param string|null $completedAt Triggering document's created_at (UTC); null means now
      * @return array
      */
-    public function buildAuthorizeCaptureParams($order, $cartId = null)
+    public function buildAuthorizeCaptureParams($order, $cartId = null, $completedAt = null)
     {
         $store = $order->getStoreId();
+        $captureDate = $this->toIso8601($completedAt);
 
         return [
             'apiLoginID' => $this->config->getApiId($store),
@@ -530,9 +540,30 @@ class RequestBuilder
             'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId($store),
             'cartID' => $cartId ?? $order->getQuoteId(),
             'orderID' => $order->getIncrementId(),
-            'dateAuthorized' => date('c'), // date('Y-m-d') . 'T00:00:00'
-            'dateCaptured' => date('c'), // date('Y-m-d') . 'T00:00:00'
+            'dateAuthorized' => $captureDate,
+            'dateCaptured' => $captureDate,
         ];
+    }
+
+    /**
+     * Render a Magento datetime string (stored UTC) in the offset-bearing
+     * ISO-8601 form this transport has always sent. Kept in that form rather
+     * than normalized to UTC: both render the same instant, and changing the
+     * rendering would alter every existing SOAP payload for no gain.
+     *
+     * @param string|null $datetime
+     * @return string
+     */
+    private function toIso8601($datetime)
+    {
+        if ($datetime !== null && $datetime !== '') {
+            $timestamp = strtotime($datetime . ' UTC');
+            if ($timestamp !== false) {
+                return date('c', $timestamp);
+            }
+        }
+
+        return date('c');
     }
 
     /**

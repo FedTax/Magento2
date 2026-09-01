@@ -331,14 +331,14 @@ class RestGateway implements GatewayInterface
     /**
      * @inheritDoc
      */
-    public function authorizeCapture($order)
+    public function authorizeCapture($order, $completedAt = null)
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
 
         $this->tclogger->info('Calling authorizeCapture (v3 REST) for order ' . $order->getIncrementId());
 
-        $payload = $this->restRequestBuilder->buildOrderPayload($order);
+        $payload = $this->restRequestBuilder->buildOrderPayload($order, null, false, $completedAt);
         if ($payload === null) {
             return false;
         }

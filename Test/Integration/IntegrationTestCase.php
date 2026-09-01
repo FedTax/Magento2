@@ -763,6 +763,25 @@ abstract class IntegrationTestCase extends TestCase
     }
 
     /**
+     * Ship part of an order: one shipment covering only the given item
+     * quantities, leaving the rest to ship later. Each save fires
+     * sales_order_shipment_save_after, which is what drives the capture
+     * observer on the shipment trigger.
+     *
+     * @param array<int, float> $qtys order item id => qty to ship
+     */
+    protected function createPartialShipment(Order $order, array $qtys): ShipmentInterface
+    {
+        $shipment = $this->get(ShipmentFactory::class)->create($order, $qtys);
+        $shipment->register();
+        $shipment->getOrder()->setIsInProcess(true);
+
+        $this->get(ShipmentRepositoryInterface::class)->save($shipment);
+
+        return $shipment;
+    }
+
+    /**
      * Cancel the order through the real order-management service. Cancellation
      * fires both order_cancel_after and sales_order_save_after.
      */

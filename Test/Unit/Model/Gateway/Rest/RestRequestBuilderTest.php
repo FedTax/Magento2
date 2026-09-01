@@ -604,4 +604,80 @@ class RestRequestBuilderTest extends TestCase
             $builder->buildVerifyAddressPayload(self::V1_DESTINATION)
         );
     }
+
+    /**
+     * completedDate is the date the sale files under, and it comes from the
+     * document that triggered the capture — not from the clock at the moment
+     * the payload is built. A capture retried at a later shipment must land in
+     * that shipment's period, which is only true if the supplied time wins.
+     */
+    public function testCompletedDateComesFromTheSuppliedCompletionTime()
+    {
+        $builder = $this->builder();
+        $this->requestBuilder->method('buildOrigin')->with(3)->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('20010');
+        $this->ticService->method('getShippingTic')->willReturn('11010');
+
+        $item = $this->orderItem('sku-1', 1.0, 10.0, 0.0, 0.86, 8.6);
+
+        $payload = $builder->buildOrderPayload(
+            $this->order([$item], 0.0, 0.0),
+            null,
+            false,
+            '2026-03-14 09:15:00'
+        );
+
+        $this->assertSame('2026-03-14T09:15:00Z', $payload['completedDate']);
+    }
+
+    /**
+     * transactionDate stays the order's placement time whatever the completion
+     * time is: the two answer different questions (when the sale happened vs
+     * when it was fulfilled) and a change to one must never move the other.
+     */
+    public function testTransactionDateIsUnaffectedByTheCompletionTime()
+    {
+        $builder = $this->builder();
+        $this->requestBuilder->method('buildOrigin')->with(3)->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('20010');
+        $this->ticService->method('getShippingTic')->willReturn('11010');
+
+        $item = $this->orderItem('sku-1', 1.0, 10.0, 0.0, 0.86, 8.6);
+
+        $payload = $builder->buildOrderPayload(
+            $this->order([$item], 0.0, 0.0),
+            null,
+            false,
+            '2026-03-14 09:15:00'
+        );
+
+        $this->assertSame('2026-08-01T14:30:00Z', $payload['transactionDate']);
+    }
+
+    /**
+     * No completion time falls back to now rather than to an empty or absent
+     * field. This is a real path, not a guard: at sales_order_place_after the
+     * order is not yet persisted and has no created_at to offer.
+     */
+    public function testCompletedDateFallsBackToNowWhenNoCompletionTimeIsSupplied()
+    {
+        $builder = $this->builder();
+        $this->requestBuilder->method('buildOrigin')->with(3)->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('20010');
+        $this->ticService->method('getShippingTic')->willReturn('11010');
+
+        $item = $this->orderItem('sku-1', 1.0, 10.0, 0.0, 0.86, 8.6);
+
+        $payload = $builder->buildOrderPayload($this->order([$item], 0.0, 0.0), null, false, null);
+
+        $this->assertMatchesRegularExpression(
+            '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/',
+            $payload['completedDate']
+        );
+        $this->assertSame('2026-08-01T14:30:00Z', $payload['transactionDate']);
+    }
+
 }

@@ -2,6 +2,34 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## Unreleased
+
+### Fixed
+
+- **A failed order capture is no longer lost on the shipment trigger.** Capture
+  was deduplicated partly by counting the order's invoices or shipments, which
+  suppressed every document after the first — so a store capturing on shipment
+  whose first capture failed (a transport error, an expired credential) never
+  filed that order at all, and there is no background job that would have
+  retried it. The `taxcloud_captured` flag is now the only dedupe: a successful
+  capture still files exactly once for the whole order, and a failed one is
+  retried at the order's next invoice or shipment. The invoice and shipment
+  triggers now behave identically here; previously the invoice path got one
+  accidental retry and the shipment path got none.
+- **The sale is filed under the date of the document that triggered the
+  capture** — the order, the invoice or the shipment, per the store's capture
+  trigger — rather than under the clock at the moment the call was made. For a
+  capture that succeeds on its first attempt these are the same instant, so
+  nothing changes; it is what keeps a retried capture in the filing period its
+  fulfillment belongs to instead of the period the retry happened to run in.
+  Applies to both transports (v3 REST `completedDate`, V1 SOAP
+  `dateAuthorized`/`dateCaptured`). The transaction date remains the order's
+  placement time.
+
+Capture remains whole-order on both APIs: an order fulfilled across several
+invoices or shipments is filed once, in full, at the first one. Neither TaxCloud
+API can express a partial capture.
+
 ## 1.4.0
 
 This release makes TaxCloud's v3 REST API a fully supported transport alongside
