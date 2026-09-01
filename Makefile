@@ -1,7 +1,8 @@
 .PHONY: test test-unit test-unit-version lint lint-fix phpstan analyse help \
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
-        e2e-trace e2e-clean e2e-cleanup-certificates
+        e2e-trace e2e-clean e2e-cleanup-certificates \
+        docs docs-build docs-clean
 
 # Defaults — override on the command line, e.g.:
 #   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
@@ -52,6 +53,12 @@ help:
 	@echo "  make e2e-clean         - Remove E2E artifacts (test-results, playwright-report)"
 	@echo "                           First run from scratch:"
 	@echo "                             make e2e-setup && make e2e-test"
+	@echo ""
+	@echo "Documentation site (docs/, published to GitHub Pages):"
+	@echo "  make docs              - Serve the docs locally with live reload at"
+	@echo "                           http://127.0.0.1:8000 (Ctrl-C to stop)"
+	@echo "  make docs-build        - Build the static site into ./site to check it compiles"
+	@echo "  make docs-clean        - Remove the local venv and built site"
 	@echo ""
 	@echo "Lint:"
 	@echo "  make lint              - Run PHP CodeSniffer (Magento2 coding standard)"
@@ -249,3 +256,28 @@ e2e-clean:
 	@echo "Removing E2E artifacts..."
 	@rm -rf $(E2E_DIR)/test-results $(E2E_DIR)/playwright-report
 	@echo "Removed $(E2E_DIR)/test-results and $(E2E_DIR)/playwright-report"
+
+# ---------------------------------------------------------------------------
+# Documentation site
+#
+# MkDocs and its theme are installed into a local, git-ignored virtualenv so
+# previewing the docs never touches the system Python. The venv is created on
+# first use and reused afterwards; `make docs-clean` throws it away.
+# ---------------------------------------------------------------------------
+DOCS_VENV := .venv-docs
+DOCS_MKDOCS := $(DOCS_VENV)/bin/mkdocs
+
+$(DOCS_MKDOCS):
+	python3 -m venv $(DOCS_VENV)
+	$(DOCS_VENV)/bin/pip install --quiet --upgrade pip
+	$(DOCS_VENV)/bin/pip install --quiet mkdocs-material
+
+docs: $(DOCS_MKDOCS)
+	@echo "Serving docs at http://127.0.0.1:8000 — Ctrl-C to stop"
+	$(DOCS_MKDOCS) serve
+
+docs-build: $(DOCS_MKDOCS)
+	$(DOCS_MKDOCS) build
+
+docs-clean:
+	rm -rf $(DOCS_VENV) site

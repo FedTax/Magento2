@@ -45,6 +45,37 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Getting started:
+      - Overview: overview.md
+      - Before you begin: before-you-begin.md
+      - Installing the extension: installing.md
+      - Quick start: quick-start.md
+  - Configuration:
+      - Settings reference: settings.md
+      - Choosing your API: choosing-your-api.md
+      - Multi-store setups: multi-store.md
+  - Taxability (TICs):
+      - How TICs work: tics.md
+      - Assigning TICs: assigning-tics.md
+      - Shipping and handling: shipping-and-handling.md
+  - Exemption certificates:
+      - Turning exemptions on: exemptions-setup.md
+      - Managing certificates in the admin: managing-certificates.md
+      - What the customer sees: customer-account.md
+      - How an order becomes exempt: how-an-order-becomes-exempt.md
+  - Orders and tax lifecycle:
+      - At checkout: checkout.md
+      - Capture: capture.md
+      - Refunds and credit memos: refunds.md
+      - Cancellations: cancellations.md
+      - Filing your returns: filing.md
+  - Troubleshooting:
+      - Reading the log: logs.md
+      - Clearing the TaxCloud cache: clearing-the-cache.md
+      - Common problems: common-problems.md
+      - Testing your setup: testing-your-setup.md
   - Development:
+      - Extending the extension: extending.md
       - Integration tests: INTEGRATION_TESTS.md
       - E2E tests: E2E_TESTS.md
+      - Writing documentation: writing-documentation.md

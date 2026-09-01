@@ -21,5 +21,6 @@ phpunit.integration.xml
 .env
 .composer-cache/
 
-# MkDocs build output (docs site)
+# MkDocs build output and local preview virtualenv (make docs)
 /site/
+/.venv-docs/
