@@ -84,14 +84,17 @@ class CaptureOnShipmentTest extends IntegrationTestCase
      * to TaxCloud twice.
      *
      * The admin "Add Tracking Number" action saves the shipment a second time
-     * (Magento\Shipping\Controller\Adminhtml\Order\Shipment\AddTrack), and the
-     * observer's dedupe would not catch it: it counts shipments on the order,
-     * which is still 1. What saves us today is upstream — that second save does
-     * not re-dispatch sales_order_shipment_save_after, verified by instrumenting
-     * the observer. So this passes for a reason outside the module's control,
-     * which is exactly why it is worth pinning: if a Magento upgrade starts
-     * dispatching on the track save, the module would silently start filing
-     * every tracked shipment as a second sale.
+     * (Magento\Shipping\Controller\Adminhtml\Order\Shipment\AddTrack). Two
+     * independent things stop a second filing, and the test pins both:
+     * upstream, that save does not re-dispatch sales_order_shipment_save_after
+     * (verified by instrumenting the observer); and in the module, the
+     * taxcloud_captured flag would suppress the capture even if it did.
+     *
+     * The module's own defence is the one that matters here. The old
+     * count-of-shipments dedupe could not have caught this — the count is still
+     * 1 — so the case rested entirely on Magento's dispatch behavior, and a
+     * Magento upgrade that started dispatching on the track save would have
+     * filed every tracked shipment as a second sale.
      */
     public function testAddingTrackingToTheOnlyShipmentDoesNotCaptureTwice(): void
     {
@@ -116,4 +119,109 @@ class CaptureOnShipmentTest extends IntegrationTestCase
             . 'would be reported to TaxCloud twice.'
         );
     }
+
+    /**
+     * A capture that FAILS at the first shipment is retried at the second, and
+     * the order ends up filed exactly once.
+     *
+     * This is the regression the change exists for, and the one unit tests
+     * cannot reach: it needs real Magento events, dispatched by real shipment
+     * saves, against the real observer wiring. Before the fix, a count of the
+     * order's shipments suppressed every event after the first — so a transient
+     * failure on shipment #1 (a transport error, an expired credential) meant
+     * the sale was NEVER filed, with no cron or CLI that would have picked it
+     * up. Tax collected from the customer, never reported.
+     *
+     * The order is deliberately shipped in two parts, which is the shape that
+     * makes the retry reachable at all.
+     */
+    public function testAFailedCaptureIsRetriedOnTheNextShipment(): void
+    {
+        $soap = $this->soapClient();
+
+        // Fail the first authorizedWithCapture, succeed on every later one.
+        $attempts = 0;
+        $soap->setResponse('authorizedWithCapture', static function () use (&$attempts) {
+            $attempts++;
+
+            if ($attempts === 1) {
+                return [
+                    'AuthorizedWithCaptureResult' => [
+                        'ResponseType' => 'Error',
+                        'Messages' => [
+                            'ResponseMessage' => ['Message' => 'Simulated transport failure'],
+                        ],
+                    ],
+                ];
+            }
+
+            return [
+                'AuthorizedWithCaptureResult' => ['ResponseType' => 'OK', 'Messages' => ''],
+            ];
+        });
+
+        $order = $this->placeOrder('default', 2);
+        $itemIds = [];
+        foreach ($order->getAllItems() as $item) {
+            $itemIds[(int) $item->getId()] = 1.0;
+        }
+
+        // Shipment #1 — capture is attempted and fails.
+        $this->createPartialShipment($order, $itemIds);
+
+        $this->assertSame(
+            1,
+            $soap->callCount('authorizedWithCapture'),
+            'The first shipment must attempt the capture.'
+        );
+        $this->assertOrderCapturedFlag(
+            $this->reloadOrder($order),
+            false,
+            'A failed capture must not flag the order as captured — the flag is what '
+            . 'suppresses the retry, and the cancel flow reads it to decide whether to reverse.'
+        );
+
+        // Shipment #2 — the remainder. The order is still unflagged, so capture retries.
+        $this->createPartialShipment($this->reloadOrder($order), $itemIds);
+
+        $this->assertSame(
+            2,
+            $soap->callCount('authorizedWithCapture'),
+            'The second shipment must retry the capture that failed. Before this change '
+            . 'the shipment count guard swallowed it and the order was never filed.'
+        );
+        $this->assertOrderCapturedFlag(
+            $this->reloadOrder($order),
+            true,
+            'The retry succeeded, so the order is now recorded as captured.'
+        );
+    }
+
+    /**
+     * The retry is bounded by the flag, not by luck: once the sale is filed, a
+     * third shipment must not file it again. Guards the obvious failure mode of
+     * the test above — "retries forever" would be as wrong as "never retries".
+     */
+    public function testTheRetryStopsOnceTheOrderIsCaptured(): void
+    {
+        $soap = $this->soapClient();
+
+        $order = $this->placeOrder('default', 3);
+        $itemIds = [];
+        foreach ($order->getAllItems() as $item) {
+            $itemIds[(int) $item->getId()] = 1.0;
+        }
+
+        $this->createPartialShipment($order, $itemIds);
+        $this->createPartialShipment($this->reloadOrder($order), $itemIds);
+        $this->createPartialShipment($this->reloadOrder($order), $itemIds);
+
+        $this->assertSame(
+            1,
+            $soap->callCount('authorizedWithCapture'),
+            'Capture succeeded on the first shipment, so the two later shipments must '
+            . 'not file the sale again.'
+        );
+    }
+
 }

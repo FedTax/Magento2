@@ -97,9 +97,9 @@ class Router implements GatewayInterface
     /**
      * @inheritDoc
      */
-    public function authorizeCapture($order)
+    public function authorizeCapture($order, $completedAt = null)
     {
-        return $this->target($order ? $order->getStoreId() : null)->authorizeCapture($order);
+        return $this->target($order ? $order->getStoreId() : null)->authorizeCapture($order, $completedAt);
     }
 
     /**

@@ -146,8 +146,12 @@ class RestRequestBuilder
      *
      * Per-line tax is supplied from the order's stored amounts — the amounts
      * the customer was actually charged — rather than recalculated at capture
-     * time; transactionDate is the order's placement time and completedDate is
-     * now (the capture trigger already decided when this runs).
+     * time. transactionDate is the order's placement time; completedDate is the
+     * creation time of the document that triggered the capture (order, invoice
+     * or shipment, per the store's capture trigger), so a capture retried at a
+     * later document files under that document rather than under the retry's
+     * wall clock. Null falls back to now — a real path at order placement,
+     * where the order is not yet persisted and has no created_at.
      *
      * Returns null when no valid origin or destination can be built: a v3
      * order requires both, and filing one with a fabricated address would be
@@ -156,9 +160,10 @@ class RestRequestBuilder
      * @param \Magento\Sales\Model\Order $order
      * @param string|null $orderIdOverride Override order id (exempt re-create); defaults to the increment id
      * @param bool $exempt Mark the order fully exempt (tax-only-refund re-create)
+     * @param string|null $completedAt Triggering document's created_at (UTC); null means now
      * @return array|null
      */
-    public function buildOrderPayload($order, $orderIdOverride = null, $exempt = false)
+    public function buildOrderPayload($order, $orderIdOverride = null, $exempt = false, $completedAt = null)
     {
         $store = $order->getStoreId();
 
@@ -240,7 +245,7 @@ class RestRequestBuilder
             'orderId' => (string) ($orderIdOverride ?? $order->getIncrementId()),
             'customerId' => (string) ($order->getCustomerId() ?? $this->config->getGuestCustomerId($store)),
             'transactionDate' => $this->toRfc3339($order->getCreatedAt()),
-            'completedDate' => $this->toRfc3339(null),
+            'completedDate' => $this->toRfc3339($completedAt),
             'currency' => ['currencyCode' => $this->currencyCode($order->getOrderCurrencyCode())],
             'origin' => $this->toV3Address($origin),
             'destination' => $this->toV3Address($destination),

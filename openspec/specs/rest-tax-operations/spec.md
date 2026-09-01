@@ -30,15 +30,19 @@ For a REST-selected store, a tax lookup for a quote SHALL be performed by creati
 
 ### Requirement: Order capture creates a v3 order directly
 
-For a REST-selected store, capturing an order SHALL create a v3 order on the store's connection directly from the Magento order data — line items with their store-resolved TICs, effective prices, quantities, and each line's tax amount and rate as recorded on the Magento order — with the transaction date taken from the order's placement time and the completed date set at capture time.
+For a REST-selected store, capturing an order SHALL create a v3 order on the store's connection directly from the Magento order data — line items with their store-resolved TICs, effective prices, quantities, and each line's tax amount and rate as recorded on the Magento order — with the transaction date taken from the order's placement time and the completed date taken from the creation time of the document that triggered the capture, falling back to the current time when no such time is available.
 
 Composite products SHALL file as the lines that carry their taxable basis, which is the same set of lines the cart was filed under (see the `composite-product-tax` capability): a parent-priced composite (configurable, fixed-price bundle) files its parent only, and its zero-priced child rows SHALL never file as additional lines — including when capture runs before the order is persisted and child rows are not yet linked to their parent by ID; a children-priced composite (dynamic-price bundle) files its selections, and the wrapper SHALL NOT file as a line. Because a v3 refund references an order's item identifiers by name, an order filed under identifiers its cart did not use cannot be cleanly refunded.
 
-Capture is whole-order: the operation SHALL NOT support partial capture. The result SHALL be reported as success only when the order is created or already exists in TaxCloud.
+When capture is triggered, whether it is whole-order, how a repeat attempt is suppressed and how a failed attempt is retried are transport-neutral and specified by the `order-capture-lifecycle` capability; this requirement covers only how a capture, once decided upon, is expressed over v3. The result SHALL be reported as success only when the order is created or already exists in TaxCloud.
 
 #### Scenario: Successful capture
 - **WHEN** an order on a REST-selected store is captured per the store's capture trigger
 - **THEN** a v3 order is created carrying the order's stored per-line tax, marked completed, and the operation reports success
+
+#### Scenario: Completed date comes from the triggering document
+- **WHEN** an order on a REST-selected store is captured on the invoice-payment or shipment trigger
+- **THEN** the v3 order's completed date is that invoice's or shipment's creation time, while its transaction date remains the order's placement time
 
 #### Scenario: Composite product files a single line
 - **WHEN** an order containing a configurable (or fixed-price bundle) product is captured at order placement, before the order has been persisted

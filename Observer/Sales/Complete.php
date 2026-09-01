@@ -135,8 +135,9 @@ class Complete implements ObserverInterface
         // Calculation-only stores never push the sale to TaxCloud — another
         // system owns that side of the integration. Skipping here also leaves
         // taxcloud_captured unset, which keeps the cancel flow a no-op for
-        // these orders. Gated after the trigger check so this logs once per
-        // order rather than once per lifecycle event.
+        // these orders. Gated after the trigger check, so it logs once per
+        // matching lifecycle event: an order fulfilled in parts logs once per
+        // document, which is the same shape as the retry path below.
         if ($this->config->isCalculationsOnly($storeId)) {
             $this->tclogger->info(
                 'Skipping authorizeCapture for order ' . $order->getIncrementId() . ' (calculations-only mode)'
@@ -144,21 +145,25 @@ class Complete implements ObserverInterface
             return;
         }
 
-        // Already reported — don't send the sale again.
+        // Already reported — don't send the sale again. This flag is the ONLY
+        // capture dedupe.
         //
-        // AuthorizedWithCapture carries no amounts or items: it just flips the
-        // whole cart recorded by the checkout Lookup to captured. So a repeat
-        // call cannot capture "the rest" of anything, and TaxCloud answers it
-        // with "This transaction has already been marked as authorized" (which
-        // Api::authorizeCapture maps back to success). Nothing is mis-filed, but
-        // the round-trip is pure waste and the warning it leaves in the log
-        // reads like a fault.
+        // Counting the order's invoices or shipments used to guard this as
+        // well, and could not: the two events are dispatched at different
+        // points relative to their document being written —
+        // sales_order_invoice_pay fires from Invoice::register() before the
+        // invoice row exists, sales_order_shipment_save_after fires after it —
+        // so the same "more than one document" test meant two different things
+        // and neither answered the actual question, which is whether the order
+        // has been filed. Worse, on the shipment path it suppressed the retry
+        // of a capture that had FAILED, and an order whose first shipment
+        // failed was then never filed at all.
         //
-        // The count-based dedupe above cannot cover this on its own:
-        // sales_order_invoice_pay is dispatched from Invoice::register() before
-        // the invoice is written, so the collection is always one short, and a
-        // store that changes capture_trigger mid-lifecycle can make a later
-        // event newly eligible for an order captured under the old setting.
+        // Capture is whole-order on both transports, so a repeat call could
+        // never capture "the rest" of anything; TaxCloud answers one with an
+        // already-exists response that both gateways map back to success. The
+        // flag therefore only saves a wasted round-trip and a log warning that
+        // reads like a fault — a lost flag write cannot double-file.
         if ($order->getData('taxcloud_captured')) {
             $this->tclogger->info(
                 'Skipping authorizeCapture for order ' . $order->getIncrementId()
@@ -169,7 +174,7 @@ class Complete implements ObserverInterface
 
         $this->tclogger->info('Running Observer ' . $eventName . ' (capture trigger: ' . $configuredTrigger . ')');
 
-        if ($this->tcapi->authorizeCapture($order)) {
+        if ($this->tcapi->authorizeCapture($order, $this->getCompletedAtFromObserver($observer, $eventName))) {
             $this->markCapturedInTaxcloud($order);
         }
     }
@@ -197,7 +202,9 @@ class Complete implements ObserverInterface
     }
 
     /**
-     * Get order from observer based on event. Returns null if we should skip (e.g. not first invoice/shipment).
+     * Resolve the order the event concerns. Null only for an event this
+     * observer does not handle — whether to capture is decided in execute(),
+     * against the taxcloud_captured flag, not here.
      *
      * @param Observer $observer
      * @param string $eventName
@@ -212,21 +219,47 @@ class Complete implements ObserverInterface
         }
 
         if ($eventName === self::EVENT_INVOICE_PAY) {
-            $order = $event->getInvoice()->getOrder();
-            if ($order->getInvoiceCollection()->getSize() > 1) {
-                return null;
-            }
-            return $order;
+            return $event->getInvoice()->getOrder();
         }
 
         if ($eventName === self::EVENT_SHIPMENT_SAVE_AFTER) {
-            $order = $event->getShipment()->getOrder();
-            if ($order->getShipmentsCollection()->getSize() > 1) {
-                return null;
-            }
-            return $order;
+            return $event->getShipment()->getOrder();
         }
 
         return null;
+    }
+
+    /**
+     * The creation time of the document that triggered this capture — the
+     * order, the invoice or the shipment — which is the date TaxCloud files
+     * the sale under. Taking it from the document rather than from the clock
+     * keeps a capture retried at a later fulfillment document in the period
+     * that document belongs to.
+     *
+     * Null when the document carries no timestamp yet, which is the normal
+     * case at sales_order_place_after: the order has not been saved, so it has
+     * no created_at. The gateways fall back to now.
+     *
+     * @param Observer $observer
+     * @param string $eventName
+     * @return string|null Magento datetime string (UTC)
+     */
+    private function getCompletedAtFromObserver(Observer $observer, $eventName)
+    {
+        $event = $observer->getEvent();
+
+        if ($eventName === self::EVENT_ORDER_PLACE_AFTER) {
+            $document = $event->getOrder();
+        } elseif ($eventName === self::EVENT_INVOICE_PAY) {
+            $document = $event->getInvoice();
+        } elseif ($eventName === self::EVENT_SHIPMENT_SAVE_AFTER) {
+            $document = $event->getShipment();
+        } else {
+            return null;
+        }
+
+        $createdAt = $document ? $document->getCreatedAt() : null;
+
+        return $createdAt !== null && $createdAt !== '' ? (string) $createdAt : null;
     }
 }

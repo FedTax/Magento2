@@ -502,7 +502,7 @@ class Api implements GatewayInterface
      * @param $order
      * @return bool
      */
-    public function authorizeCapture($order)
+    public function authorizeCapture($order, $completedAt = null)
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
@@ -518,7 +518,7 @@ class Api implements GatewayInterface
 
         $dup = 'This transaction has already been marked as authorized';
 
-        $params = $this->requestBuilder->buildAuthorizeCaptureParams($order);
+        $params = $this->requestBuilder->buildAuthorizeCaptureParams($order, null, $completedAt);
 
         // Call before event
         $params = $this->eventDispatcher->dispatchBefore('taxcloud_authorized_with_capture_before', $params, [

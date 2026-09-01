@@ -163,6 +163,54 @@ class RouterTest extends TestCase
     }
 
     /**
+     * The capture completion time is part of the dispatch contract: whatever
+     * the observer resolved from the triggering document must reach the
+     * selected transport unchanged, because it is the date the sale files
+     * under. A router that dropped it would silently re-introduce filing at
+     * the gateway's wall clock.
+     */
+    public function testCaptureCompletionTimeIsForwardedToTheSelectedTransport()
+    {
+        $router = $this->router([
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 7, 'rest'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 8, 'soap'],
+        ]);
+
+        $restOrder = $this->createMock(\Magento\Sales\Model\Order::class);
+        $restOrder->method('getStoreId')->willReturn(7);
+        $soapOrder = $this->createMock(\Magento\Sales\Model\Order::class);
+        $soapOrder->method('getStoreId')->willReturn(8);
+
+        $this->rest->expects($this->once())->method('authorizeCapture')
+            ->with($restOrder, '2026-03-14 09:15:00')->willReturn(true);
+        $this->soap->expects($this->once())->method('authorizeCapture')
+            ->with($soapOrder, '2026-03-14 09:15:00')->willReturn(true);
+
+        $this->assertTrue($router->authorizeCapture($restOrder, '2026-03-14 09:15:00'));
+        $this->assertTrue($router->authorizeCapture($soapOrder, '2026-03-14 09:15:00'));
+    }
+
+    /**
+     * Omitting the completion time passes null through rather than the
+     * router inventing one — the fallback to "now" belongs to the transport
+     * builders, in one place, not to the dispatch seam.
+     */
+    public function testOmittedCompletionTimeIsForwardedAsNull()
+    {
+        $router = $this->router([
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 7, 'rest'],
+        ]);
+
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getStoreId')->willReturn(7);
+
+        $this->rest->expects($this->once())->method('authorizeCapture')
+            ->with($order, null)->willReturn(true);
+
+        $this->assertTrue($router->authorizeCapture($order));
+    }
+
+    /**
      * Mixed fleet: store 7 selects rest, store 8 selects soap — operations for
      * entities of each store reach their own transport in one process.
      */
