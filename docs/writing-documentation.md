@@ -54,8 +54,44 @@ merchant-facing pages.
   appear at all.
 - **Flag anything needing a developer** with a note admonition, and say what to
   hand over.
-- **No screenshots of things that change often.** Field labels and admin paths
-  in text survive UI reskins; screenshots do not.
+- **Screenshots orient, text explains.** Use one to answer "where is this
+  screen" or "what does this form look like" — never to enumerate values a
+  reader needs to act on. A settings table in text stays accurate and
+  searchable; a screenshot of the same fields goes stale silently. See
+  *Screenshots*, below.
+
+## Screenshots
+
+Screenshots come from the **E2E stack**, never from a real store:
+
+```bash
+make e2e-setup     # one-time, ~10-15 min
+```
+
+It installs a throwaway Magento with credentials that are already public in this
+repository (`admin` / `1234567a`), 2FA disabled, and seeded data — products with
+TICs, an exempt customer, US addresses. That makes every screenshot
+reproducible: re-run and they regenerate.
+
+!!! warning "Never screenshot a real store"
+    The TaxCloud Settings page shows the API ID and Connection ID in plain text,
+    and a customer page shows real people. Anything captured from a live or
+    developer store leaks credentials or personal data into a public site. Use
+    the E2E stack, and set placeholder credentials before capturing that screen.
+
+Rules for the images themselves:
+
+- **Crop to the thing being discussed.** A full-page admin screenshot is mostly
+  Magento chrome the reader already knows.
+- **Placeholder credentials only** — never a real key, connection ID, or
+  customer's details.
+- **Name the file after the page and subject**: `quickstart-shipping-origin.png`,
+  `certificates-add-form.png`.
+- **Always write alt text** that says what the reader should see, so the page
+  works without images.
+- **A slot with no image yet** is marked in the source as
+  `<!-- SCREENSHOT: description. File: images/name.png -->` so it renders clean
+  and is easy to find later.
 
 ## Formatting conventions
 

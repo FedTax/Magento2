@@ -160,7 +160,7 @@ lands. Do not fork a parallel seed — extend the shared one.
 ## CI
 
 E2E runs as the **`e2e` job** in the unified pipeline
-[`.github/workflows/test.yml`](../.github/workflows/test.yml), alongside
+[`.github/workflows/test.yml`](https://github.com/FedTax/Magento2/blob/main/.github/workflows/test.yml), alongside
 `unit-tests`, `integration`, `lint-code`, and `security-scan` — the same single
 workflow that gates a release.
 

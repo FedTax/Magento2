@@ -2,7 +2,7 @@
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
         e2e-trace e2e-clean e2e-cleanup-certificates \
-        docs docs-build docs-clean
+        docs docs-build docs-clean docs-screenshots
 
 # Defaults — override on the command line, e.g.:
 #   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
@@ -59,6 +59,8 @@ help:
 	@echo "                           http://127.0.0.1:8000 (Ctrl-C to stop)"
 	@echo "  make docs-build        - Build the static site into ./site to check it compiles"
 	@echo "  make docs-clean        - Remove the local venv and built site"
+	@echo "  make docs-screenshots  - Regenerate docs/images/*.png from the E2E store"
+	@echo "                           (needs make e2e-setup + make e2e-install first)"
 	@echo ""
 	@echo "Lint:"
 	@echo "  make lint              - Run PHP CodeSniffer (Magento2 coding standard)"
@@ -281,3 +283,12 @@ docs-build: $(DOCS_MKDOCS)
 
 docs-clean:
 	rm -rf $(DOCS_VENV) site
+
+# Regenerate the documentation screenshots from the seeded E2E store.
+#
+# The E2E store is the only acceptable source: its admin credentials are public
+# in this repository, 2FA is off, and its catalogue and customers are fixtures —
+# so no live API key or real customer can end up on the public docs site.
+# Requires `make e2e-setup` (the store) and `make e2e-install` (the browser).
+docs-screenshots:
+	@cd $(E2E_DIR) && npx playwright test --project=docs-screenshots

@@ -71,7 +71,11 @@ export default defineConfig({
       // exemptions-on project arranges. Without this they would also run here,
       // against the seeded default of OFF, and fail for the right reason at the
       // wrong time.
-      testIgnore: /specs\/exemptions-on\//,
+      //
+      // specs/docs/ generates the documentation screenshots and asserts nothing;
+      // it is run on demand by `make docs-screenshots`, never as part of a test
+      // run.
+      testIgnore: [/specs\/exemptions-on\//, /specs\/docs\//],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -126,6 +130,28 @@ export default defineConfig({
     {
       name: 'exemptions-on-teardown',
       testMatch: /exemptions-on\.teardown\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Documentation screenshots. Not part of any test run — excluded from
+    // `chromium` above and depending on nothing, so `make docs-screenshots`
+    // runs the trio alone against an already-installed store. Several
+    // documented screens only exist with exemptions on, hence the setup and the
+    // teardown that restores the seeded default of off.
+    {
+      name: 'docs-screenshots-setup',
+      testMatch: /docs-screenshots\.setup\.ts/,
+      teardown: 'docs-screenshots-teardown',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'docs-screenshots',
+      testMatch: /specs\/docs\/.*\.spec\.ts/,
+      dependencies: ['docs-screenshots-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'docs-screenshots-teardown',
+      testMatch: /docs-screenshots\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
   ],

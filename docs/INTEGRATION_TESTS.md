@@ -87,10 +87,10 @@ rm -rf ../magento-community-2.4.8-p5     # adjust to match your matrix row
 ## How the test runtime is wired
 
 Tests boot the actual installed Magento via a custom bootstrap at
-[`Test/Integration/bootstrap.php`](../Test/Integration/bootstrap.php). That
+[`Test/Integration/bootstrap.php`](https://github.com/FedTax/Magento2/blob/main/Test/Integration/bootstrap.php). That
 bootstrap calls Magento's `Bootstrap::create()`, grabs the ObjectManager,
 and stashes it in
-[`Taxcloud\Magento2\Test\Integration\TestEnvironment`](../Test/Integration/TestEnvironment.php).
+[`Taxcloud\Magento2\Test\Integration\TestEnvironment`](https://github.com/FedTax/Magento2/blob/main/Test/Integration/TestEnvironment.php).
 Tests pull it back via `TestEnvironment::getObjectManager()` (or the
 shorthand `TestEnvironment::get(SomeClass::class)`).
 
@@ -104,7 +104,7 @@ and makes the install pipeline far more fragile.
 
 There is no committed DB dump. Instead, the install script applies a known
 test state programmatically on top of a clean `setup:install` via
-[`scripts/seed-test-data.php`](../scripts/seed-test-data.php) — a standalone
+[`scripts/seed-test-data.php`](https://github.com/FedTax/Magento2/blob/main/scripts/seed-test-data.php) — a standalone
 PHP script that bootstraps the installed Magento and uses standard Magento
 APIs (repositories, config writer, indexers). Because the state is created
 through the application rather than restored as SQL, the same script works
@@ -169,12 +169,12 @@ the same approach Magento core uses when stubbing external services.
 `Taxcloud\Magento2\Model\Api` gets its client from Magento's
 `Magento\Framework\Webapi\Soap\ClientFactory` (`create()` returns a
 `\SoapClient`). The harness in
-[`Test/Integration/IntegrationTestCase.php`](../Test/Integration/IntegrationTestCase.php)
+[`Test/Integration/IntegrationTestCase.php`](https://github.com/FedTax/Magento2/blob/main/Test/Integration/IntegrationTestCase.php)
 does two things in `installSoapMock()`:
 
 1. **Rebinds the factory.** It puts an anonymous `ClientFactory` subclass into
    the ObjectManager whose `create()` returns a
-   [`RecordingSoapClient`](../Test/Integration/Doubles/RecordingSoapClient.php)
+   [`RecordingSoapClient`](https://github.com/FedTax/Magento2/blob/main/Test/Integration/Doubles/RecordingSoapClient.php)
    instead of a real `\SoapClient`.
 2. **Evicts the cached singletons** that would otherwise still hold the real
    client — `Api`, the TaxCloud `Tax` total model, and the four observers.
@@ -197,7 +197,7 @@ call** (method name + argument payload) and **returns a canned response**.
 ### Canned responses
 
 Reusable happy-path responses live as PHP fixtures under
-[`Test/Integration/_files/soap_responses/`](../Test/Integration/_files/soap_responses/),
+[`Test/Integration/_files/soap_responses/`](https://github.com/FedTax/Magento2/tree/main/Test/Integration/_files/soap_responses/),
 one file per operation, each returning an array shaped like the real WSDL's
 response element:
 
@@ -250,7 +250,7 @@ The base class provides the whole real lifecycle so the events actually fire:
 `placeOrder()`, `payInvoice()`, `createShipment()`, `cancelOrder()`,
 `refundOrder()`, plus `setCaptureTrigger()` / `writeConfig()` (which persist
 config and `reinit()` the shared config). Current coverage lives in
-[`Test/Integration/Observer/Sales/`](../Test/Integration/Observer/Sales/):
+[`Test/Integration/Observer/Sales/`](https://github.com/FedTax/Magento2/tree/main/Test/Integration/Observer/Sales/):
 
 | Test | Proves |
 | ---- | ------ |
@@ -261,7 +261,7 @@ config and `reinit()` the shared config). Current coverage lives in
 | `RefundOnCreditmemoTest` | credit memo → `Returned`, with payload items matching the memo |
 
 Multi-store scoping lives in
-[`Test/Integration/MultiStore/`](../Test/Integration/MultiStore/), built on the
+[`Test/Integration/MultiStore/`](https://github.com/FedTax/Magento2/tree/main/Test/Integration/MultiStore/), built on the
 seeded second store view (TaxCloud disabled at `stores/second`) plus the
 snapshot-restoring `setScopedConfig()` / `setSecondStoreConfig()` helpers and
 the `$storeCode` parameter on the quote/order builders. These tests run from
@@ -274,7 +274,7 @@ config resolves against the order's/quote's store, never the ambient one:
 | `DisabledStoreViewAdminLifecycleTest` | admin cancel/refund of a disabled-store order produces no TaxCloud traffic — no OrderDetails probe, no Returned (TC-2, TC-3) |
 | `EnabledStoreViewLifecycleTest` | with default scope disabled and the store view enabled under its own account, invoice capture and cancel reversal fire and carry the store view's credentials (TC-4, TC-5) |
 
-Beyond observer wiring, [`Test/Integration/Model/`](../Test/Integration/Model/)
+Beyond observer wiring, [`Test/Integration/Model/`](https://github.com/FedTax/Magento2/tree/main/Test/Integration/Model/)
 exercises tax collection, EAV, and config through the real stack:
 
 | Test | Proves |

@@ -231,7 +231,7 @@ Required for V3 REST.
 
 ### Verify Credentials
 
-**Type:** Button
+**Type:** Button (labelled **Test Connection**)
 
 Checks the credentials currently on screen — including ones you have typed but
 not yet saved — against TaxCloud, and reports back immediately. Use it before

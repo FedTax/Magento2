@@ -2,12 +2,6 @@
 
 > Sales Tax at the Speed of Commerce
 
-!!! warning "Work in progress"
-    This documentation site is being written. Most pages are still
-    placeholders — until they are filled in, the
-    [README](https://github.com/FedTax/Magento2#readme) remains the reference
-    documentation for the extension.
-
 This site documents the **TaxCloud extension for Magento 2 / Adobe Commerce**:
 installation, configuration, and how each feature behaves. It is written for
 store owners and administrators.
