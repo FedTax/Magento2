@@ -23,6 +23,14 @@ namespace Taxcloud\Magento2\Model;
  */
 class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
 {
+    /**
+     * Quote data key marking that this collector ran for the quote.
+     *
+     * Read by \Taxcloud\Magento2\Observer\Sales\VerifyTaxCollector at order
+     * placement. Deliberately not a db_schema column: it only has to survive
+     * from collectTotals() to submit within the same request.
+     */
+    public const COLLECTED_FLAG = 'taxcloud_tax_collected';
 
     /**
      * TaxCloud store-scoped configuration reader
@@ -107,6 +115,14 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Magento\Quote\Api\Data\ShippingAssignmentInterface $shippingAssignment,
         \Magento\Quote\Model\Quote\Address\Total $total
     ) {
+        // Diagnostics marker, set before the enabled check on purpose: it
+        // records that OUR class got the tax collector slot, which is a
+        // different question from whether the store has TaxCloud switched on.
+        // Its absence at order placement is how
+        // \Taxcloud\Magento2\Observer\Sales\VerifyTaxCollector detects that
+        // another module displaced us — a silent failure otherwise. Transient
+        // quote data with no db_schema column, so it is never persisted.
+        $quote->setData(self::COLLECTED_FLAG, true);
 
         // Resolve against the QUOTE's store, not the ambient request store:
         // in admin/API contexts (admin order creation, webhooks) the ambient

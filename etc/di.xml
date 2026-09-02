@@ -212,6 +212,30 @@
   </type>
 
   <!--
+    The collector verdict is the one thing NOT cached in the module's own type.
+    It describes DI state, not TaxCloud data, so it belongs in the config cache:
+    setup:upgrade and any module/DI change flush that type, which means a stale
+    verdict cannot outlive the thing that would change it. The notification's
+    dismissal controller cleans the same type, so acknowledging a conflict
+    invalidates the cached verdict for free.
+  -->
+  <type name="Taxcloud\Magento2\Model\Diagnostics\TaxCollectorDiagnostics">
+    <arguments>
+      <argument name="cache" xsi:type="object">Magento\Framework\App\Cache\Type\Config</argument>
+    </arguments>
+  </type>
+
+  <!--
+    The observer's rate limit is TaxCloud data, not DI state, so unlike the
+    verdict above it lives in the module's own cache type.
+  -->
+  <type name="Taxcloud\Magento2\Observer\Sales\VerifyTaxCollector">
+    <arguments>
+      <argument name="cache" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <!--
     TIC lookup follows the gateway's own rule: the store's api_type decides
     which API answers, so the picker can never disagree with the transport the
     same store transacts over. Both backends are proxied, so a fleet that only
@@ -230,6 +254,7 @@
     <arguments>
       <argument name="commands" xsi:type="array">
         <item name="taxcloud_migrate_credentials" xsi:type="object">Taxcloud\Magento2\Console\Command\MigrateCredentialsCommand</item>
+        <item name="taxcloud_diagnose" xsi:type="object">Taxcloud\Magento2\Console\Command\DiagnoseCommand</item>
       </argument>
     </arguments>
   </type>
