@@ -9,6 +9,8 @@ run-test.sh export-ignore
 scripts/ export-ignore
 docs/ export-ignore
 mkdocs.yml export-ignore
+CLAUDE.md export-ignore
+openspec/ export-ignore
 .env.example export-ignore
 docker-compose.yml export-ignore
 docker-compose.e2e.yml export-ignore
