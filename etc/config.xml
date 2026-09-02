@@ -39,5 +39,18 @@
         <capture_trigger>order_creation</capture_trigger>
       </taxcloud_settings>
     </tax>
+    <!--
+      Sibling of core's tax/notification/* section, and used the same way: the
+      documentation link the admin collector notification points at, plus the
+      acknowledged-conflict fingerprint the dismissal link writes. The
+      acknowledgement has no default and no system.xml field on purpose — it is
+      written by \Taxcloud\Magento2\Controller\Adminhtml\Notification\Ignore
+      and by nothing else.
+    -->
+    <taxcloud>
+      <notification>
+        <info_url>https://fedtax.github.io/Magento2/extension-conflicts/</info_url>
+      </notification>
+    </taxcloud>
   </default>
 </config>

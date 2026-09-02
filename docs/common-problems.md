@@ -25,6 +25,11 @@ credentials mean every lookup fails.
 **Did the call fail?** With [fallback](settings.md#fallback-to-magento-tax-rates)
 off, a failed lookup means no tax. [The log](logs.md) will say.
 
+**Is another tax extension installed?** Only one extension can calculate tax.
+If another one has taken over, TaxCloud still shows as enabled and its
+credentials still verify, but it is not calculating. See
+[Another extension is calculating tax](extension-conflicts.md).
+
 ## No tax on the cart page
 
 Expected. Until a shopper has entered a shipping address there is nothing to

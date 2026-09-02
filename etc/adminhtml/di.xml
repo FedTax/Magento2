@@ -36,4 +36,32 @@
       </argument>
     </arguments>
   </virtualType>
+
+  <!--
+    The collector notification is admin-only, and Magento's notification
+    MessageList is an adminhtml concern, so it is registered here rather than
+    in the global di.xml. Same wiring core's tax misconfiguration warning uses.
+  -->
+  <type name="Magento\Framework\Notification\MessageList">
+    <arguments>
+      <argument name="messages" xsi:type="array">
+        <item name="taxcloud_collector" xsi:type="string">Taxcloud\Magento2\Model\System\Message\Notifications</item>
+      </argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\System\Message\Notifications">
+    <arguments>
+      <argument name="notifications" xsi:type="array">
+        <!--
+          Ordered most to least actionable: an override means TaxCloud is not
+          running at all, interception means it may not be, and the later
+          collectors are context on top of either.
+        -->
+        <item name="collectorOverridden" xsi:type="object">Taxcloud\Magento2\Model\System\Message\Notification\CollectorOverridden</item>
+        <item name="collectorIntercepted" xsi:type="object">Taxcloud\Magento2\Model\System\Message\Notification\CollectorIntercepted</item>
+        <item name="diagnosticsUnavailable" xsi:type="object">Taxcloud\Magento2\Model\System\Message\Notification\DiagnosticsUnavailable</item>
+        <item name="collectorOverwritten" xsi:type="object">Taxcloud\Magento2\Model\System\Message\Notification\CollectorOverwritten</item>
+      </argument>
+    </arguments>
+  </type>
 </config>
