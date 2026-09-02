@@ -47,14 +47,8 @@ class VerifyTaxCollector implements ObserverInterface
 {
     /**
      * Cache key prefix for the per-store warning rate limit.
-     *
-     * Public so a test can clear one store's entry precisely. The entry
-     * outlives the process that wrote it, so a suite that places an order on an
-     * unhealthy store would otherwise be silenced for an hour by its own
-     * earlier run — with nothing to distinguish that from the warning never
-     * having fired.
      */
-    public const RATE_LIMIT_KEY_PREFIX = 'taxcloud_collector_warning_';
+    private const RATE_LIMIT_KEY_PREFIX = 'taxcloud_collector_warning_';
 
     /**
      * One warning per store per hour. A busy store that has lost the collector

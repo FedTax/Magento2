@@ -118,8 +118,11 @@ class TaxCollectorDiagnosticsTest extends TestCase
     {
         $pluginList = $this->createMock(PluginListInterface::class);
 
+        // '' is the head of the chain, standing for getNext()'s null $code.
+        // Not null itself: PHP 8.5 deprecates null as an array offset, and
+        // Magento's unit bootstrap promotes deprecations to test errors.
         $chain = [];
-        $previous = null;
+        $previous = '';
         foreach (array_keys($pluginsByCode) as $code) {
             $chain[$previous] = [DefinitionInterface::LISTENER_AROUND => $code];
             $previous = $code;
@@ -128,7 +131,7 @@ class TaxCollectorDiagnosticsTest extends TestCase
 
         $pluginList->method('getNext')->willReturnCallback(
             static function ($type, $method, $code = null) use ($chain) {
-                return $chain[$code] ?? [];
+                return $chain[$code ?? ''] ?? [];
             }
         );
         $pluginList->method('getPlugin')->willReturnCallback(

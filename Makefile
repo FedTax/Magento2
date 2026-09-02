@@ -291,4 +291,4 @@ docs-clean:
 # so no live API key or real customer can end up on the public docs site.
 # Requires `make e2e-setup` (the store) and `make e2e-install` (the browser).
 docs-screenshots:
-	@cd $(E2E_DIR) && npx playwright test --project=docs-screenshots
+	@cd $(E2E_DIR) && E2E_DOCS_SCREENSHOTS=1 npx playwright test --project=docs-screenshots

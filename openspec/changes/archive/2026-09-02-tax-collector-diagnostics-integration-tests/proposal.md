@@ -52,12 +52,9 @@ entire unit suite stays green.
   competing `sales.xml` would need `setup:upgrade` and `di:compile` inside the
   test run. The preference rebinding below reaches the same code path — the
   probe reading what the object manager actually resolves — without it.
-- **No change to production behavior.** One production edit was needed and is
-  noted here rather than smuggled in: `VerifyTaxCollector::RATE_LIMIT_KEY_PREFIX`
-  went from private to public so a test can clear one store's rate-limit entry
-  precisely. The entry outlives the process that wrote it, so a suite placing an
-  order on an unhealthy store would otherwise silence itself for an hour — with
-  nothing to distinguish that from the warning never firing. No behavior change.
+- **No change to production code.** An earlier revision made
+  `VerifyTaxCollector::RATE_LIMIT_KEY_PREFIX` public so a test could clear one
+  store's rate-limit entry; that test is gone and the constant is private again.
 - If a test here fails on the module's own logic, the finding is real and gets
   its own change.
 
