@@ -37,6 +37,36 @@
              question it answers is what was relied on, which cannot change. -->
         <column xsi:type="text" name="taxcloud_certificate_snapshot" nullable="true"
                 comment="Certificate detail as it stood when this order was placed"/>
+        <!-- Colorado Retail Delivery Fee, snapshotted from config at collect
+             time. Stored on every document because the config value changes
+             every July 1: capture and refunds must use what was charged, never
+             a later config read. Kept separate from tax/shipping totals for
+             reconciliation against TaxCloud's CO RDF return. -->
+        <column xsi:type="decimal" name="taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee charged on this order"/>
+        <column xsi:type="decimal" name="base_taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee charged on this order (base currency)"/>
+    </table>
+
+    <table name="quote_address">
+        <column xsi:type="decimal" name="taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee charged on this address"/>
+        <column xsi:type="decimal" name="base_taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee charged on this address (base currency)"/>
+    </table>
+
+    <table name="sales_invoice">
+        <column xsi:type="decimal" name="taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee settled by this invoice"/>
+        <column xsi:type="decimal" name="base_taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee settled by this invoice (base currency)"/>
+    </table>
+
+    <table name="sales_creditmemo">
+        <column xsi:type="decimal" name="taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee refunded by this credit memo"/>
+        <column xsi:type="decimal" name="base_taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
+                comment="Colorado Retail Delivery Fee refunded by this credit memo (base currency)"/>
     </table>
 
 </schema>

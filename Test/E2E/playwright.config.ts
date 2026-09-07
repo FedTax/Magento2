@@ -78,7 +78,7 @@ export default defineConfig({
       // specs/docs/ generates the documentation screenshots and asserts nothing;
       // it is run on demand by `make docs-screenshots`, never as part of a test
       // run.
-      testIgnore: [/specs\/exemptions-on\//, /specs\/docs\//],
+      testIgnore: [/specs\/exemptions-on\//, /specs\/colorado-on\//, /specs\/docs\//],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -133,6 +133,30 @@ export default defineConfig({
     {
       name: 'exemptions-on-teardown',
       testMatch: /exemptions-on\.teardown\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Colorado Retail Delivery Fee switched ON (with flat rate mapped as a
+    // motor-vehicle method). Off is the seeded/production default the other
+    // checkout specs rely on — an extra $0.31 row would shift their golden
+    // totals — so the fee pass runs last, guarded by its own teardown.
+    {
+      name: 'colorado-on-setup',
+      testMatch: /colorado-on\.setup\.ts/,
+      // After the exemptions pass, so the two state-flipping passes never
+      // interleave (same reasoning as exemptions-on-setup's dependency).
+      dependencies: ['exemptions-on'],
+      teardown: 'colorado-on-teardown',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'colorado-on',
+      testMatch: /specs\/colorado-on\/.*\.spec\.ts/,
+      dependencies: ['colorado-on-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'colorado-on-teardown',
+      testMatch: /colorado-on\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     // Documentation screenshots. Not part of a test run: `make docs-screenshots`

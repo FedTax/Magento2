@@ -87,6 +87,10 @@ marked *conditional* only appear once a related setting is turned on.
 | [Capture in TaxCloud](#capture-in-taxcloud) | Select | `On order creation` | On order creation, On payment, On shipment (conditional) |
 | [Enable Exemption Certificates](#enable-exemption-certificates) | Select | `No` | Yes, No |
 | [Company Name](#company-name) | Text | — | Your business name (conditional) |
+| [Collect Retail Delivery Fee](#colorado-retail-delivery-fee) | Select | `Disable` | Enable, Disable (Colorado Retail Delivery Fee group) |
+| [Motor-Vehicle Delivery Methods](#colorado-retail-delivery-fee) | Multiselect | — | Your shipping methods (conditional) |
+| [Fee Amount](#colorado-retail-delivery-fee) | Number (dollars) | `0.31` | `0.00`–`2.00` (conditional) |
+| [Retail Delivery Fee TIC](#colorado-retail-delivery-fee) | Text (autocomplete) | `11098` | Any TaxCloud TIC (conditional) |
 
 ---
 
@@ -297,6 +301,12 @@ use changes what your customers pay.
 
 Pick the one that describes what you actually charge.
 
+!!! warning "TIC 11098 is not a shipping TIC"
+    `11098` identifies the [Colorado Retail Delivery Fee](colorado-retail-delivery-fee.md)
+    and is refused here (and as a Default TIC): a shipping charge under that
+    code would be reported to Colorado as fee revenue and your customers would
+    not be charged tax on it. Collect the fee with its own settings instead.
+
 ---
 
 ### Cache Lifetime
@@ -462,6 +472,19 @@ it appears on your TaxCloud account.
 
 ---
 
+### Colorado Retail Delivery Fee
+
+A nested **Colorado Retail Delivery Fee** group holds everything for the fee: the **Collect Retail Delivery Fee** switch (default `Disable`), the
+**Motor-Vehicle Delivery Methods** that trigger the fee, the **Fee Amount**
+charged per eligible order (default `0.31`, changed by Colorado every July 1),
+and the **Retail Delivery Fee TIC** identifying the fee line to TaxCloud
+(default `11098`).
+
+These four settings have a page of their own:
+[Colorado Retail Delivery Fee](colorado-retail-delivery-fee.md).
+
+---
+
 ## Product settings
 
 *Catalog → Products →* edit a product
@@ -591,6 +614,10 @@ the labels shown in the admin.
 | `tax/taxcloud_settings/capture_trigger` | `order_creation` | `order_creation`, `payment`, `shipment` |
 | `tax/taxcloud_settings/exemptions_enabled` | `0` | `1` = Yes, `0` = No |
 | `tax/taxcloud_settings/company_name` | — | Text |
+| `tax/taxcloud_settings/co_rdf_enabled` | `0` | `1` / `0` |
+| `tax/taxcloud_settings/co_rdf_delivery_methods` | — | Comma-separated shipping method codes |
+| `tax/taxcloud_settings/co_rdf_amount` | `0.31` | Dollars, `0.00`–`2.00` |
+| `tax/taxcloud_settings/co_rdf_tic` | `11098` | TIC |
 | `tax/taxcloud_settings/rest_endpoint` | `https://api.v3.taxcloud.com` | URL — no admin field |
 | `tax/taxcloud_settings/rest_auth_endpoint` | TaxCloud credential-exchange host | URL — no admin field |
 

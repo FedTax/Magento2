@@ -60,6 +60,7 @@ trait BuildsGatewayApi
             $leaf['regionFactory'],
             $leaf['productTicService'],
             $leaf['refundDistributor'],
+            new \Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService($config, $leaf['regionFactory']),
             new NullLogger()
         );
         $responseMapper = new ResponseMapper($leaf['cartItemResponseHandler'], new NullLogger());

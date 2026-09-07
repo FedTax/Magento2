@@ -37,6 +37,15 @@
         <fallback_to_magento>0</fallback_to_magento>
         <calculations_only>0</calculations_only>
         <capture_trigger>order_creation</capture_trigger>
+        <!--
+          Colorado Retail Delivery Fee. Off until a merchant deliberately
+          enables it: enabling asserts liability for the fee. The amount is
+          the module's authority — TaxCloud zero-rates the line and files
+          whatever is sent (see system.xml).
+        -->
+        <co_rdf_enabled>0</co_rdf_enabled>
+        <co_rdf_amount>0.31</co_rdf_amount>
+        <co_rdf_tic>11098</co_rdf_tic>
       </taxcloud_settings>
     </tax>
     <!--

@@ -24,5 +24,8 @@
                    name="taxcloud_order_certificate"
                    template="Taxcloud_Magento2::order/certificate.phtml"/>
         </referenceContainer>
+        <referenceBlock name="order_totals">
+            <block class="Taxcloud\Magento2\Block\Sales\RetailDeliveryFeeTotal" name="taxcloud_rdf_total"/>
+        </referenceBlock>
     </body>
 </page>

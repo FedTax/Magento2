@@ -85,7 +85,15 @@ class CartItemResponseHandler
         foreach ($processedItems as $item) {
             $index = $item['CartItemIndex'];
             $taxAmount = $item['TaxAmount'];
-            
+
+            // The Colorado Retail Delivery Fee line routes nowhere: TaxCloud
+            // zero-rates it, so its echoed tax is always 0, and the sentinel
+            // has no entry in $indexedItems — falling through to the product
+            // branch would key the result by a missing code.
+            if ($cartItems[$index]['ItemID'] === \Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService::ITEM_ID) {
+                continue;
+            }
+
             if ($cartItems[$index]['ItemID'] === 'shipping') {
                 $result[Api::ITEM_TYPE_SHIPPING] += $taxAmount;
             } else {

@@ -57,6 +57,40 @@ export class AdminOrderPage {
       .toContainText('created the credit memo', { timeout: 60_000 });
   }
 
+  /**
+   * Create a PARTIAL credit memo — refund only `qty` units of the first order
+   * item — and refund it offline. Opens the New Credit Memo form, adjusts the
+   * quantity, recalculates via "Update Qty's", zeroes refund shipping, then
+   * submits.
+   */
+  async refundOfflinePartial(qty: number): Promise<void> {
+    const creditMemo = this.page.locator('button:has-text("Credit Memo")').first();
+    await creditMemo.waitFor({ timeout: 30_000 });
+    await creditMemo.click();
+
+    // Reduce the refund quantity. Magento enables "Update Qty's" only when a
+    // qty field fires a `change` event whose value differs from the value
+    // captured at load (items.phtml checkButtonsRelation) — .fill() alone does
+    // not reliably fire it, leaving the button disabled forever, so dispatch
+    // `change` explicitly. Target the button by its stable class, not its
+    // apostrophe'd label, and wait for it to actually enable before clicking.
+    const qtyInput = this.page.locator('input.qty-input').first();
+    await qtyInput.waitFor({ timeout: 30_000 });
+    await qtyInput.fill(String(qty));
+    await qtyInput.dispatchEvent('change');
+
+    const updateButton = this.page.locator('button.update-button').first();
+    await expect(updateButton).toBeEnabled({ timeout: 15_000 });
+    await updateButton.click();
+
+    // "Update Qty's" reloads the credit-memo form with recalculated totals.
+    const refund = this.page.locator('button:has-text("Refund Offline")').first();
+    await refund.waitFor({ timeout: 30_000 });
+    await refund.click();
+    await expect(this.page.locator('.message-success').first())
+      .toContainText('created the credit memo', { timeout: 60_000 });
+  }
+
   async status(): Promise<string> {
     return (await this.page.locator('#order_status').first().innerText()).trim();
   }
@@ -64,5 +98,22 @@ export class AdminOrderPage {
   /** The "Total Refunded" amount from the order-view totals, e.g. "$16.24". */
   async totalRefunded(): Promise<string> {
     return (await this.page.locator('tr:has-text("Total Refunded") .price').first().innerText()).trim();
+  }
+
+  /** The "Grand Total" amount from the order-view totals, e.g. "$16.55". */
+  async grandTotal(): Promise<string> {
+    return (await this.page.locator('tr:has-text("Grand Total") .price').first().innerText()).trim();
+  }
+
+  /**
+   * A named row from the order-view totals (e.g. "Colorado Retail Delivery
+   * Fee"), or null when no such row is rendered.
+   */
+  async totalsRowAmount(label: string): Promise<string | null> {
+    const row = this.page.locator(`tr:has-text("${label}") .price`).first();
+    if ((await row.count()) === 0) {
+      return null;
+    }
+    return (await row.innerText()).trim();
   }
 }

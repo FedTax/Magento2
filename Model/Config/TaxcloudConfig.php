@@ -78,6 +78,15 @@ class TaxcloudConfig
     public const DEFAULT_TIC = '00000';
 
     /**
+     * Colorado Retail Delivery Fee defaults. The amount is the module's
+     * authority: TaxCloud zero-rates the TIC 11098 line and remits whatever
+     * amount is sent, without calculating or validating it. Colorado resets
+     * the rate every July 1.
+     */
+    public const DEFAULT_CO_RDF_AMOUNT = 0.31;
+    public const DEFAULT_CO_RDF_TIC = '11098';
+
+    /**
      * Default shipping TIC when configuration is empty.
      */
     public const DEFAULT_SHIPPING_TIC = '11010';
@@ -127,6 +136,10 @@ class TaxcloudConfig
     public const XML_PATH_CAPTURE_TRIGGER = 'tax/taxcloud_settings/capture_trigger';
     public const XML_PATH_DEFAULT_TIC = 'tax/taxcloud_settings/default_tic';
     public const XML_PATH_SHIPPING_TIC = 'tax/taxcloud_settings/shipping_tic';
+    public const XML_PATH_CO_RDF_ENABLED = 'tax/taxcloud_settings/co_rdf_enabled';
+    public const XML_PATH_CO_RDF_DELIVERY_METHODS = 'tax/taxcloud_settings/co_rdf_delivery_methods';
+    public const XML_PATH_CO_RDF_AMOUNT = 'tax/taxcloud_settings/co_rdf_amount';
+    public const XML_PATH_CO_RDF_TIC = 'tax/taxcloud_settings/co_rdf_tic';
     /**#@-*/
 
     /**
@@ -474,6 +487,73 @@ class TaxcloudConfig
         $value = $this->scopeConfig->getValue(self::XML_PATH_SHIPPING_TIC, ScopeInterface::SCOPE_STORE, $store);
 
         return ($value !== null && $value !== '') ? (string) $value : self::DEFAULT_SHIPPING_TIC;
+    }
+
+    /**
+     * Whether Colorado Retail Delivery Fee collection is enabled.
+     *
+     * Enabling is the merchant's assertion of liability for the fee; the
+     * module never determines it.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function isCoRdfEnabled($store = null): bool
+    {
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_CO_RDF_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+    }
+
+    /**
+     * Shipping method codes (carrier_method) configured as motor-vehicle
+     * delivery for the Colorado Retail Delivery Fee. Empty when none are
+     * mapped — in which case no order can incur the fee.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string[]
+     */
+    public function getCoRdfDeliveryMethods($store = null): array
+    {
+        $value = (string) $this->scopeConfig->getValue(
+            self::XML_PATH_CO_RDF_DELIVERY_METHODS,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+
+        return $value === '' ? [] : array_values(array_filter(array_map('trim', explode(',', $value))));
+    }
+
+    /**
+     * The Colorado Retail Delivery Fee amount to charge per eligible order.
+     *
+     * This value is authoritative: TaxCloud zero-rates the fee line and remits
+     * the amount as sent, so no downstream correction exists.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return float
+     */
+    public function getCoRdfAmount($store = null): float
+    {
+        $value = $this->scopeConfig->getValue(self::XML_PATH_CO_RDF_AMOUNT, ScopeInterface::SCOPE_STORE, $store);
+
+        return ($value !== null && $value !== '') ? (float) $value : self::DEFAULT_CO_RDF_AMOUNT;
+    }
+
+    /**
+     * TIC identifying the Colorado Retail Delivery Fee line, or the
+     * DEFAULT_CO_RDF_TIC fallback when configuration is empty.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getCoRdfTic($store = null): string
+    {
+        $value = $this->scopeConfig->getValue(self::XML_PATH_CO_RDF_TIC, ScopeInterface::SCOPE_STORE, $store);
+
+        return ($value !== null && $value !== '') ? (string) $value : self::DEFAULT_CO_RDF_TIC;
     }
 
     /**

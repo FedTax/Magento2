@@ -3,7 +3,27 @@
         "column": {
             "taxcloud_captured": true,
             "taxcloud_certificate_id": true,
-            "taxcloud_certificate_snapshot": true
+            "taxcloud_certificate_snapshot": true,
+            "taxcloud_rdf_amount": true,
+            "base_taxcloud_rdf_amount": true
+        }
+    },
+    "quote_address": {
+        "column": {
+            "taxcloud_rdf_amount": true,
+            "base_taxcloud_rdf_amount": true
+        }
+    },
+    "sales_invoice": {
+        "column": {
+            "taxcloud_rdf_amount": true,
+            "base_taxcloud_rdf_amount": true
+        }
+    },
+    "sales_creditmemo": {
+        "column": {
+            "taxcloud_rdf_amount": true,
+            "base_taxcloud_rdf_amount": true
         }
     }
 }
