@@ -24,6 +24,9 @@ const workers = process.env.PLAYWRIGHT_WORKERS
   ? parseInt(process.env.PLAYWRIGHT_WORKERS, 10)
   : 1;
 
+// The documentation screenshot projects are opt-in; see the note beside them.
+const docsScreenshots = process.env.E2E_DOCS_SCREENSHOTS === '1';
+
 export default defineConfig({
   testDir: './specs',
   outputDir: './test-results',
@@ -132,27 +135,39 @@ export default defineConfig({
       testMatch: /exemptions-on\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
-    // Documentation screenshots. Not part of any test run — excluded from
-    // `chromium` above and depending on nothing, so `make docs-screenshots`
-    // runs the trio alone against an already-installed store. Several
-    // documented screens only exist with exemptions on, hence the setup and the
-    // teardown that restores the seeded default of off.
-    {
-      name: 'docs-screenshots-setup',
-      testMatch: /docs-screenshots\.setup\.ts/,
-      teardown: 'docs-screenshots-teardown',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'docs-screenshots',
-      testMatch: /specs\/docs\/.*\.spec\.ts/,
-      dependencies: ['docs-screenshots-setup'],
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'docs-screenshots-teardown',
-      testMatch: /docs-screenshots\.teardown\.ts/,
-      use: { ...devices['Desktop Chrome'] },
-    },
+    // Documentation screenshots. Not part of a test run: `make docs-screenshots`
+    // sets E2E_DOCS_SCREENSHOTS=1 and runs the trio alone against an
+    // already-installed store. Several documented screens only exist with
+    // exemptions on, hence the setup and the teardown that restores the seeded
+    // default of off.
+    //
+    // The gate is what keeps them out, and it has to be a gate rather than the
+    // testIgnore on `chromium`: these are projects of their own, so ignoring
+    // their specs elsewhere never stopped them running. Worse, having no
+    // dependencies made Playwright schedule the setup FIRST — exemptions came
+    // on before the first spec and went off after the last, so every assertion
+    // about the seeded default in between saw the wrong store. That is a whole
+    // run mis-configured by a project that is only supposed to take pictures.
+    ...(docsScreenshots
+      ? [
+          {
+            name: 'docs-screenshots-setup',
+            testMatch: /docs-screenshots\.setup\.ts/,
+            teardown: 'docs-screenshots-teardown',
+            use: { ...devices['Desktop Chrome'] },
+          },
+          {
+            name: 'docs-screenshots',
+            testMatch: /specs\/docs\/.*\.spec\.ts/,
+            dependencies: ['docs-screenshots-setup'],
+            use: { ...devices['Desktop Chrome'] },
+          },
+          {
+            name: 'docs-screenshots-teardown',
+            testMatch: /docs-screenshots\.teardown\.ts/,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
   ],
 });

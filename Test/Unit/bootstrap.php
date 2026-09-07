@@ -50,6 +50,7 @@ require $magentoUnitBootstrap;
 // Unit-test doubles (declare Magento magic accessors / SOAP ops as real methods so
 // they can be stubbed with onlyMethods() — PHPUnit 12 removed addMethods()).
 require __DIR__ . '/Double/Doubles.php';
+require __DIR__ . '/Double/CollectorDoubles.php';
 
 // Shared test traits. Required explicitly rather than autoloaded: composer's
 // PSR-4 root for Taxcloud\Magento2\ is the module's app/code location, and the

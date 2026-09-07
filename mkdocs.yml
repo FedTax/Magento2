@@ -77,6 +77,7 @@ nav:
       - Reading the log: logs.md
       - Clearing the TaxCloud cache: clearing-the-cache.md
       - Common problems: common-problems.md
+      - Another extension is calculating tax: extension-conflicts.md
       - Testing your setup: testing-your-setup.md
   - Development:
       - Extending the extension: extending.md

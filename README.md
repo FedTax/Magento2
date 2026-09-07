@@ -419,6 +419,24 @@ When an order is canceled before any invoice is created, the extension automatic
 
 ## Troubleshooting
 
+### Checking that TaxCloud is the active tax calculation
+
+Magento's tax total is winner-take-all: exactly one class occupies the `tax` entry of the quote total collectors, and this module claims it with a `preference` on `Magento\Tax\Model\Sales\Total\Quote\Tax` in `etc/di.xml`. If another tax extension wins that slot — via its own preference, its own `sales.xml` entry, or an `around` plugin on `collect()` that skips `$proceed` — `Taxcloud\Magento2\Model\Tax::collect()` never runs. There is no exception and no error: tax is simply not calculated and orders are not filed, while the extension still reports as installed, enabled, and connected.
+
+```
+bin/magento taxcloud:diagnose
+```
+
+reports, per store where TaxCloud is enabled, which class occupies the tax collector slot, any `around` plugins wrapping `collect()`, and any non-core collector ordered after `tax` that could overwrite the result. It exits non-zero when TaxCloud is not the active collector, so it can be used as a monitoring check. Its output is unaffected by an admin dismissing the notification described below.
+
+Three surfaces report the same verdict:
+
+* **CLI** — the command above.
+* **Admin** — a critical system message naming the class that won, with a link that acknowledges it. The acknowledgement stores a fingerprint of the conflict rather than a permanent flag, so a different responsible class, or the same conflict reaching another store view, re-raises the message on its own.
+* **Log** — `Taxcloud\Magento2\Model\Tax::collect()` marks the quote when it runs, and an observer on `sales_model_service_quote_submit_before` writes a warning (rate limited to one per store per hour) when an order is placed on an enabled store without that mark. This is the only surface that fires on the storefront path, and it deliberately computes no verdict there.
+
+A clean verdict means only that this module's collector runs — it says nothing about credentials or calculation correctness. See [Another extension is calculating tax](docs/extension-conflicts.md) for the merchant-facing version, including the `<sequence>` recipe for coexisting with a specific named module.
+
 ### Clearing the TaxCloud cache
 
 The extension stores its API responses — tax lookups, address verifications, and exemption-certificate state lists — in a dedicated **TaxCloud** cache type rather than the general application cache. It appears as its own row under *System → Cache Management*, alongside Configuration, Page Cache, and the rest.

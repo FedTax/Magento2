@@ -79,13 +79,15 @@ class ItemDetailsDouble extends \Magento\Tax\Model\Sales\Quote\ItemDetails
 }
 
 /**
- * Quote whose magic currency accessor is declared, for the v3 cart payload
- * builder tests (getId/getStoreId are real parent methods already).
+ * Quote whose magic accessors are declared, for the v3 cart payload builder
+ * tests and the collector-diagnostics observer (getId/getStoreId/getData are
+ * real parent methods already).
  */
 class QuoteDouble extends \Magento\Quote\Model\Quote
 {
     public function __construct() {}
     public function getQuoteCurrencyCode() { return null; }
+    public function getTotalsCollectedFlag() { return null; }
 }
 
 class QuoteItemDouble extends \Magento\Quote\Model\Quote\Item

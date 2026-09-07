@@ -4,6 +4,26 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ## Unreleased
 
+### Added
+
+- **The extension now detects when another module has taken over tax
+  calculation, and says so.** Magento's tax total is winner-take-all: if a
+  second tax extension claims the tax collector — by preference, by its own
+  `sales.xml` entry, or by an `around` plugin that skips `$proceed` — TaxCloud's
+  calculation never runs. Nothing errored; the store simply under-collected tax
+  and filed nothing, while the extension still showed as installed, enabled and
+  connected. That state is now reported three ways: a critical admin message
+  naming the module that won, a warning in the TaxCloud log when an order is
+  placed on an affected store (rate limited to one per store per hour), and
+  `bin/magento taxcloud:diagnose`, which reports the verdict per store and exits
+  non-zero when TaxCloud is not the active collector. The admin message can be
+  dismissed, and unlike Magento's own tax notifications the dismissal is scoped
+  to the conflict it acknowledged — a different module taking the slot, or the
+  same one reaching another store view, raises it again on its own. Stores with
+  TaxCloud disabled are not evaluated, so running a different provider on one
+  store view raises nothing. A clean verdict means TaxCloud's collector runs; it
+  does not verify credentials or calculation.
+
 ### Fixed
 
 - **A failed order capture is no longer lost on the shipment trigger.** Capture
