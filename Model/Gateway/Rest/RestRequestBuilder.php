@@ -23,6 +23,7 @@ use Taxcloud\Magento2\Model\CompositeItemResolver;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\ProductTicService;
+use Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService;
 
 /**
  * Constructs v3 REST payloads (carts, orders, refunds, verify-address).
@@ -222,7 +223,7 @@ class RestRequestBuilder
         if ($shippingAmount > 0) {
             $shippingTax = $exempt ? 0.0 : (float) $order->getShippingTaxAmount();
             $lineItems[] = [
-                'index' => $index,
+                'index' => $index++,
                 'itemId' => 'shipping',
                 'tic' => (int) $this->productTicService->getShippingTic($store),
                 'price' => $shippingAmount,
@@ -231,6 +232,23 @@ class RestRequestBuilder
                     'amount' => round($shippingTax, 2),
                     'rate' => $shippingAmount > 0 ? round($shippingTax / $shippingAmount, 5) : 0.0,
                 ],
+            ];
+        }
+
+        // The Colorado Retail Delivery Fee the order was charged, as its
+        // zero-rated line: this filed order is what TaxCloud's CO RDF return
+        // draws from. The stored (charged) amount, never a fresh config read —
+        // the rate moves every July 1. An exempt re-create keeps the fee:
+        // exemption certificates do not exempt it.
+        $rdfAmount = (float) $order->getBaseTaxcloudRdfAmount();
+        if ($rdfAmount > 0) {
+            $lineItems[] = [
+                'index' => $index,
+                'itemId' => FeeService::ITEM_ID,
+                'tic' => (int) $this->config->getCoRdfTic($store),
+                'price' => $rdfAmount,
+                'quantity' => 1,
+                'tax' => ['amount' => 0.0, 'rate' => 0.0],
             ];
         }
 
@@ -336,6 +354,15 @@ class RestRequestBuilder
             // than submitting an empty list v3 would read as a full refund.
             $this->logger->info('buildRefundItems: only zero-charge rows to refund; skipping TaxCloud call');
             return ['items' => [], 'wasTaxOnlyRefund' => false, 'skip' => true, 'fullRefund' => false];
+        }
+
+        // A memo carrying the Colorado Retail Delivery Fee (the creditmemo
+        // total collector grants it on full returns only) must reverse the
+        // fee's filed line by reference. Only needed when items are listed —
+        // the empty-list full refund already reverses every filed line,
+        // fee included.
+        if (!$fullRefund && (float) $creditmemo->getBaseTaxcloudRdfAmount() > 0) {
+            $items[] = ['itemId' => FeeService::ITEM_ID, 'quantity' => 1.0];
         }
 
         return [

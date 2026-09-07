@@ -26,6 +26,11 @@ discounts and promotions accounted for.
 charge and the shipping line stays reported as a sale, which is correct: you
 kept that money and you owe tax on it if it was taxed.
 
+**The [Colorado Retail Delivery Fee](colorado-retail-delivery-fee.md)**, on
+full returns only. A credit memo that returns everything refunds the fee and
+removes it from what is remitted; a partial return leaves the fee in place —
+the delivery happened, so under Colorado's rules the fee stands.
+
 ## Checking it worked
 
 Compare the credit memo in Magento against the transaction in your TaxCloud

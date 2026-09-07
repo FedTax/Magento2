@@ -144,6 +144,7 @@
         <field id="default_tic" translate="label" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Default TIC</label>
           <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
+          <backend_model>Taxcloud\Magento2\Model\Config\Backend\NonRdfTic</backend_model>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/default_tic</config_path>
           <tooltip>Default TIC if not specified per product (Default 00000)</tooltip>
@@ -155,6 +156,7 @@
         <field id="shipping_tic" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Shipping TIC</label>
           <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
+          <backend_model>Taxcloud\Magento2\Model\Config\Backend\NonRdfTic</backend_model>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/shipping_tic</config_path>
           <tooltip>Shipping TIC (Use 11010 if you charge only postage, and 11000 for shipping &amp; handling)</tooltip>
@@ -254,6 +256,61 @@
             <field id="exemptions_enabled">1</field>
           </depends>
         </field>
+
+        <!--
+          Colorado Retail Delivery Fee. TaxCloud does not calculate this fee:
+          TIC 11098 marks a zero-rated line whose amount the integration
+          supplies, and TaxCloud files it from the captured cart. The fee
+          amount below is therefore authoritative — TaxCloud will accept and
+          remit whatever is sent, without validation.
+        -->
+        <group id="colorado" translate="label comment" sortOrder="140" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Colorado Retail Delivery Fee</label>
+          <comment><![CDATA[Colorado charges a flat Retail Delivery Fee on every delivery by motor vehicle to a Colorado address that contains taxable goods. You are generally exempt if your Colorado retail sales in the previous year were $500,000 or less, or if you have no physical presence in Colorado and your sales there do not exceed $100,000. Enable collection only if you are liable; when enabled, the fee is added at checkout and included in the sales data TaxCloud files.]]></comment>
+          <depends>
+            <field id="*/enabled">1</field>
+          </depends>
+
+          <field id="co_rdf_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Collect Retail Delivery Fee</label>
+            <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+            <config_path>tax/taxcloud_settings/co_rdf_enabled</config_path>
+            <comment>Enabling this is your declaration that your store is liable for the fee.</comment>
+          </field>
+
+          <field id="co_rdf_delivery_methods" translate="label comment" type="multiselect" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Motor-Vehicle Delivery Methods</label>
+            <source_model>Magento\Shipping\Model\Config\Source\Allmethods</source_model>
+            <config_path>tax/taxcloud_settings/co_rdf_delivery_methods</config_path>
+            <can_be_empty>1</can_be_empty>
+            <comment>Only orders shipped with a selected method are charged the fee. Leave store pickup and other non-delivery methods unselected.</comment>
+            <depends>
+              <field id="co_rdf_enabled">1</field>
+            </depends>
+          </field>
+
+          <field id="co_rdf_amount" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+            <label>Fee Amount</label>
+            <validate>required-entry validate-number validate-number-range number-range-0-2</validate>
+            <backend_model>Taxcloud\Magento2\Model\Config\Backend\CoRdfAmount</backend_model>
+            <config_path>tax/taxcloud_settings/co_rdf_amount</config_path>
+            <comment><![CDATA[The Colorado Department of Revenue resets this amount every July 1 — check the <a href="https://tax.colorado.gov/retail-delivery-fee" target="_blank">current rate</a> and update it here. TaxCloud does not calculate or correct it: this exact amount is charged to customers and remitted.]]></comment>
+            <depends>
+              <field id="co_rdf_enabled">1</field>
+            </depends>
+          </field>
+
+          <field id="co_rdf_tic" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+            <label>Retail Delivery Fee TIC</label>
+            <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
+            <validate>required-entry</validate>
+            <config_path>tax/taxcloud_settings/co_rdf_tic</config_path>
+            <comment>The TaxCloud code identifying the fee line. Change only if TaxCloud reassigns it.</comment>
+            <depends>
+              <field id="co_rdf_enabled">1</field>
+            </depends>
+          </field>
+        </group>
 
       </group>
     </section>

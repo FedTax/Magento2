@@ -18,6 +18,9 @@ export class TaxConfigPage {
   readonly testConnectionResult: Locator;
   readonly saveButton: Locator;
   readonly exemptionsEnabled: Locator;
+  readonly coRdfEnabled: Locator;
+  readonly coRdfDeliveryMethods: Locator;
+  readonly coRdfAmount: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -30,6 +33,9 @@ export class TaxConfigPage {
     this.testConnectionResult = page.locator('#taxcloud_test_connection_result');
     this.saveButton = page.locator('#save');
     this.exemptionsEnabled = page.locator('#tax_taxcloud_exemptions_enabled');
+    this.coRdfEnabled = page.locator('#tax_taxcloud_colorado_co_rdf_enabled');
+    this.coRdfDeliveryMethods = page.locator('#tax_taxcloud_colorado_co_rdf_delivery_methods');
+    this.coRdfAmount = page.locator('#tax_taxcloud_colorado_co_rdf_amount');
   }
 
   async open(): Promise<void> {
@@ -87,6 +93,41 @@ export class TaxConfigPage {
    */
   async isExemptionsEnabled(): Promise<boolean> {
     return (await this.exemptionsEnabled.inputValue()) === '1';
+  }
+
+  /**
+   * Expand the nested "Colorado Retail Delivery Fee" group if its enable
+   * select is not already interactable (group open/closed state persists per
+   * admin session, like the parent group).
+   */
+  async openColoradoGroup(): Promise<void> {
+    if (!(await this.coRdfEnabled.isVisible().catch(() => false))) {
+      await this.page.locator('#tax_taxcloud_colorado-head').click();
+      await expect(this.coRdfEnabled).toBeVisible({ timeout: 10_000 });
+    }
+  }
+
+  /**
+   * Switch Colorado Retail Delivery Fee collection on (mapping the given
+   * shipping methods as motor-vehicle delivery) or off. Off with no mapped
+   * methods is the seeded/production default.
+   *
+   * @param enabled whether to collect the fee
+   * @param methods carrier_method codes to map; ignored when disabling
+   */
+  async setColoradoRdf(enabled: boolean, methods: string[] = []): Promise<void> {
+    await this.openColoradoGroup();
+    await this.coRdfEnabled.selectOption(enabled ? '1' : '0');
+    if (enabled) {
+      await expect(this.coRdfDeliveryMethods).toBeVisible({ timeout: 10_000 });
+      await this.coRdfDeliveryMethods.selectOption(methods);
+    }
+  }
+
+  /** Whether fee collection is currently switched on in the form. */
+  async isColoradoRdfEnabled(): Promise<boolean> {
+    await this.openColoradoGroup();
+    return (await this.coRdfEnabled.inputValue()) === '1';
   }
 
   /**

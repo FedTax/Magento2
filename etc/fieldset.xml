@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2026 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<!--
+  The Colorado Retail Delivery Fee is carried from quote to order by
+  Observer\Sales\PersistRetailDeliveryFee, NOT by a fieldset: core's
+  Quote\Address\ToOrder::convert() runs the sales_convert_quote_address
+  fieldset through populateWithArray(..., OrderInterface::class), which keeps
+  only interface-declared keys and drops a plain custom column. The observer
+  fires on the same conversion with both entities in hand and writes the
+  column directly. No fieldset entry would take effect here, so none is
+  declared.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:DataObject/etc/fieldset.xsd">
+    <scope id="global"/>
+</config>

@@ -31,6 +31,10 @@ For each calculation, the extension sends:
   and the quantity.
 - **The shipping charge**, as its own line with the
   [Shipping TIC](shipping-and-handling.md).
+- **The [Colorado Retail Delivery Fee](colorado-retail-delivery-fee.md)**, as
+  its own line, when the order qualifies and collection is turned on. The fee
+  appears as a separate "Colorado Retail Delivery Fee" row in the totals — part
+  of the order total, never mixed into the tax line.
 - **Who the customer is** — so their exemption certificates can be checked.
   Guests are reported under the [Guest Customer
   ID](settings.md#guest-customer-id).

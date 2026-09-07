@@ -597,7 +597,15 @@ class Api implements GatewayInterface
         $cartItems = $returnCart['cartItems'];
         $wasTaxOnlyRefund = $returnCart['wasTaxOnlyRefund'];
 
+        // A memo carrying the CO Retail Delivery Fee (full returns only, per
+        // the creditmemo total collector) reverses it as a cart line when
+        // lines are sent, or via the no-cart-items flag when the empty
+        // "return the remainder" form is used.
+        $returnsRdf = (float) $creditmemo->getBaseTaxcloudRdfAmount() > 0;
+        $cartItems = $this->requestBuilder->appendReturnedRdfLine($cartItems, $creditmemo);
+
         $params = $this->requestBuilder->buildReturnParams($order, $cartItems);
+        $params['returnCoDeliveryFeeWhenNoCartItems'] = $returnsRdf && $cartItems === [];
 
         // Call before event
         $params = $this->eventDispatcher->dispatchBefore('taxcloud_returned_before', $params, [

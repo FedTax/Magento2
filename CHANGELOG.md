@@ -6,6 +6,24 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Added
 
+- **Colorado Retail Delivery Fee collection.** A new store-scoped "Colorado"
+  settings group (off by default) collects Colorado's flat per-order fee on
+  motor-vehicle deliveries of taxable goods: the module decides eligibility
+  (Colorado destination, taxable tangible item, merchant-mapped shipping
+  method), charges the configured amount (default $0.31) as its own
+  "Colorado Retail Delivery Fee" total line — never folded into tax — and
+  sends it as a discrete zero-rated TIC 11098 line in the same lookup and
+  capture payloads on both transports, so TaxCloud files it on the CO RDF
+  return. TaxCloud does not price or validate the fee (verified on both APIs
+  and confirmed by TaxCloud support), so the amount is config-owned and
+  server-side validated to $0.00–$2.00, and the Default/Shipping TIC fields
+  now reject the RDF TIC, whose lines TaxCloud silently zero-rates. The fee
+  persists quote → order → invoice → credit memo, is refunded and reversed in
+  TaxCloud on full returns only (driving the previously hardcoded
+  `returnCoDeliveryFeeWhenNoCartItems` SOAP flag), and a lookup that falls
+  back to Magento rates on a fee-carrying quote logs a reconciliation
+  warning.
+
 - **The extension now detects when another module has taken over tax
   calculation, and says so.** Magento's tax total is winner-take-all: if a
   second tax extension claims the tax collector — by preference, by its own

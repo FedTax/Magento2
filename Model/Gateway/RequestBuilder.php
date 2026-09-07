@@ -27,6 +27,7 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Taxcloud\Magento2\Model\RefundDistributor;
+use Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService;
 
 /**
  * Constructs the request payloads sent to TaxCloud.
@@ -73,11 +74,17 @@ class RequestBuilder
     private $logger;
 
     /**
+     * @var FeeService
+     */
+    private $feeService;
+
+    /**
      * @param TaxcloudConfig       $config
      * @param ScopeConfigInterface $scopeConfig
      * @param RegionFactory        $regionFactory
      * @param ProductTicService    $productTicService
      * @param RefundDistributor    $refundDistributor
+     * @param FeeService           $feeService
      * @param LoggerInterface|null $logger
      */
     public function __construct(
@@ -86,6 +93,7 @@ class RequestBuilder
         RegionFactory $regionFactory,
         ProductTicService $productTicService,
         RefundDistributor $refundDistributor,
+        FeeService $feeService,
         ?LoggerInterface $logger = null
     ) {
         $this->config = $config;
@@ -93,6 +101,7 @@ class RequestBuilder
         $this->regionFactory = $regionFactory;
         $this->productTicService = $productTicService;
         $this->refundDistributor = $refundDistributor;
+        $this->feeService = $feeService;
         $this->logger = $logger ?? new NullLogger();
     }
 
@@ -252,6 +261,23 @@ class RequestBuilder
                     'Qty' => 1,
                 ];
             }
+        }
+
+        // The Colorado Retail Delivery Fee, as its own zero-rated line.
+        // TaxCloud does not price this fee: it recognizes the TIC, returns
+        // the line untaxed, and files the amount from the captured cart — so
+        // the price here is the configured fee, always full (never netted
+        // against discounts; TaxCloud's own discount exclusion for this TIC
+        // cannot see amounts we pre-net into prices). The REST transport
+        // inherits this line through its delegation to this builder.
+        if ($this->feeService->isEligible($address, $store)) {
+            $cartItems[] = [
+                'ItemID' => FeeService::ITEM_ID,
+                'Index' => $index++,
+                'TIC' => $this->feeService->getTic($store),
+                'Price' => $this->feeService->getAmount($store),
+                'Qty' => 1,
+            ];
         }
 
         return ['cartItems' => $cartItems, 'indexedItems' => $indexedItems];
@@ -435,12 +461,60 @@ class RequestBuilder
         if ($shippingAmount > 0) {
             $cartItems[] = [
                 'ItemID' => 'shipping',
-                'Index' => $index,
+                'Index' => $index++,
                 'TIC' => $this->productTicService->getShippingTic($store),
                 'Price' => $shippingAmount,
                 'Qty' => 1,
             ];
         }
+        // The Colorado Retail Delivery Fee the order was charged, at the
+        // stored (charged) amount — never a fresh config read, which may have
+        // moved with Colorado's July 1 rate change. Present here so both
+        // consumers of this cart stay faithful to the original sale: an
+        // exempt re-create files the fee, a full-cancellation return
+        // reverses it.
+        $rdfAmount = (float) $order->getBaseTaxcloudRdfAmount();
+        if ($rdfAmount > 0) {
+            $cartItems[] = [
+                'ItemID' => FeeService::ITEM_ID,
+                'Index' => $index,
+                'TIC' => $this->feeService->getTic($store),
+                'Price' => $rdfAmount,
+                'Qty' => 1,
+            ];
+        }
+        return $cartItems;
+    }
+
+    /**
+     * Append the Colorado Retail Delivery Fee line to a Returned cart when
+     * the credit memo carries the fee (granted by the creditmemo total
+     * collector on full returns only).
+     *
+     * Only touches a non-empty cart: an empty Returned cart is the "return
+     * the remainder" form, where the fee travels via the
+     * returnCoDeliveryFeeWhenNoCartItems flag instead of a line.
+     *
+     * @param array $cartItems v1 Returned cart items
+     * @param \Magento\Sales\Model\Order\Creditmemo $creditmemo
+     * @return array
+     */
+    public function appendReturnedRdfLine(array $cartItems, $creditmemo)
+    {
+        $amount = (float) $creditmemo->getBaseTaxcloudRdfAmount();
+        if ($amount <= 0 || $cartItems === []) {
+            return $cartItems;
+        }
+
+        $store = $creditmemo->getOrder()->getStoreId();
+        $cartItems[] = [
+            'ItemID' => FeeService::ITEM_ID,
+            'Index' => count($cartItems),
+            'TIC' => $this->feeService->getTic($store),
+            'Price' => $amount,
+            'Qty' => 1,
+        ];
+
         return $cartItems;
     }
 

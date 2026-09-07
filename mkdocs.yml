@@ -58,6 +58,7 @@ nav:
       - Settings reference: settings.md
       - Choosing your API: choosing-your-api.md
       - Multi-store setups: multi-store.md
+      - Colorado Retail Delivery Fee: colorado-retail-delivery-fee.md
   - Taxability (TICs):
       - How TICs work: tics.md
       - Assigning TICs: assigning-tics.md

@@ -39,6 +39,7 @@ class RequestBuilderTest extends TestCase
     private $regionFactory;
     private $productTicService;
     private $refundDistributor;
+    private $feeService;
     private RequestBuilder $builder;
 
     protected function setUp(): void
@@ -52,6 +53,7 @@ class RequestBuilderTest extends TestCase
         $this->regionFactory = $this->createMock(RegionFactory::class);
         $this->productTicService = $this->createMock(ProductTicService::class);
         $this->refundDistributor = $this->createMock(RefundDistributor::class);
+        $this->feeService = $this->createMock(\Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService::class);
 
         $this->builder = new RequestBuilder(
             $this->config,
@@ -59,6 +61,7 @@ class RequestBuilderTest extends TestCase
             $this->regionFactory,
             $this->productTicService,
             $this->refundDistributor,
+            $this->feeService,
             new NullLogger()
         );
     }

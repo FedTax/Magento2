@@ -31,6 +31,7 @@ export class CheckoutPage {
   readonly shipping: Locator;
   readonly tax: Locator;
   readonly grandTotal: Locator;
+  readonly rdfFee: Locator;
   /** The order-confirmation block (`Your order # is: <number>`). */
   readonly successBlock: Locator;
 
@@ -47,8 +48,20 @@ export class CheckoutPage {
     // The tax row's class is `totals-tax` (hyphen), unlike the others.
     this.tax = this.summary.locator('.totals-tax .amount');
     this.grandTotal = this.summary.locator('.grand.totals .amount');
+    // The Colorado Retail Delivery Fee row, rendered only when the fee applies.
+    this.rdfFee = this.summary.locator('.totals.taxcloud-rdf .amount');
 
     this.successBlock = page.locator('.checkout-success');
+  }
+
+  /** Whether the summary currently shows the Colorado Retail Delivery Fee row. */
+  async hasRdfRow(): Promise<boolean> {
+    return (await this.summary.locator('.totals.taxcloud-rdf').count()) > 0;
+  }
+
+  /** The fee amount shown, e.g. "$0.31". Only call after hasRdfRow(). */
+  async rdfAmount(): Promise<string> {
+    return (await this.rdfFee.first().innerText()).trim();
   }
 
   /** Open the checkout, optionally on a specific store view (store code in URL). */

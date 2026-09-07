@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2026 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Sales:etc/sales.xsd">
+    <section name="quote">
+        <group name="totals">
+            <!-- After tax (450), before grand_total (550): the grand-total
+                 collector sums every registered total amount, which is what
+                 puts the fee into the amount the customer pays. -->
+            <item name="taxcloud_rdf"
+                  instance="Taxcloud\Magento2\Model\RetailDeliveryFee\Total\Quote\RetailDeliveryFee"
+                  sort_order="475"/>
+        </group>
+    </section>
+    <section name="order_invoice">
+        <group name="totals">
+            <item name="taxcloud_rdf"
+                  instance="Taxcloud\Magento2\Model\RetailDeliveryFee\Total\Invoice\RetailDeliveryFee"
+                  sort_order="475"/>
+        </group>
+    </section>
+    <section name="order_creditmemo">
+        <group name="totals">
+            <item name="taxcloud_rdf"
+                  instance="Taxcloud\Magento2\Model\RetailDeliveryFee\Total\Creditmemo\RetailDeliveryFee"
+                  sort_order="475"/>
+        </group>
+    </section>
+</config>
