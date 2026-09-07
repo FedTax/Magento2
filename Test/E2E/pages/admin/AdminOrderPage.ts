@@ -68,33 +68,27 @@ export class AdminOrderPage {
     await creditMemo.waitFor({ timeout: 30_000 });
     await creditMemo.click();
 
+    // Reduce the refund quantity. Magento enables "Update Qty's" only when a
+    // qty field fires a `change` event whose value differs from the value
+    // captured at load (items.phtml checkButtonsRelation) — .fill() alone does
+    // not reliably fire it, leaving the button disabled forever, so dispatch
+    // `change` explicitly. Target the button by its stable class, not its
+    // apostrophe'd label, and wait for it to actually enable before clicking.
     const qtyInput = this.page.locator('input.qty-input').first();
     await qtyInput.waitFor({ timeout: 30_000 });
     await qtyInput.fill(String(qty));
-    await this.page.locator('button:has-text("Update Qty\'s")').first().click();
-    await this.page.locator('input.qty-input').first().waitFor({ timeout: 30_000 });
+    await qtyInput.dispatchEvent('change');
 
-    // Keep the shipping charge: the delivery happened.
-    const shippingRefund = this.page.locator('#shipping_amount');
-    if (await shippingRefund.isVisible().catch(() => false)) {
-      await shippingRefund.fill('0');
-      await shippingRefund.blur();
-    }
+    const updateButton = this.page.locator('button.update-button').first();
+    await expect(updateButton).toBeEnabled({ timeout: 15_000 });
+    await updateButton.click();
 
+    // "Update Qty's" reloads the credit-memo form with recalculated totals.
     const refund = this.page.locator('button:has-text("Refund Offline")').first();
     await refund.waitFor({ timeout: 30_000 });
     await refund.click();
     await expect(this.page.locator('.message-success').first())
       .toContainText('created the credit memo', { timeout: 60_000 });
-  }
-
-  /**
-   * Whether the New Credit Memo form currently shows a "Colorado Retail
-   * Delivery Fee" row in its refund totals. Call between opening the memo
-   * form and submitting it.
-   */
-  async creditMemoShowsRdfRow(): Promise<boolean> {
-    return (await this.page.locator('tr:has-text("Colorado Retail Delivery Fee")').count()) > 0;
   }
 
   async status(): Promise<string> {
