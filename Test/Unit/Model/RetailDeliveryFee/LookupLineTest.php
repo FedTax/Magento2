@@ -61,7 +61,8 @@ class LookupLineTest extends TestCase
             $this->ticService,
             $this->createMock(RefundDistributor::class),
             $this->feeService,
-            new NullLogger()
+            new NullLogger(),
+            new \Taxcloud\Magento2\Model\Address\TaxAddressResolver()
         );
     }
 

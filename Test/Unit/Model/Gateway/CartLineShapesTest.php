@@ -56,7 +56,8 @@ class CartLineShapesTest extends TestCase
             $this->productTicService,
             $this->createMock(RefundDistributor::class),
             $this->createMock(\Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService::class),
-            new NullLogger()
+            new NullLogger(),
+            new \Taxcloud\Magento2\Model\Address\TaxAddressResolver()
         );
     }
 

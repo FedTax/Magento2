@@ -355,6 +355,8 @@ Test adding an item to your cart, clicking *Proceed to Checkout*, entering a shi
 
 Note that on the shopping cart page, before the customer has entered their shipping address, sales tax will not be calculated unless the customer has started the checkout process and returned to the shopping cart page.
 
+If you sell virtual, downloadable or virtual gift card products, test a cart containing only those as well. Magento skips the shipping step for such a cart and assigns its items to the billing address, so the sale is looked up, captured and refunded against the billing address. Add one shippable item to the same cart and every line, digital ones included, sources to the shipping address instead — one lookup, one captured order.
+
 #### Order Completion
 
 Test completing an order and comparing the results to your TaxCloud dashboard. The tax percentages may be slightly different on the Magento side due to rounding, but the tax amounts should match exactly. Make sure the correct TICs, quantities, and other fields are correct on the TaxCloud dashboard.

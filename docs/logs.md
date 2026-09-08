@@ -48,6 +48,12 @@ successful capture is recorded with the order.
 **Why was there no tax?** Look around the time of the order for a skipped
 address, a non-US destination, an invalid ZIP, or a failed lookup.
 
+**Which address was this order taxed against?** Every reported order records
+whether it was sourced to its shipping or its billing address. A download-only
+order shows the billing address, which is expected — see [Digital and
+downloadable products](checkout.md#digital-and-downloadable-products). A
+physical order showing the billing address is not.
+
 **Why was this customer not exempt?** Certificate resolution is logged — which
 identity was used, which certificates came back, whether one covered the
 destination state.

@@ -54,7 +54,8 @@ class CaptureRefundTest extends TestCase
             $ticService,
             $this->createMock(RefundDistributor::class),
             $this->feeService,
-            new NullLogger()
+            new NullLogger(),
+            new \Taxcloud\Magento2\Model\Address\TaxAddressResolver()
         );
     }
 

@@ -52,8 +52,11 @@ When an order is captured, the extension notes that on the order itself. That
 local record is what lets a later cancellation know whether there is anything to
 reverse, without asking TaxCloud again.
 
-Capture is written to [the log](logs.md), so you can confirm exactly when an
-order was reported.
+The order is reported against the address it was taxed against: its shipping
+address, or its billing address for a download-only order that ships nothing
+(see [At checkout](checkout.md#digital-and-downloadable-products)). The address
+used is written to [the log](logs.md) alongside the capture, so you can confirm
+both when an order was reported and where it was reported to.
 
 ## When capture does not happen
 

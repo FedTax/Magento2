@@ -22,6 +22,7 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\Address\TaxAddressResolver;
 use Taxcloud\Magento2\Model\CompositeItemResolver;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\PostalCodeParser;
@@ -79,6 +80,11 @@ class RequestBuilder
     private $feeService;
 
     /**
+     * @var TaxAddressResolver
+     */
+    private $addressResolver;
+
+    /**
      * @param TaxcloudConfig       $config
      * @param ScopeConfigInterface $scopeConfig
      * @param RegionFactory        $regionFactory
@@ -86,6 +92,12 @@ class RequestBuilder
      * @param RefundDistributor    $refundDistributor
      * @param FeeService           $feeService
      * @param LoggerInterface|null $logger
+     * @param TaxAddressResolver|null $addressResolver Defaulted, not optional in
+     *        spirit: di.xml binds it, and the default exists only so a store
+     *        whose compiled DI is stale after an upgrade still resolves an
+     *        address instead of fataling. The class is stateless and takes no
+     *        constructor arguments, so the default is the same object DI builds
+     *        — a `<preference>` for it would still be honoured through di.xml.
      */
     public function __construct(
         TaxcloudConfig $config,
@@ -94,7 +106,8 @@ class RequestBuilder
         ProductTicService $productTicService,
         RefundDistributor $refundDistributor,
         FeeService $feeService,
-        ?LoggerInterface $logger = null
+        ?LoggerInterface $logger = null,
+        ?TaxAddressResolver $addressResolver = null
     ) {
         $this->config = $config;
         $this->scopeConfig = $scopeConfig;
@@ -103,6 +116,7 @@ class RequestBuilder
         $this->refundDistributor = $refundDistributor;
         $this->feeService = $feeService;
         $this->logger = $logger ?? new NullLogger();
+        $this->addressResolver = $addressResolver ?? new TaxAddressResolver();
     }
 
     /**
@@ -519,22 +533,32 @@ class RequestBuilder
     }
 
     /**
-     * Build the destination array from an order's shipping address for Lookup,
-     * or null when the address is missing / non-US / has an invalid ZIP.
+     * Build the destination array for an order, or null when no address on it
+     * yields a usable US destination (missing / non-US / invalid ZIP).
+     *
+     * The address comes from TaxAddressResolver, so an order that ships nothing
+     * — and therefore has no shipping address at all, which is every order
+     * placed from a wholly virtual cart — files against its billing address
+     * rather than failing to file. Returning null here makes the caller report
+     * failure, which is the right outcome only when there is genuinely no
+     * address to source to; it used to be the outcome for every digital order.
      *
      * @param \Magento\Sales\Model\Order $order
      * @return array|null
      */
     public function buildDestinationFromOrder($order)
     {
-        $address = $order->getShippingAddress();
+        $address = $this->addressResolver->forOrder($order);
         if (!$address || !$address->getPostcode() || $address->getCountryId() !== 'US') {
+            $this->logUnresolvedDestination($order);
             return null;
         }
         $parsedZip = PostalCodeParser::parse($address->getPostcode());
         if (!PostalCodeParser::isValid($parsedZip)) {
+            $this->logUnresolvedDestination($order);
             return null;
         }
+        $this->logResolvedDestination($order);
         $street = $address->getStreet();
         $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
         $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
@@ -547,6 +571,42 @@ class RequestBuilder
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
         ];
+    }
+
+    /**
+     * Record which of an order's addresses the destination came from.
+     *
+     * A digital order correctly sourced to a billing address and a physical
+     * order wrongly sourced to one produce the same payload; only this line
+     * tells the two apart when someone reads the log afterwards.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return void
+     */
+    private function logResolvedDestination($order)
+    {
+        // The same test the resolver made: it returns the shipping address
+        // whenever there is one, so a truthy shipping address IS the source.
+        $type = $order->getShippingAddress() ? 'shipping' : 'billing';
+
+        $this->logger->info(
+            'Order ' . (string) $order->getIncrementId() . ' destination sourced to its '
+            . $type . ' address'
+        );
+    }
+
+    /**
+     * Record that an order has no address that can be sourced to.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return void
+     */
+    private function logUnresolvedDestination($order)
+    {
+        $this->logger->error(
+            'Order ' . (string) $order->getIncrementId()
+            . ' has no shipping or billing address that yields a valid US destination'
+        );
     }
 
     /**

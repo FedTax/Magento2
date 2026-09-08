@@ -44,6 +44,28 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Fixed
 
+- **Orders made only of downloads are now reported to TaxCloud.** A Magento
+  order containing nothing shippable has no shipping address at all — Magento
+  converts one onto the order only for a cart that ships something — and the
+  module read that address without a fallback when it built a destination. On
+  the V3 REST API the result was that no order payload could be built, so a
+  download-only order was taxed at checkout, the customer paid, and the sale was
+  never filed: it did not reach the merchant's return. The same missing
+  destination also abandoned the V1 exempt re-lookup used by tax-only refunds
+  and by cancellation reversal. An order's destination now falls back to its
+  billing address when it has no shipping address, which is the address the sale
+  was already quoted against, so capture, refunds and reversals file where the
+  tax was charged. Orders that ship something are unaffected: a known delivery
+  address is never displaced. Failure is still loud — an order with no usable US
+  address on either side reports failure rather than filing a fabricated one,
+  and the log now names which address each order was sourced to.
+
+  Checkout behaviour is unchanged: Magento already assigns a wholly virtual
+  cart's items to the billing address and a mixed cart's items — downloads
+  included — to the shipping address, so digital sales were being quoted
+  correctly all along. That rule is now pinned by tests rather than left
+  implicit.
+
 - **A failed order capture is no longer lost on the shipment trigger.** Capture
   was deduplicated partly by counting the order's invoices or shipments, which
   suppressed every document after the first — so a store capturing on shipment

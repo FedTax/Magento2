@@ -11,6 +11,9 @@ Tax is calculated once there is an address to calculate it against. In practice:
   is nothing to work out.
 - **Checkout, once a shipping address and shipping method are entered** — tax is
   calculated and shown in the totals.
+- **Checkout of a download-only order, once a billing address is entered** — tax
+  is calculated against the billing address. Such an order has no shipping step,
+  so there is no shipping address to use.
 - **Back on the cart page afterwards** — tax now shows, because the address from
   checkout is known.
 
@@ -26,7 +29,9 @@ address, the shipping method, quantities, a coupon.
 For each calculation, the extension sends:
 
 - **Where it ships from** — your [origin address](quick-start.md#1-set-your-origin-address).
-- **Where it ships to** — the customer's shipping address.
+- **Where it goes** — the customer's shipping address, or their billing address
+  for an order that ships nothing. See *Digital and downloadable products*,
+  below.
 - **Each line item** — its SKU, its [TIC](tics.md), the price after discounts,
   and the quantity.
 - **The shipping charge**, as its own line with the
@@ -40,6 +45,34 @@ For each calculation, the extension sends:
   ID](settings.md#guest-customer-id).
 
 TaxCloud returns the tax for each line, and Magento shows the total.
+
+## Digital and downloadable products
+
+Downloads, licences, virtual products and virtual gift cards are never
+delivered anywhere, so there is no shipping address to tax them against. Which
+address is used depends on what else is in the basket:
+
+- **A basket of only these items** is taxed against the **billing address**.
+  Magento skips the shipping step for such an order entirely, and the billing
+  address is the address you hold for that buyer.
+- **A basket that also contains something shippable** is taxed against the
+  **shipping address** — every line, downloads included. The order goes to one
+  place, is charged one rate, and is reported to TaxCloud as one sale.
+
+You do not configure any of this and there is nothing to switch on. An order is
+never split into two sales because it mixes downloads with physical goods.
+
+!!! note "Whether a download is taxable at all is a separate question"
+    Which states tax downloads, licences and subscriptions varies a great deal,
+    and that is decided by the [TIC](tics.md) you assign to the product — not by
+    which address the sale is taxed against. Assign digital products a TIC that
+    describes what they are, exactly as you would for a physical product.
+
+Your Magento **Tax Calculation Based On** setting (*Stores → Configuration →
+Sales → Tax → Calculation Settings*) does not affect any of this. That setting
+belongs to Magento's own tax tables. TaxCloud always taxes a sale where it is
+delivered, and falls back to the billing address only when nothing is
+delivered.
 
 ## Address verification
 

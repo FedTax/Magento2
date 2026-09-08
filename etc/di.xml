@@ -108,6 +108,25 @@
   <type name="Taxcloud\Magento2\Model\Gateway\RequestBuilder">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="addressResolver" xsi:type="object">Taxcloud\Magento2\Model\Address\TaxAddressResolver</argument>
+    </arguments>
+  </type>
+  <!--
+    Which address a sale is sourced to, bound explicitly at each of the three
+    call sites. The constructors default it as well, so a store whose compiled
+    DI is stale after an upgrade still resolves an address rather than fataling;
+    these bindings are what make a <preference> for the resolver take effect,
+    since a defaulted argument the object manager never supplies would bypass
+    one silently.
+  -->
+  <type name="Taxcloud\Magento2\Observer\Sales\RecordCertificate">
+    <arguments>
+      <argument name="addressResolver" xsi:type="object">Taxcloud\Magento2\Model\Address\TaxAddressResolver</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\PersistRetailDeliveryFee">
+    <arguments>
+      <argument name="addressResolver" xsi:type="object">Taxcloud\Magento2\Model\Address\TaxAddressResolver</argument>
     </arguments>
   </type>
   <!--
