@@ -2,77 +2,12 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
-## Unreleased
-
-### Added
-
-- **Colorado Retail Delivery Fee collection.** A new store-scoped "Colorado"
-  settings group (off by default) collects Colorado's flat per-order fee on
-  motor-vehicle deliveries of taxable goods: the module decides eligibility
-  (Colorado destination, taxable tangible item, merchant-mapped shipping
-  method), charges the configured amount (default $0.31) as its own
-  "Colorado Retail Delivery Fee" total line — never folded into tax — and
-  sends it as a discrete zero-rated TIC 11098 line in the same lookup and
-  capture payloads on both transports, so TaxCloud files it on the CO RDF
-  return. TaxCloud does not price or validate the fee (verified on both APIs
-  and confirmed by TaxCloud support), so the amount is config-owned and
-  server-side validated to $0.00–$2.00, and the Default/Shipping TIC fields
-  now reject the RDF TIC, whose lines TaxCloud silently zero-rates. The fee
-  persists quote → order → invoice → credit memo, is refunded and reversed in
-  TaxCloud on full returns only (driving the previously hardcoded
-  `returnCoDeliveryFeeWhenNoCartItems` SOAP flag), and a lookup that falls
-  back to Magento rates on a fee-carrying quote logs a reconciliation
-  warning.
-
-- **The extension now detects when another module has taken over tax
-  calculation, and says so.** Magento's tax total is winner-take-all: if a
-  second tax extension claims the tax collector — by preference, by its own
-  `sales.xml` entry, or by an `around` plugin that skips `$proceed` — TaxCloud's
-  calculation never runs. Nothing errored; the store simply under-collected tax
-  and filed nothing, while the extension still showed as installed, enabled and
-  connected. That state is now reported three ways: a critical admin message
-  naming the module that won, a warning in the TaxCloud log when an order is
-  placed on an affected store (rate limited to one per store per hour), and
-  `bin/magento taxcloud:diagnose`, which reports the verdict per store and exits
-  non-zero when TaxCloud is not the active collector. The admin message can be
-  dismissed, and unlike Magento's own tax notifications the dismissal is scoped
-  to the conflict it acknowledged — a different module taking the slot, or the
-  same one reaching another store view, raises it again on its own. Stores with
-  TaxCloud disabled are not evaluated, so running a different provider on one
-  store view raises nothing. A clean verdict means TaxCloud's collector runs; it
-  does not verify credentials or calculation.
-
-### Fixed
-
-- **A failed order capture is no longer lost on the shipment trigger.** Capture
-  was deduplicated partly by counting the order's invoices or shipments, which
-  suppressed every document after the first — so a store capturing on shipment
-  whose first capture failed (a transport error, an expired credential) never
-  filed that order at all, and there is no background job that would have
-  retried it. The `taxcloud_captured` flag is now the only dedupe: a successful
-  capture still files exactly once for the whole order, and a failed one is
-  retried at the order's next invoice or shipment. The invoice and shipment
-  triggers now behave identically here; previously the invoice path got one
-  accidental retry and the shipment path got none.
-- **The sale is filed under the date of the document that triggered the
-  capture** — the order, the invoice or the shipment, per the store's capture
-  trigger — rather than under the clock at the moment the call was made. For a
-  capture that succeeds on its first attempt these are the same instant, so
-  nothing changes; it is what keeps a retried capture in the filing period its
-  fulfillment belongs to instead of the period the retry happened to run in.
-  Applies to both transports (v3 REST `completedDate`, V1 SOAP
-  `dateAuthorized`/`dateCaptured`). The transaction date remains the order's
-  placement time.
-
-Capture remains whole-order on both APIs: an order fulfilled across several
-invoices or shipments is filed once, in full, at the first one. Neither TaxCloud
-API can express a partial capture.
-
 ## 1.4.0
 
 This release makes TaxCloud's v3 REST API a fully supported transport alongside
-V1 SOAP, adds exemption certificate management, and adds TIC search to the
-admin. It includes every fix listed under 1.3.1 below.
+V1 SOAP, adds exemption certificate management, Colorado Retail Delivery Fee
+collection and TIC search to the admin, and reports when another tax module has
+taken over calculation. It includes every fix listed under 1.3.1 below.
 
 Run `bin/magento setup:upgrade` after updating: existing installs are pinned to
 their current API and exemption certificate data is migrated. In production
@@ -121,6 +56,40 @@ updating — see *Changed*, below.
   whenever it covers the destination state, and orders record the certificate
   that untaxed them. Off by default — enable via *Enable Exemption
   Certificates* in TaxCloud Settings. Works identically on both APIs.
+- **Colorado Retail Delivery Fee collection.** A new store-scoped "Colorado"
+  settings group (off by default) collects Colorado's flat per-order fee on
+  motor-vehicle deliveries of taxable goods: the module decides eligibility
+  (Colorado destination, taxable tangible item, merchant-mapped shipping
+  method), charges the configured amount (default $0.31) as its own
+  "Colorado Retail Delivery Fee" total line — never folded into tax — and
+  sends it as a discrete zero-rated TIC 11098 line in the same lookup and
+  capture payloads on both transports, so TaxCloud files it on the CO RDF
+  return. TaxCloud does not price or validate the fee (verified on both APIs
+  and confirmed by TaxCloud support), so the amount is config-owned and
+  server-side validated to $0.00–$2.00, and the Default/Shipping TIC fields
+  now reject the RDF TIC, whose lines TaxCloud silently zero-rates. The fee
+  persists quote → order → invoice → credit memo, is refunded and reversed in
+  TaxCloud on full returns only (driving the previously hardcoded
+  `returnCoDeliveryFeeWhenNoCartItems` SOAP flag), and a lookup that falls
+  back to Magento rates on a fee-carrying quote logs a reconciliation
+  warning.
+- **The extension now detects when another module has taken over tax
+  calculation, and says so.** Magento's tax total is winner-take-all: if a
+  second tax extension claims the tax collector — by preference, by its own
+  `sales.xml` entry, or by an `around` plugin that skips `$proceed` — TaxCloud's
+  calculation never runs. Nothing errored; the store simply under-collected tax
+  and filed nothing, while the extension still showed as installed, enabled and
+  connected. That state is now reported three ways: a critical admin message
+  naming the module that won, a warning in the TaxCloud log when an order is
+  placed on an affected store (rate limited to one per store per hour), and
+  `bin/magento taxcloud:diagnose`, which reports the verdict per store and exits
+  non-zero when TaxCloud is not the active collector. The admin message can be
+  dismissed, and unlike Magento's own tax notifications the dismissal is scoped
+  to the conflict it acknowledged — a different module taking the slot, or the
+  same one reaching another store view, raises it again on its own. Stores with
+  TaxCloud disabled are not evaluated, so running a different provider on one
+  store view raises nothing. A clean verdict means TaxCloud's collector runs; it
+  does not verify credentials or calculation.
 - **Requests identify the extension.** Every call to TaxCloud carries a
   `User-Agent` naming the extension, Magento and PHP versions, so TaxCloud
   support can tell which versions produced a request without asking. It
@@ -137,6 +106,32 @@ updating — see *Changed*, below.
 - Composite products (bundles, configurables) are now described identically in
   every payload sent to TaxCloud — calculation, capture and refund — on both
   APIs, so a composite order can always be cleanly refunded.
+
+### Fixed
+
+- **A failed order capture is no longer lost on the shipment trigger.** Capture
+  was deduplicated partly by counting the order's invoices or shipments, which
+  suppressed every document after the first — so a store capturing on shipment
+  whose first capture failed (a transport error, an expired credential) never
+  filed that order at all, and there is no background job that would have
+  retried it. The `taxcloud_captured` flag is now the only dedupe: a successful
+  capture still files exactly once for the whole order, and a failed one is
+  retried at the order's next invoice or shipment. The invoice and shipment
+  triggers now behave identically here; previously the invoice path got one
+  accidental retry and the shipment path got none.
+- **The sale is filed under the date of the document that triggered the
+  capture** — the order, the invoice or the shipment, per the store's capture
+  trigger — rather than under the clock at the moment the call was made. For a
+  capture that succeeds on its first attempt these are the same instant, so
+  nothing changes; it is what keeps a retried capture in the filing period its
+  fulfillment belongs to instead of the period the retry happened to run in.
+  Applies to both transports (v3 REST `completedDate`, V1 SOAP
+  `dateAuthorized`/`dateCaptured`). The transaction date remains the order's
+  placement time.
+
+Capture remains whole-order on both APIs: an order fulfilled across several
+invoices or shipments is filed once, in full, at the first one. Neither TaxCloud
+API can express a partial capture.
 
 ## 1.3.1
 
