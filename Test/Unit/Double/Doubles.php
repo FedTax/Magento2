@@ -30,11 +30,13 @@ class SoapClientDouble extends \SoapClient
 {
     public function __construct() {}
     public function Returned($params = null) {}
+    public function Ping($params = null) {}
     public function lookup($params = null) {}
     public function authorizedWithCapture($params = null) {}
     public function OrderDetails($params = null) {}
     public function GetExemptCertificates($params = null) {}
     public function verifyAddress($params = null) {}
+    public function GetTICs($params = null) {}
 }
 
 /**
@@ -62,6 +64,11 @@ class QuoteAddressDouble extends \Magento\Quote\Model\Quote\Address
     public function __construct() {}
     public function getShippingAmount() { return null; }
     public function getAddress() { return null; }
+    public function getCountryId() { return null; }
+    public function getRegionCode() { return null; }
+    public function getRegionId() { return null; }
+    public function getShippingMethod() { return null; }
+    public function getAllItems() { return []; }
 }
 
 class ProductDouble extends \Magento\Catalog\Model\Product
@@ -76,9 +83,22 @@ class ItemDetailsDouble extends \Magento\Tax\Model\Sales\Quote\ItemDetails
     public function getRowTotal() { return null; }
 }
 
+/**
+ * Quote whose magic accessors are declared, for the v3 cart payload builder
+ * tests and the collector-diagnostics observer (getId/getStoreId/getData are
+ * real parent methods already).
+ */
+class QuoteDouble extends \Magento\Quote\Model\Quote
+{
+    public function __construct() {}
+    public function getQuoteCurrencyCode() { return null; }
+    public function getTotalsCollectedFlag() { return null; }
+}
+
 class QuoteItemDouble extends \Magento\Quote\Model\Quote\Item
 {
     public function __construct() {}
+    public function getIsVirtual() { return null; }
     public function getBasePrice() { return null; }
     public function getBaseRowTotal() { return null; }
     public function getRowTotal() { return null; }
@@ -109,6 +129,48 @@ class TotalDouble extends \Magento\Quote\Model\Quote\Address\Total
  * Plain class — not coupled to any Magento type — declaring the accessors the
  * Tax collector reads/writes, so they can be stubbed/asserted with onlyMethods().
  */
+/**
+ * Sales documents whose Colorado RDF magic accessors are declared so the fee
+ * collectors' reads/writes can be stubbed and asserted with onlyMethods().
+ * Collection getters return arrays — the collectors only foreach them.
+ */
+class OrderDouble extends \Magento\Sales\Model\Order
+{
+    public function __construct() {}
+    public function getTaxcloudRdfAmount() { return $this->getData('taxcloud_rdf_amount'); }
+    public function getBaseTaxcloudRdfAmount() { return $this->getData('base_taxcloud_rdf_amount'); }
+    public function getInvoiceCollection() { return []; }
+    public function getCreditmemosCollection() { return []; }
+}
+
+class InvoiceDouble extends \Magento\Sales\Model\Order\Invoice
+{
+    public function __construct() {}
+    public function getTaxcloudRdfAmount() { return $this->getData('taxcloud_rdf_amount'); }
+    public function getBaseTaxcloudRdfAmount() { return $this->getData('base_taxcloud_rdf_amount'); }
+    public function setTaxcloudRdfAmount($v = null) { return $this->setData('taxcloud_rdf_amount', $v); }
+    public function setBaseTaxcloudRdfAmount($v = null) { return $this->setData('base_taxcloud_rdf_amount', $v); }
+}
+
+class CreditmemoDouble extends \Magento\Sales\Model\Order\Creditmemo
+{
+    public function __construct() {}
+    public function getTaxcloudRdfAmount() { return $this->getData('taxcloud_rdf_amount'); }
+    public function getBaseTaxcloudRdfAmount() { return $this->getData('base_taxcloud_rdf_amount'); }
+    public function setTaxcloudRdfAmount($v = null) { return $this->setData('taxcloud_rdf_amount', $v); }
+    public function setBaseTaxcloudRdfAmount($v = null) { return $this->setData('base_taxcloud_rdf_amount', $v); }
+}
+
+class OrderItemDouble extends \Magento\Sales\Model\Order\Item
+{
+    public function __construct() {}
+}
+
+class CreditmemoItemDouble extends \Magento\Sales\Model\Order\Creditmemo\Item
+{
+    public function __construct() {}
+}
+
 class TaxDetailDouble
 {
     public function getPrice() { return null; }

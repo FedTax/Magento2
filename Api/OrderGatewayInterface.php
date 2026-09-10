@@ -30,10 +30,19 @@ interface OrderGatewayInterface
     /**
      * Authorize and capture an order in TaxCloud in a single step.
      *
+     * $completedAt is the creation time of the document that triggered the
+     * capture — the order, the invoice or the shipment, per the store's capture
+     * trigger — as a Magento datetime string in UTC. It is the date the sale is
+     * filed under, so that a capture retried at a later fulfillment document
+     * files under that document rather than under the retry's wall clock. Null
+     * falls back to the current time; that is a real path on the order-creation
+     * trigger, where the order is not yet persisted and carries no created_at.
+     *
      * @param \Magento\Sales\Model\Order $order
+     * @param string|null $completedAt Triggering document's created_at (UTC)
      * @return bool True on success (or a benign duplicate), false otherwise
      */
-    public function authorizeCapture($order);
+    public function authorizeCapture($order, $completedAt = null);
 
     /**
      * Return (refund) an order's items in TaxCloud from a credit memo.

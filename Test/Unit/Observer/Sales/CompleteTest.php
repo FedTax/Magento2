@@ -100,6 +100,54 @@ class CompleteTest extends TestCase
     /**
      * Build an Order mock with the given invoice / shipment collection sizes.
      */
+    /**
+     * An order carrying a live taxcloud_captured flag: reads see whatever the
+     * observer last wrote, so a sequence of events behaves as it would against
+     * a persisted order. $captured is bound by reference for assertions.
+     *
+     * @param mixed $captured Receives the flag's current value
+     */
+    private function buildOrderWithCaptureFlag(
+        &$captured,
+        int $invoiceCollectionSize = 0,
+        int $shipmentCollectionSize = 0
+    ): Order {
+        $order = $this->buildOrder($invoiceCollectionSize, $shipmentCollectionSize);
+        $captured = null;
+
+        $order->method('getData')->willReturnCallback(
+            static function ($key) use (&$captured) {
+                return $key === 'taxcloud_captured' ? $captured : null;
+            }
+        );
+        $order->method('setData')->willReturnCallback(
+            static function ($key, $value = null) use (&$captured) {
+                if ($key === 'taxcloud_captured') {
+                    $captured = $value;
+                }
+            }
+        );
+
+        return $order;
+    }
+
+    /**
+     * An order already recorded in TaxCloud.
+     */
+    private function buildCapturedOrder(
+        int $invoiceCollectionSize = 0,
+        int $shipmentCollectionSize = 0
+    ): Order {
+        $order = $this->buildOrder($invoiceCollectionSize, $shipmentCollectionSize);
+        $order->method('getData')->willReturnCallback(
+            static function ($key) {
+                return $key === 'taxcloud_captured' ? 1 : null;
+            }
+        );
+
+        return $order;
+    }
+
     private function buildOrder(int $invoiceCollectionSize = 0, int $shipmentCollectionSize = 0): Order
     {
         $order = $this->createMock(Order::class);
@@ -246,17 +294,18 @@ class CompleteTest extends TestCase
     }
 
     /**
-     * Section 4.5: trigger=payment + subsequent invoice (collection size > 1) => skip.
+     * A partially fulfilled order files once: the second invoice of an order
+     * already recorded in TaxCloud must not capture again.
      *
-     * Note this shape does not occur for invoice #2 in the real flow:
-     * sales_order_invoice_pay is dispatched from Invoice::register(), before the
-     * invoice is persisted, so the collection is one short and reports 1. See
-     * Test/Integration/Observer/Sales/CaptureOnInvoiceShapesTest — the guard
-     * this test pins only engages from the third invoice on.
+     * The suppressing signal is the taxcloud_captured flag, NOT a count of the
+     * order's invoices. Counting could never work here — sales_order_invoice_pay
+     * is dispatched from Invoice::register() before the invoice row is written,
+     * so the collection the old guard counted was always one short and only
+     * engaged from the third invoice on.
      */
-    public function testExecuteSkipsSubsequentInvoicePayEvents()
+    public function testExecuteSkipsSubsequentInvoicePayEventsOnACapturedOrder()
     {
-        $order = $this->buildOrder(invoiceCollectionSize: 2);
+        $order = $this->buildCapturedOrder(invoiceCollectionSize: 1);
         $invoice = $this->createMock(Invoice::class);
         $invoice->method('getOrder')->willReturn($order);
 
@@ -272,11 +321,12 @@ class CompleteTest extends TestCase
     }
 
     /**
-     * Section 4.6: trigger=shipment + subsequent shipment (collection size > 1) => skip.
+     * Same rule on the shipment path: a second shipment of an order already
+     * recorded in TaxCloud does not re-file the sale.
      */
-    public function testExecuteSkipsSubsequentShipmentEvents()
+    public function testExecuteSkipsSubsequentShipmentEventsOnACapturedOrder()
     {
-        $order = $this->buildOrder(shipmentCollectionSize: 2);
+        $order = $this->buildCapturedOrder(shipmentCollectionSize: 2);
         $shipment = $this->createMock(Shipment::class);
         $shipment->method('getOrder')->willReturn($order);
 
@@ -288,6 +338,174 @@ class CompleteTest extends TestCase
         $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
 
         $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::SHIPMENT), $tcapi, $logger, $this->makeOrderResource());
+        $complete->execute($observer);
+    }
+
+    /**
+     * A capture that FAILED is retried at the order's next shipment.
+     *
+     * This is the case the removed shipment count guard swallowed: it skipped
+     * every shipment after the first, so an order whose first capture failed
+     * was never filed at all — and there is no cron or CLI that would have
+     * picked it up later.
+     */
+    public function testExecuteRetriesCaptureOnTheNextShipmentAfterAFailure()
+    {
+        $order = $this->buildOrderWithCaptureFlag($captured, shipmentCollectionSize: 2);
+
+        $shipment = $this->createMock(Shipment::class);
+        $shipment->method('getOrder')->willReturn($order);
+        $observer = $this->buildObserver('sales_order_shipment_save_after', ['shipment' => $shipment]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->exactly(2))
+            ->method('authorizeCapture')
+            ->willReturnOnConsecutiveCalls(false, true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::SHIPMENT),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
+
+        $complete->execute($observer);
+        $this->assertEmpty($captured, 'A failed capture must not flag the order as captured');
+
+        $complete->execute($observer);
+        $this->assertSame(1, $captured, 'The retry succeeded, so the order is now flagged');
+    }
+
+    /**
+     * The invoice path retries identically. Before this change the two paths
+     * diverged: the invoice count lagged by one, so a failure got exactly one
+     * accidental retry, while the shipment path got none. Neither was designed.
+     */
+    public function testExecuteRetriesCaptureOnTheNextInvoiceAfterAFailure()
+    {
+        $order = $this->buildOrderWithCaptureFlag($captured, invoiceCollectionSize: 1);
+
+        $invoice = $this->createMock(Invoice::class);
+        $invoice->method('getOrder')->willReturn($order);
+        $observer = $this->buildObserver('sales_order_invoice_pay', ['invoice' => $invoice]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->exactly(2))
+            ->method('authorizeCapture')
+            ->willReturnOnConsecutiveCalls(false, true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::PAYMENT),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        );
+
+        $complete->execute($observer);
+        $this->assertEmpty($captured, 'A failed capture must not flag the order as captured');
+
+        $complete->execute($observer);
+        $this->assertSame(1, $captured, 'The retry succeeded, so the order is now flagged');
+    }
+
+    /**
+     * Capture files under the SHIPMENT's creation time, not the clock at which
+     * the observer happened to run. This is what keeps a capture retried in a
+     * later month out of that month's filing.
+     */
+    public function testCaptureOnShipmentFilesUnderTheShipmentsCreatedAt()
+    {
+        $order = $this->buildOrder(shipmentCollectionSize: 1);
+        $shipment = $this->createMock(Shipment::class);
+        $shipment->method('getOrder')->willReturn($order);
+        $shipment->method('getCreatedAt')->willReturn('2026-03-14 09:15:00');
+
+        $observer = $this->buildObserver('sales_order_shipment_save_after', ['shipment' => $shipment]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('authorizeCapture')
+            ->with($order, '2026-03-14 09:15:00')
+            ->willReturn(true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::SHIPMENT), $tcapi, $logger, $this->makeOrderResource());
+        $complete->execute($observer);
+    }
+
+    /**
+     * The invoice trigger files under the INVOICE's creation time.
+     */
+    public function testCaptureOnInvoiceFilesUnderTheInvoicesCreatedAt()
+    {
+        $order = $this->buildOrder(invoiceCollectionSize: 0);
+        $invoice = $this->createMock(Invoice::class);
+        $invoice->method('getOrder')->willReturn($order);
+        $invoice->method('getCreatedAt')->willReturn('2026-01-31 23:59:00');
+
+        $observer = $this->buildObserver('sales_order_invoice_pay', ['invoice' => $invoice]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('authorizeCapture')
+            ->with($order, '2026-01-31 23:59:00')
+            ->willReturn(true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::PAYMENT), $tcapi, $logger, $this->makeOrderResource());
+        $complete->execute($observer);
+    }
+
+    /**
+     * The order-creation trigger files under the order's own creation time —
+     * and passes null when it has none, which is the normal case here:
+     * sales_order_place_after is dispatched before the order is persisted, so
+     * created_at is not yet set. The gateways fall back to now.
+     */
+    public function testCaptureAtOrderPlacementPassesNullWhenTheOrderHasNoCreatedAtYet()
+    {
+        $order = $this->buildOrder();
+        $order->method('getCreatedAt')->willReturn(null);
+
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('authorizeCapture')
+            ->with($order, null)
+            ->willReturn(true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION), $tcapi, $logger, $this->makeOrderResource());
+        $complete->execute($observer);
+    }
+
+    /**
+     * A persisted order at the placement trigger files under its created_at.
+     */
+    public function testCaptureAtOrderPlacementFilesUnderTheOrdersCreatedAt()
+    {
+        $order = $this->buildOrder();
+        $order->method('getCreatedAt')->willReturn('2026-02-02 08:00:00');
+
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('authorizeCapture')
+            ->with($order, '2026-02-02 08:00:00')
+            ->willReturn(true);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+
+        $complete = new Complete($this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION), $tcapi, $logger, $this->makeOrderResource());
         $complete->execute($observer);
     }
 

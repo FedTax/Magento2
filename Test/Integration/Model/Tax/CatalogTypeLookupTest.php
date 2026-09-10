@@ -39,11 +39,30 @@ class CatalogTypeLookupTest extends IntegrationTestCase
     /** Flat rate the SOAP double applies to every line it is sent. */
     private const RATE = 0.10;
 
+    /** The shared fixture's ZIP, which is its BILLING address. */
+    private const BILLING_ZIP = '78701';
+
+    /** A different state entirely, so a mis-sourced lookup is visible. */
+    private const SHIPPING_ZIP = '80202';
+
+    /** @var array<string, mixed> Ship-to Denver CO, over a Texas billing address. */
+    private const SHIPPING_OVERRIDE = [
+        'street'    => '1701 Broadway',
+        'city'      => 'Denver',
+        'region_id' => 13,
+        'region'    => 'Colorado',
+        'postcode'  => self::SHIPPING_ZIP,
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->installSoapMock($this->soapResponsesWith([
             'lookup' => $this->flatRateLookupResponder(self::RATE),
+            // Without this the canned verifyAddress rewrites every destination
+            // to a fixed Austin TX address, and no sourcing assertion in this
+            // file could fail.
+            'verifyAddress' => $this->echoingVerifyAddressResponder(),
         ]));
     }
 
@@ -195,7 +214,7 @@ class CatalogTypeLookupTest extends IntegrationTestCase
      */
     public function testVirtualOnlyCartIsTaxedAgainstTheBillingAddress(): void
     {
-        $quote = $this->quoteWith('test-virtual', 1);
+        $quote = $this->quoteBilledInTexasShippingToColorado('test-virtual');
 
         $this->assertTrue($quote->isVirtual(), 'A cart of one virtual product should be a virtual quote.');
         $this->assertEqualsWithDelta(
@@ -208,6 +227,50 @@ class CatalogTypeLookupTest extends IntegrationTestCase
             0.0,
             (float) $quote->getBillingAddress()->getTaxAmount(),
             'A virtual quote should carry its tax on the billing address.'
+        );
+
+        // The assertion that can actually fail if the wrong address is used.
+        // Which address holds the tax is decided by Magento; which address is
+        // SENT is decided by us, and the two are only visibly different when
+        // the addresses are.
+        $this->assertSame(
+            self::BILLING_ZIP,
+            $this->soapClient()->firstCallArgs('lookup')['destination']['Zip5'] ?? null,
+            'A virtual-only cart must be sourced to the billing address, not to the '
+            . 'shipping address the quote happens to carry.'
+        );
+    }
+
+    /**
+     * The mirror image, and the reason a mixed cart is never split: the digital
+     * line is sourced where the shipment goes, not where the buyer is billed.
+     */
+    public function testMixedCartSourcesItsDigitalLineToTheShippingAddress(): void
+    {
+        $repository = $this->get(ProductRepositoryInterface::class);
+
+        $quote = $this->newGuestQuote([], 'default', self::SHIPPING_OVERRIDE);
+        $quote->addProduct($repository->get('test-virtual'), new DataObject(['qty' => 1]));
+        $quote->addProduct($repository->get('test-product'), new DataObject(['qty' => 1]));
+        $this->collectAndSaveQuote($quote);
+
+        $soap = $this->soapClient();
+
+        $this->assertSame(
+            1,
+            $soap->callCount('lookup'),
+            'A mixed cart is one sale to one destination, so it takes exactly one lookup.'
+        );
+        $this->assertSame(
+            self::SHIPPING_ZIP,
+            $soap->firstCallArgs('lookup')['destination']['Zip5'] ?? null,
+            'A cart with anything shippable in it sources every line, digital ones included, '
+            . 'to the shipping address.'
+        );
+        $this->assertContains(
+            'test-virtual',
+            array_column($soap->firstCallArgs('lookup')['cartItems'] ?? [], 'ItemID'),
+            'The digital line rides along in that one lookup rather than being split out.'
         );
     }
 
@@ -248,6 +311,24 @@ class CatalogTypeLookupTest extends IntegrationTestCase
     /**
      * Build, collect and return a guest quote holding one seeded product.
      */
+    /**
+     * A cart billed in Texas and shipping to Colorado.
+     *
+     * Everything else in this file uses the shared fixture, whose billing and
+     * shipping addresses are identical — fine for asserting WHAT is sent, and
+     * useless for asserting WHERE. A sourcing assertion needs two addresses that
+     * can be told apart.
+     */
+    private function quoteBilledInTexasShippingToColorado(string $sku): Quote
+    {
+        $product = $this->seededProduct($sku);
+
+        $quote = $this->newGuestQuote([], 'default', self::SHIPPING_OVERRIDE);
+        $quote->addProduct($product, new DataObject($this->buyRequestFor($product, 1)));
+
+        return $this->collectAndSaveQuote($quote);
+    }
+
     private function quoteWith(string $sku, int $qty): Quote
     {
         $product = $this->seededProduct($sku);

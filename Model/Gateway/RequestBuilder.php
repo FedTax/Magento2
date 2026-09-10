@@ -22,11 +22,13 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\Address\TaxAddressResolver;
 use Taxcloud\Magento2\Model\CompositeItemResolver;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Taxcloud\Magento2\Model\ProductTicService;
 use Taxcloud\Magento2\Model\RefundDistributor;
+use Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService;
 
 /**
  * Constructs the request payloads sent to TaxCloud.
@@ -73,12 +75,29 @@ class RequestBuilder
     private $logger;
 
     /**
+     * @var FeeService
+     */
+    private $feeService;
+
+    /**
+     * @var TaxAddressResolver
+     */
+    private $addressResolver;
+
+    /**
      * @param TaxcloudConfig       $config
      * @param ScopeConfigInterface $scopeConfig
      * @param RegionFactory        $regionFactory
      * @param ProductTicService    $productTicService
      * @param RefundDistributor    $refundDistributor
+     * @param FeeService           $feeService
      * @param LoggerInterface|null $logger
+     * @param TaxAddressResolver|null $addressResolver Defaulted, not optional in
+     *        spirit: di.xml binds it, and the default exists only so a store
+     *        whose compiled DI is stale after an upgrade still resolves an
+     *        address instead of fataling. The class is stateless and takes no
+     *        constructor arguments, so the default is the same object DI builds
+     *        — a `<preference>` for it would still be honoured through di.xml.
      */
     public function __construct(
         TaxcloudConfig $config,
@@ -86,14 +105,18 @@ class RequestBuilder
         RegionFactory $regionFactory,
         ProductTicService $productTicService,
         RefundDistributor $refundDistributor,
-        ?LoggerInterface $logger = null
+        FeeService $feeService,
+        ?LoggerInterface $logger = null,
+        ?TaxAddressResolver $addressResolver = null
     ) {
         $this->config = $config;
         $this->scopeConfig = $scopeConfig;
         $this->regionFactory = $regionFactory;
         $this->productTicService = $productTicService;
         $this->refundDistributor = $refundDistributor;
+        $this->feeService = $feeService;
         $this->logger = $logger ?? new NullLogger();
+        $this->addressResolver = $addressResolver ?? new TaxAddressResolver();
     }
 
     /**
@@ -252,6 +275,23 @@ class RequestBuilder
                     'Qty' => 1,
                 ];
             }
+        }
+
+        // The Colorado Retail Delivery Fee, as its own zero-rated line.
+        // TaxCloud does not price this fee: it recognizes the TIC, returns
+        // the line untaxed, and files the amount from the captured cart — so
+        // the price here is the configured fee, always full (never netted
+        // against discounts; TaxCloud's own discount exclusion for this TIC
+        // cannot see amounts we pre-net into prices). The REST transport
+        // inherits this line through its delegation to this builder.
+        if ($this->feeService->isEligible($address, $store)) {
+            $cartItems[] = [
+                'ItemID' => FeeService::ITEM_ID,
+                'Index' => $index++,
+                'TIC' => $this->feeService->getTic($store),
+                'Price' => $this->feeService->getAmount($store),
+                'Qty' => 1,
+            ];
         }
 
         return ['cartItems' => $cartItems, 'indexedItems' => $indexedItems];
@@ -435,9 +475,25 @@ class RequestBuilder
         if ($shippingAmount > 0) {
             $cartItems[] = [
                 'ItemID' => 'shipping',
-                'Index' => $index,
+                'Index' => $index++,
                 'TIC' => $this->productTicService->getShippingTic($store),
                 'Price' => $shippingAmount,
+                'Qty' => 1,
+            ];
+        }
+        // The Colorado Retail Delivery Fee the order was charged, at the
+        // stored (charged) amount — never a fresh config read, which may have
+        // moved with Colorado's July 1 rate change. Present here so both
+        // consumers of this cart stay faithful to the original sale: an
+        // exempt re-create files the fee, a full-cancellation return
+        // reverses it.
+        $rdfAmount = (float) $order->getBaseTaxcloudRdfAmount();
+        if ($rdfAmount > 0) {
+            $cartItems[] = [
+                'ItemID' => FeeService::ITEM_ID,
+                'Index' => $index,
+                'TIC' => $this->feeService->getTic($store),
+                'Price' => $rdfAmount,
                 'Qty' => 1,
             ];
         }
@@ -445,22 +501,64 @@ class RequestBuilder
     }
 
     /**
-     * Build the destination array from an order's shipping address for Lookup,
-     * or null when the address is missing / non-US / has an invalid ZIP.
+     * Append the Colorado Retail Delivery Fee line to a Returned cart when
+     * the credit memo carries the fee (granted by the creditmemo total
+     * collector on full returns only).
+     *
+     * Only touches a non-empty cart: an empty Returned cart is the "return
+     * the remainder" form, where the fee travels via the
+     * returnCoDeliveryFeeWhenNoCartItems flag instead of a line.
+     *
+     * @param array $cartItems v1 Returned cart items
+     * @param \Magento\Sales\Model\Order\Creditmemo $creditmemo
+     * @return array
+     */
+    public function appendReturnedRdfLine(array $cartItems, $creditmemo)
+    {
+        $amount = (float) $creditmemo->getBaseTaxcloudRdfAmount();
+        if ($amount <= 0 || $cartItems === []) {
+            return $cartItems;
+        }
+
+        $store = $creditmemo->getOrder()->getStoreId();
+        $cartItems[] = [
+            'ItemID' => FeeService::ITEM_ID,
+            'Index' => count($cartItems),
+            'TIC' => $this->feeService->getTic($store),
+            'Price' => $amount,
+            'Qty' => 1,
+        ];
+
+        return $cartItems;
+    }
+
+    /**
+     * Build the destination array for an order, or null when no address on it
+     * yields a usable US destination (missing / non-US / invalid ZIP).
+     *
+     * The address comes from TaxAddressResolver, so an order that ships nothing
+     * — and therefore has no shipping address at all, which is every order
+     * placed from a wholly virtual cart — files against its billing address
+     * rather than failing to file. Returning null here makes the caller report
+     * failure, which is the right outcome only when there is genuinely no
+     * address to source to; it used to be the outcome for every digital order.
      *
      * @param \Magento\Sales\Model\Order $order
      * @return array|null
      */
     public function buildDestinationFromOrder($order)
     {
-        $address = $order->getShippingAddress();
+        $address = $this->addressResolver->forOrder($order);
         if (!$address || !$address->getPostcode() || $address->getCountryId() !== 'US') {
+            $this->logUnresolvedDestination($order);
             return null;
         }
         $parsedZip = PostalCodeParser::parse($address->getPostcode());
         if (!PostalCodeParser::isValid($parsedZip)) {
+            $this->logUnresolvedDestination($order);
             return null;
         }
+        $this->logResolvedDestination($order);
         $street = $address->getStreet();
         $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
         $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
@@ -473,6 +571,42 @@ class RequestBuilder
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
         ];
+    }
+
+    /**
+     * Record which of an order's addresses the destination came from.
+     *
+     * A digital order correctly sourced to a billing address and a physical
+     * order wrongly sourced to one produce the same payload; only this line
+     * tells the two apart when someone reads the log afterwards.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return void
+     */
+    private function logResolvedDestination($order)
+    {
+        // The same test the resolver made: it returns the shipping address
+        // whenever there is one, so a truthy shipping address IS the source.
+        $type = $order->getShippingAddress() ? 'shipping' : 'billing';
+
+        $this->logger->info(
+            'Order ' . (string) $order->getIncrementId() . ' destination sourced to its '
+            . $type . ' address'
+        );
+    }
+
+    /**
+     * Record that an order has no address that can be sourced to.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return void
+     */
+    private function logUnresolvedDestination($order)
+    {
+        $this->logger->error(
+            'Order ' . (string) $order->getIncrementId()
+            . ' has no shipping or billing address that yields a valid US destination'
+        );
     }
 
     /**
@@ -516,13 +650,23 @@ class RequestBuilder
     /**
      * Build the AuthorizedWithCapture request params for an order.
      *
+     * $completedAt is the creation time of the document that triggered the
+     * capture (order, invoice or shipment, per the store's capture trigger), as
+     * a Magento datetime string in UTC. Filing under it rather than under the
+     * call's wall clock keeps a capture retried at a later fulfillment document
+     * in the period that document belongs to. Null falls back to now — a real
+     * path at order placement, where the order is not yet persisted and has no
+     * created_at.
+     *
      * @param \Magento\Sales\Model\Order $order
      * @param string|null $cartId Override cart ID; defaults to the order's quote ID
+     * @param string|null $completedAt Triggering document's created_at (UTC); null means now
      * @return array
      */
-    public function buildAuthorizeCaptureParams($order, $cartId = null)
+    public function buildAuthorizeCaptureParams($order, $cartId = null, $completedAt = null)
     {
         $store = $order->getStoreId();
+        $captureDate = $this->toIso8601($completedAt);
 
         return [
             'apiLoginID' => $this->config->getApiId($store),
@@ -530,9 +674,30 @@ class RequestBuilder
             'customerID' => $order->getCustomerId() ?? $this->config->getGuestCustomerId($store),
             'cartID' => $cartId ?? $order->getQuoteId(),
             'orderID' => $order->getIncrementId(),
-            'dateAuthorized' => date('c'), // date('Y-m-d') . 'T00:00:00'
-            'dateCaptured' => date('c'), // date('Y-m-d') . 'T00:00:00'
+            'dateAuthorized' => $captureDate,
+            'dateCaptured' => $captureDate,
         ];
+    }
+
+    /**
+     * Render a Magento datetime string (stored UTC) in the offset-bearing
+     * ISO-8601 form this transport has always sent. Kept in that form rather
+     * than normalized to UTC: both render the same instant, and changing the
+     * rendering would alter every existing SOAP payload for no gain.
+     *
+     * @param string|null $datetime
+     * @return string
+     */
+    private function toIso8601($datetime)
+    {
+        if ($datetime !== null && $datetime !== '') {
+            $timestamp = strtotime($datetime . ' UTC');
+            if ($timestamp !== false) {
+                return date('c', $timestamp);
+            }
+        }
+
+        return date('c');
     }
 
     /**

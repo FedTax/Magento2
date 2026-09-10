@@ -6,7 +6,7 @@
 ## Compatibility
 
 **Adobe Commerce 2.4.9 Compatible** ✅  
-This extension (Version 1.3.1) is tested and verified against Adobe Commerce
+This extension (Version 1.4.0) is tested and verified against Adobe Commerce
 2.4.7-p10, 2.4.8-p5 and 2.4.9 — the unit, integration and E2E suites run on all
 three on every change.
 
@@ -55,31 +55,69 @@ bin/magento setup:di:compile
 
 #### Install via Composer
 
+The extension is published on the [Adobe Commerce Marketplace](https://commercedeveloper.adobe.com/extensions/versions/taxcloud-magento2), so it installs from `repo.magento.com` using the authentication keys your Magento project is already configured with:
+
+```bash
+composer require taxcloud/magento2
+bin/magento setup:upgrade
+bin/magento setup:di:compile
 ```
-{
-    "repositories": [
-        {
-            "url": "https://github.com/FedTax/Magento2.git",
-            "type": "git"
-        }
-    ],
-    "require": {
-        "taxcloud/magento2": "*"
+
+##### Installing the latest release directly from GitHub
+
+Every Marketplace submission is reviewed by Adobe's Extension Quality Program (EQP) before it is published. That review is not instantaneous — it can take anywhere from a few days to several weeks — so for a period after each release the version served by the Marketplace lags behind the latest release tagged in this repository.
+
+To install a release as soon as it is tagged here, without waiting for the Marketplace listing to catch up, register this repository as a VCS repository in your Magento project's `composer.json`:
+
+```bash
+composer config repositories.taxcloud vcs https://github.com/FedTax/Magento2.git
+composer require taxcloud/magento2:^1.3
+```
+
+The first command adds the following to your `composer.json`:
+
+```json
+"repositories": {
+    "taxcloud": {
+        "type": "vcs",
+        "url": "https://github.com/FedTax/Magento2.git"
     }
 }
 ```
 
+A few things worth knowing:
+
+- **No credentials are needed for this repository.** It is public, so Composer reads its tags anonymously. Your existing `repo.magento.com` keys are still required for Magento's own packages.
+- **Composer installs the highest version that satisfies your constraint across every configured repository.** With the VCS repository registered, a newer tagged release here therefore takes precedence over an older Marketplace copy of the same package, and no further configuration is required.
+- **Prefer an explicit constraint over `*`.** `^1.3` keeps you on the current major version and makes upgrades deliberate; `*` will silently follow a future major release with breaking changes.
+- **Releases are tagged `vX.Y.Z`** and Composer normalises those to `X.Y.Z`. Only stable tags are considered under Composer's default `minimum-stability` of `stable`.
+
+Once the repository is registered, subsequent upgrades are ordinary Composer operations:
+
+```bash
+composer update taxcloud/magento2
+bin/magento setup:upgrade
+bin/magento setup:di:compile
+```
+
 ### Uninstalling the Module
 
-Installing the module adds three EAV attributes via two data patches:
+Installing the module adds four EAV attributes via data patches:
 
-- `taxcloud_tic` on products (the TaxCloud TIC) and `taxcloud_cert` on
-  customers (the exemption certificate ID), both from `InstallTaxcloudData`;
+- `taxcloud_tic` on products (the TaxCloud TIC), from `InstallTaxcloudData`;
 - `taxcloud_tic` on categories (the inherited TIC), from
-  `AddCategoryTicAttribute`.
+  `AddCategoryTicAttribute`;
+- `taxcloud_certificate_id` on customers (the attached exemption
+  certificate), from `AddCertificateAttachmentAttribute`;
+- `taxcloud_customer_id` on customers (the TaxCloud identity certificates are
+  filed under), from `AddTaxcloudCustomerIdAttribute`.
 
-Both patches are revertable (they implement `PatchRevertableInterface`), so
-these attributes are cleaned up automatically when the module is uninstalled.
+(The legacy `taxcloud_cert` attribute is created and immediately removed
+again during a fresh install, purely so upgrades from 1.3.x have an attribute
+to migrate values from.)
+
+These patches are revertable (they implement `PatchRevertableInterface`), so
+the attributes are cleaned up automatically when the module is uninstalled.
 Magento invokes each patch's `revert()` from the uninstall-data flow:
 
 ```
@@ -89,7 +127,7 @@ bin/magento module:uninstall Taxcloud_Magento2
 (`module:uninstall` applies to Composer-installed modules; it runs the data
 patch's `revert()` before removing the module's files.)
 
-Reverting drops all three attributes (and, because EAV value storage cascades on
+Reverting drops all four attributes (and, because EAV value storage cascades on
 the attribute, any TIC/certificate values stored against products, categories
 and customers).
 Re-installing and running `bin/magento setup:upgrade` re-applies the patch and
@@ -124,7 +162,12 @@ Integration tests live in their own pipeline — they boot the full Magento
 application against a real database and run via PHPUnit. They are expensive
 and run on demand (or on release tags), not on every push. See
 [docs/INTEGRATION_TESTS.md](docs/INTEGRATION_TESTS.md) for the 5-minute
-local setup and the matrix of supported editions/versions.
+local setup and the matrix of supported editions/versions. The suite
+includes live v3 REST API contract checks (`Test/Integration/Rest/`), which
+is why `TAXCLOUD_API_V3_KEY` (a real key from Developer → API) is required
+alongside the V1 sandbox pair; the E2E suite additionally re-runs every
+checkout journey with the store switched to V3 REST (see
+[docs/E2E_TESTS.md](docs/E2E_TESTS.md)).
 
 ### Coding standard
 
@@ -197,15 +240,21 @@ Navigate to *Stores → Configuration* and then *Sales → Tax*.
 
   In every mode your TaxCloud `apiLoginID` and `apiKey` are redacted: the field names still appear (in both the params dumps and the raw XML), but their values are replaced with `***REDACTED***` so credentials cannot be harvested from logs, backups, or log shippers (Datadog, Splunk, SIEM exports, etc.). The log file location is configurable — see [Changing the log file location](#changing-the-log-file-location).
 * **Verify Address** - Select `Enabled` to turn on TaxCloud's address verification API calls. You may want to disable this if you have another module that validates shipping addresses.
-* **API ID** - Enter your API ID from your TaxCloud account.
-* **API Key** - Enter your API Key from your TaxCloud account.
+* **API Type** - Which TaxCloud API generation the store transacts over: `V1 SOAP (legacy)` or `V3 REST`. Store-scoped, so different store views can run different transports side by side. Fresh installs default to `V3 REST`; installs upgraded with existing V1 credentials are pinned to `V1 SOAP` until you switch explicitly. See [Switching to the V3 REST API](#switching-to-the-v3-rest-api) before changing this on a live store.
+* **API ID** - Enter your API ID from your TaxCloud account (V1 SOAP).
+* **API Key** - Enter your API Key from your TaxCloud account (V1 SOAP). With API Type = `V3 REST`, this credential pair is also accepted: it is exchanged automatically for a v3 Bearer token.
+* **API Key (Developer → API)** - *V3 REST.* Optional direct v3 key, generated in your TaxCloud dashboard under Developer → API. When present it takes precedence over the exchanged V1 pair.
+* **Connection ID** - *V3 REST.* The UUID of your Custom API connection, found under Integrations → Custom API. The connection determines whether requests are processed as test or production.
 * **Guest Customer ID** - Enter the customer ID to send to TaxCloud during a guest checkout. Unless there is a special reason to change this for your store, use the default value of `-1`.
-* **Default TIC** - Enter the Taxability Information Code you would like to use for products where no TIC has been specified on the product or on any of its categories. See [How a TIC is chosen](#how-a-tic-is-chosen).
+* **Default TIC** - Enter the Taxability Information Code you would like to use for products where no TIC has been specified on the product or on any of its categories. See [How a TIC is chosen](#how-a-tic-is-chosen). Like every TIC field in the admin, it autocompletes: type what you sell and pick from matching codes, each shown with its description. The field stays free-text — a code TaxCloud doesn't recognize is kept exactly as entered, and saving is never blocked.
 * **Shipping TIC** - Enter the Taxability Information Code you would like to use for shipping costs. Use `11010` if you charge only postage, and `11000` for shipping & handling.
+* **Enable Exemption Certificates** - Select `Yes` to let exempt customers hold TaxCloud exemption certificates and have them applied at checkout — see [Customer Settings](#customer-settings). TaxCloud does not verify exemption claims; you remain responsible for holding valid certificates on file. Defaults to `No`, which reproduces the pre-1.4 behavior exactly.
+* **Company Name** - *Shown when exemption certificates are enabled.* Your business name, recorded on certificates created through the module as the seller the exemption is claimed from.
 * **Cache Lifetime** - Enter the amount of time in seconds you would like to cache the sales tax lookup and verify address API calls. The default value is `86400` (24 hours), or enter `0` to disable caching for development purposes.
 * **WSDL Endpoint** - *Advanced.* The TaxCloud SOAP endpoint the module calls. Defaults to the production endpoint `https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl`; leave it alone unless TaxCloud support has directed you to a sandbox or staging endpoint. Clearing the field restores the production default. Because the setting is store-scoped, you can point a staging store at a sandbox endpoint while production keeps using the default. Note that tax lookups are cached by request payload, not by endpoint — if you switch endpoints while reusing the same API credentials, clear the TaxCloud cache type so results from the previous endpoint are not reused (see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache)).
 * **Only do tax calculations without further Taxcloud integration** - Select `Enabled` to keep tax calculation running while sending nothing back to TaxCloud that records or reverses a sale. Lookup, address verification and exempt-certificate validation still happen, so the storefront charges the right tax; `AuthorizedWithCapture` (order capture), `Returned` (credit memos and canceled unpaid orders) and `OrderDetails` are all skipped. Useful for merchants that push orders to other systems (i.e. Quickbooks) that are themselves connected to TaxCloud, where a second push from Magento would report the same sale twice. Because the setting is store-scoped, you can run one store view calculation-only while another keeps the full integration. Defaults to `Disabled`. When enabled, **Capture in TaxCloud** is hidden — there is no capture left for it to schedule.
 * **Capture in TaxCloud** - Choose when the order is sent to TaxCloud: *On order creation* (at checkout; default), *On payment* (when an invoice is paid; recommended to avoid canceled orders reaching TaxCloud), or *On shipment* (when a shipment is created). For online payment methods, "on creation" and "on payment" often fire together; the choice matters for offline payment or when you only want to report tax on fulfilled orders.
+* **Colorado Retail Delivery Fee group** - Settings for the Colorado Retail Delivery Fee, a flat per-order fee on motor-vehicle deliveries of taxable goods to Colorado addresses. **Collect Retail Delivery Fee** (default `Disable` — enabling asserts your store is liable; you are generally exempt at ≤$500k prior-year Colorado retail sales, or ≤$100k with no physical presence), **Motor-Vehicle Delivery Methods** (multiselect of shipping methods that trigger the fee; unselected methods such as store pickup never do), **Fee Amount** (default `0.31`; Colorado resets it every July 1 and the module charges/remits exactly this value — TaxCloud does not calculate or validate it), and **Retail Delivery Fee TIC** (default `11098`, the zero-rated line code TaxCloud files the fee under; also rejected on the Default/Shipping TIC fields, since a product or shipping line under it would be silently untaxed and misfiled as fee revenue). The fee is charged as its own total line, persists quote → order → invoice → credit memo in `taxcloud_rdf_amount`/`base_taxcloud_rdf_amount` columns, rides the same Lookup and capture payloads as the rest of the cart on both transports, and is refunded/reversed only on full returns.
 
 #### Product Settings
 
@@ -220,7 +269,7 @@ From the main product grid, you will be able to see and sort by each product's T
 There are two main fields you should properly set per product.
 
 * **Tax Class** - In most cases, you should select `Taxable Goods` for this, even if the product you are selling may be tax exempt under certain, or all, circumstances. If you select `None`, then this product will never be sent to TaxCloud's API during checkout. ___It is strongly discouraged to select `None`___ as you will not have an audit trail of the sale of this item in your TaxCloud account!
-* **Taxcloud TIC** - The five digit Taxability Information Code for this product. For more information, see [Taxability Information Codes](https://taxcloud.com/tic).
+* **Taxcloud TIC** - The five digit Taxability Information Code for this product. The field autocompletes: type what you sell and pick from matching codes, each shown with its description; a code already saved is displayed with its meaning. For more information, see [Taxability Information Codes](https://taxcloud.com/tic).
 
 ##### Bulk Updating
 
@@ -238,7 +287,7 @@ Find the Taxcloud TIC textbox and click the *Change* checkbox below it. Enter a 
 
 Rather than setting a TIC on every product, you can set one on a category and let the products inside it inherit it. Navigate to *Catalog → Categories*, select a category, and open the **TaxCloud** section.
 
-* **TaxCloud TIC** - The five digit Taxability Information Code applied to products in this category that have no TIC of their own.
+* **TaxCloud TIC** - The five digit Taxability Information Code applied to products in this category that have no TIC of their own. The field autocompletes against TaxCloud's code list, like the product TIC field.
 
 The field is store-view scoped, like most category attributes: switch the store view at the top left of the category page to give one store view a different TIC, and leave the *Use Default Value* checkbox ticked everywhere else.
 
@@ -263,19 +312,36 @@ Leaving every category TIC empty reproduces the previous behavior exactly: produ
 
 #### Customer Settings
 
-If you have tax exempt customers, you can add an exemption certificate ID per user. Currently, there is no method to create an exemption certificate through the Magento 2 module, but if you have an existing exemption certificate in TaxCloud, you can link it to a customer's profile.
+If you have tax exempt customers, you can manage their TaxCloud exemption certificates directly from the Magento admin — listing, creating, attaching and deleting certificates without copying identifiers out of the TaxCloud portal by hand. The feature is off by default; turn on **Enable Exemption Certificates** in [TaxCloud Settings](#taxcloud-settings) first.
 
-Navigate to *Customers → All Customers*, click on the *Edit* link for a specific customer, and then click on *Account Information*.
+##### Managing certificates in the admin
 
-![Customer Edit](docs/images/configuration-admin-customer-edit.png)
+Navigate to *Customers → All Customers*, click the *Edit* link for a specific customer, and open the **TaxCloud Exemption Certificates** tab. The panel is guarded by its own ACL permission (*TaxCloud Exemption Certificates*), so you can grant certificate management to specific admin roles.
 
-Here you can add the 36 character plus dashes UUID for the already existing exemption certificate.
+From the panel you can:
 
-##### Exemption certificate validation and caching
+* **See every certificate** filed under the customer's TaxCloud identity, with its covered states, exemption reason and status. The panel also shows what the customer's TaxCloud ID actually resolves to — previously a mismatch between Magento's customer ID and the identity a certificate was filed under meant a silently taxed customer.
+* **Create a certificate** with a form that offers states, exemption reasons and business types as readable choices (matching the names TaxCloud's WooCommerce plugin uses). Nothing verifies an exemption claim — you remain responsible for holding a valid signed certificate on file.
+* **Attach a certificate** to the customer. The attached certificate is what exempts their orders — see [How an order becomes exempt](#how-an-order-becomes-exempt).
+* **Delete a certificate**. Deletion is permanent: TaxCloud cannot restore a deleted certificate.
 
-At checkout, the extension calls TaxCloud's `GetExemptCertificates` API to confirm that the linked certificate actually covers the destination state — a certificate registered for NY does not exempt a shipment to GA. The list of states covered by a certificate is cached **per (customer, certificate) for 1 hour** so that repeated checkouts do not call `GetExemptCertificates` on every page load.
+The customer's **TaxCloud Customer ID** attribute controls which identity their certificates are filed under. It defaults to the customer's Magento ID and normally never needs touching; set it only to point several buyers at one company's shared certificates. Changes are recorded in the TaxCloud log.
 
-The trade-off is a propagation window: if a certificate is revoked or its covered-states list is edited in the TaxCloud dashboard, this extension may continue to apply the previous covered-states list to that customer's checkouts for up to one hour. Cache entries expire on their own; there is no admin action required, and the next request after expiry validates against TaxCloud and refreshes the cache. The "Cache Lifetime" admin setting controls the tax-lookup and address-verification caches separately and does **not** shorten this 1-hour exempt-states window. If you have just revoked or modified a certificate and need the change reflected at checkout immediately, clear the TaxCloud cache type — see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache).
+##### Certificates in My Account
+
+Customers on a store with exemptions enabled get a **Tax Exemption Certificates** section in My Account, where they can review the certificates held for them and delete ones no longer valid. Certificates are created by an administrator, not by the customer.
+
+##### How an order becomes exempt
+
+At checkout, the certificate attached to the customer is applied automatically when it covers the order's destination state — a certificate registered for NY does not exempt a shipment to GA. A certificate that is disabled, single-purchase, or filed under someone else's identity is never applied, and if the customer's certificates cannot be retrieved the order is taxed rather than exempted. An exempted order records the certificate's identifier and a copy of what it said at the time of sale, so the evidence survives later changes in TaxCloud; the record is shown on the admin order view.
+
+##### Certificate caching
+
+A customer's certificates are cached **per customer identity and store account for 1 hour**, so repeated checkouts do not query TaxCloud on every page load. Certificates created or deleted through the module refresh the cache immediately; the propagation window only matters for changes made directly in the TaxCloud dashboard, which can take up to an hour to be reflected at checkout. The "Cache Lifetime" admin setting controls the tax-lookup and address-verification caches separately and does **not** shorten this window. If you have just revoked or modified a certificate in the TaxCloud dashboard and need the change reflected immediately, clear the TaxCloud cache type — see [Clearing the TaxCloud cache](#clearing-the-taxcloud-cache).
+
+##### Upgrading from 1.3.x
+
+Earlier releases stored a single certificate UUID in the `taxcloud_cert` customer attribute. That attribute has been **removed**: `bin/magento setup:upgrade` migrates its values to the new `taxcloud_certificate_id` attribute, so customers exempt before 1.4.0 stay exempt with nothing to re-enter. Integrations, data imports or custom code reading `taxcloud_cert` directly must be updated to read `taxcloud_certificate_id`.
 
 ## Testing the TaxCloud Module
 
@@ -288,6 +354,8 @@ Test adding an item to your cart, clicking *Proceed to Checkout*, entering a shi
 ![Tax Calculation During Checkout](docs/images/testing-checkout.png)
 
 Note that on the shopping cart page, before the customer has entered their shipping address, sales tax will not be calculated unless the customer has started the checkout process and returned to the shopping cart page.
+
+If you sell virtual, downloadable or virtual gift card products, test a cart containing only those as well. Magento skips the shipping step for such a cart and assigns its items to the billing address, so the sale is looked up, captured and refunded against the billing address. Add one shippable item to the same cart and every line, digital ones included, sources to the shipping address instead — one lookup, one captured order.
 
 #### Order Completion
 
@@ -354,6 +422,24 @@ When an order is canceled before any invoice is created, the extension automatic
 
 ## Troubleshooting
 
+### Checking that TaxCloud is the active tax calculation
+
+Magento's tax total is winner-take-all: exactly one class occupies the `tax` entry of the quote total collectors, and this module claims it with a `preference` on `Magento\Tax\Model\Sales\Total\Quote\Tax` in `etc/di.xml`. If another tax extension wins that slot — via its own preference, its own `sales.xml` entry, or an `around` plugin on `collect()` that skips `$proceed` — `Taxcloud\Magento2\Model\Tax::collect()` never runs. There is no exception and no error: tax is simply not calculated and orders are not filed, while the extension still reports as installed, enabled, and connected.
+
+```
+bin/magento taxcloud:diagnose
+```
+
+reports, per store where TaxCloud is enabled, which class occupies the tax collector slot, any `around` plugins wrapping `collect()`, and any non-core collector ordered after `tax` that could overwrite the result. It exits non-zero when TaxCloud is not the active collector, so it can be used as a monitoring check. Its output is unaffected by an admin dismissing the notification described below.
+
+Three surfaces report the same verdict:
+
+* **CLI** — the command above.
+* **Admin** — a critical system message naming the class that won, with a link that acknowledges it. The acknowledgement stores a fingerprint of the conflict rather than a permanent flag, so a different responsible class, or the same conflict reaching another store view, re-raises the message on its own.
+* **Log** — `Taxcloud\Magento2\Model\Tax::collect()` marks the quote when it runs, and an observer on `sales_model_service_quote_submit_before` writes a warning (rate limited to one per store per hour) when an order is placed on an enabled store without that mark. This is the only surface that fires on the storefront path, and it deliberately computes no verdict there.
+
+A clean verdict means only that this module's collector runs — it says nothing about credentials or calculation correctness. See [Another extension is calculating tax](docs/extension-conflicts.md) for the merchant-facing version, including the `<sequence>` recipe for coexisting with a specific named module.
+
 ### Clearing the TaxCloud cache
 
 The extension stores its API responses — tax lookups, address verifications, and exemption-certificate state lists — in a dedicated **TaxCloud** cache type rather than the general application cache. It appears as its own row under *System → Cache Management*, alongside Configuration, Page Cache, and the rest.
@@ -403,6 +489,29 @@ Each of these situations can be accomplished using an event observer. For every 
 | `taxcloud_returned_after` | Emitted after the `Returned` call when a credit memo is created or when a canceled unpaid order is reversed | `$result`, `$order`, `$items`, `$creditmemo` |
 
 For order cancellation, `$creditmemo` is null and `$items` are the order items.
+
+The events above fire only on stores whose **API Type** is `V1 SOAP (legacy)`, and their `$params`/`$result` payloads are the v1 SOAP shapes. Stores switched to `V3 REST` fire a parallel set of events instead, carrying the v3 JSON request/response shapes:
+
+| V3 REST Event Name | Fires instead of | Payload (`$obj` params / result) |
+| ----- | ---- | --- |
+| `taxcloud_rest_lookup_before` / `_after` | `taxcloud_lookup_before` / `_after` | The v3 `POST /carts` payload (`items[]` with `cartId`, `lineItems[]` of `index`/`itemId`/`tic`/`price`/`quantity`, `origin`/`destination` as `line1`/`city`/`state`/`zip`) / the v3 cart response with per-line `tax {amount, rate}` |
+| `taxcloud_rest_capture_before` / `_after` | `taxcloud_authorized_with_capture_before` / `_after` | The v3 `POST /orders` payload (order id, dates, line items with supplied tax) / the v3 order response |
+| `taxcloud_rest_refund_before` / `_after` | `taxcloud_returned_before` / `_after` | The v3 refund payload (`items[]` of `itemId` + `quantity`; empty = full refund) / the v3 refund response |
+| `taxcloud_rest_verify_address_before` / `_after` | `taxcloud_verify_address_before` / `_after` | The v3 verify-address payload / the verified address in the module's `Address1`/…/`Zip4` shape |
+
+The context objects (`$customer`, `$quote`, `$order`, `$creditmemo`, …) are the same as on the corresponding SOAP events. Unlike the SOAP params, v3 payloads never contain credentials — authentication is sent in HTTP headers.
+
+**If you maintain observers on the SOAP events and switch a store to V3 REST, those observers stop applying to that store** — subscribe to the REST events and handle the v3 payload shapes. (The module's own in-quote address verification already handles both.)
+
+### Switching to the V3 REST API
+
+Setting **API Type** to `V3 REST` moves all seven TaxCloud operations of that store — tax lookup, order capture, credit-memo refunds, cancellation reversal, order details, address verification, and exemption-certificate validation — onto TaxCloud's v3 REST API. Behavior is designed to be equivalent; the differences that matter:
+
+* **Orders and refunds live in v3.** An order captured over SOAP (v1) cannot be refunded over REST — the v3 refund reports "order not found" and the credit memo's TaxCloud reversal fails (it is logged, nothing is double-booked). The reverse is also true. **Switch during a quiet window**, and if you need to refund a pre-switch order, temporarily set the store back to the other API Type.
+* **Refund amounts are derived by TaxCloud** from the filed order (the module sends item quantities, fractional where needed), instead of the module sending prices.
+* **Custom observers** on `taxcloud_*` events need REST counterparts — see the event table above.
+
+Switching back is just as safe: set API Type back to `V1 SOAP (legacy)`; no data migration happens in either direction.
 
 ### Changing the log file location
 

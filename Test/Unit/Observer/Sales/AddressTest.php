@@ -271,4 +271,125 @@ class AddressTest extends TestCase
         $observer = new Address(new TaxcloudConfig($scopeConfig), $tcapi, $logger);
         $observer->execute($this->buildObserverArg($obj));
     }
+
+    // ---- v3 REST lookup payloads (taxcloud_rest_lookup_before) ----
+
+    private const V3_DESTINATION = [
+        'line1' => '405 victorian ln',
+        'line2' => 'apt 2',
+        'city' => 'duluth',
+        'state' => 'GA',
+        'zip' => '30097',
+    ];
+
+    private function restParams(array $destination = self::V3_DESTINATION): array
+    {
+        return ['items' => [['cartId' => '77', 'destination' => $destination, 'lineItems' => []]]];
+    }
+
+    /**
+     * On the REST event the observer detects the v3 cart payload, verifies the
+     * destination through the same gateway contract (v1 address shape), and
+     * writes the verified address back in v3 shape.
+     */
+    public function testExecuteVerifiesRestCartDestination()
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('verifyAddress')
+            ->with(
+                [
+                    'Address1' => '405 victorian ln',
+                    'Address2' => 'apt 2',
+                    'City' => 'duluth',
+                    'State' => 'GA',
+                    'Zip5' => '30097',
+                    'Zip4' => '',
+                ],
+                self::QUOTE_STORE_ID
+            )
+            ->willReturn([
+                'Address1' => '405 Victorian Ln',
+                'Address2' => 'Apt 2',
+                'City' => 'Duluth',
+                'State' => 'GA',
+                'Zip5' => '30097',
+                'Zip4' => '4217',
+            ]);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $obj = new \Magento\Framework\DataObject(['params' => $this->restParams()]);
+
+        $observer = new Address($this->buildConfig('1', '1'), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+
+        $this->assertSame(
+            [
+                'line1' => '405 Victorian Ln',
+                'city' => 'Duluth',
+                'state' => 'GA',
+                'zip' => '30097-4217',
+                'line2' => 'Apt 2',
+            ],
+            $obj->getParams()['items'][0]['destination']
+        );
+    }
+
+    /**
+     * A verified result with empty Address1 keeps the original street lines,
+     * exactly like the SOAP branch.
+     */
+    public function testRestVerificationPreservesStreetWhenVerifiedResultHasEmptyAddress1()
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('verifyAddress')->willReturn([
+            'Address1' => '',
+            'Address2' => '',
+            'City' => 'Duluth',
+            'State' => 'GA',
+            'Zip5' => '30097',
+            'Zip4' => '',
+        ]);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $obj = new \Magento\Framework\DataObject(['params' => $this->restParams()]);
+
+        $observer = new Address($this->buildConfig('1', '1'), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+
+        $destination = $obj->getParams()['items'][0]['destination'];
+        $this->assertSame('405 victorian ln', $destination['line1']);
+        $this->assertSame('apt 2', $destination['line2']);
+        $this->assertSame('Duluth', $destination['city']);
+    }
+
+    public function testRestVerificationFailureLeavesPayloadUnchanged()
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('verifyAddress')->willReturn(false);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $params = $this->restParams();
+        $obj = new \Magento\Framework\DataObject(['params' => $params]);
+
+        $observer = new Address($this->buildConfig('1', '1'), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+
+        $this->assertSame($params, $obj->getParams());
+    }
+
+    public function testRestVerificationExceptionDoesNotBlockCheckout()
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('verifyAddress')->willThrowException(new \RuntimeException('transport down'));
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $params = $this->restParams();
+        $obj = new \Magento\Framework\DataObject(['params' => $params]);
+
+        $observer = new Address($this->buildConfig('1', '1'), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+
+        $this->assertSame($params, $obj->getParams());
+    }
 }

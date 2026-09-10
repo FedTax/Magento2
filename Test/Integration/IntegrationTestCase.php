@@ -70,7 +70,7 @@ abstract class IntegrationTestCase extends TestCase
      * the SOAP factory is swapped, so they pick up the mock instead of a
      * client cached from an earlier test. This walks the graph from the
      * \SoapClient outward: SoapGateway holds (and caches) the client;
-     * ExemptionValidator and Api hold the SoapGateway; Tax and the observers
+     * SoapCertificateGateway and Api hold the SoapGateway; Tax and the observers
      * hold Api. Evicting all of them forces the next resolution to rebuild the
      * whole chain around the mock ClientFactory.
      *
@@ -78,8 +78,12 @@ abstract class IntegrationTestCase extends TestCase
      */
     private const SOAP_DEPENDENT_TYPES = [
         \Taxcloud\Magento2\Model\Gateway\Soap\SoapGateway::class,
-        \Taxcloud\Magento2\Model\Gateway\ExemptionValidator::class,
+        \Taxcloud\Magento2\Model\Certificate\SoapCertificateGateway::class,
         \Taxcloud\Magento2\Model\Api::class,
+        // The router is the di preference for every gateway interface and holds
+        // the Api instance; left cached, consumers would keep reaching a SOAP
+        // client from before the mock swap.
+        \Taxcloud\Magento2\Model\Gateway\Router::class,
         \Taxcloud\Magento2\Model\Tax::class,
         \Taxcloud\Magento2\Observer\Sales\Complete::class,
         \Taxcloud\Magento2\Observer\Sales\Refund::class,
@@ -526,8 +530,11 @@ abstract class IntegrationTestCase extends TestCase
      * @param string $storeCode store view the quote belongs to — multi-store
      *        tests pass SECOND_STORE_CODE to build a second-store cart.
      */
-    protected function newGuestQuote(array $addressOverride = [], string $storeCode = 'default'): Quote
-    {
+    protected function newGuestQuote(
+        array $addressOverride = [],
+        string $storeCode = 'default',
+        array $shippingOverride = []
+    ): Quote {
         $om = $this->objectManager();
 
         /** @var StoreManagerInterface $storeManager */
@@ -554,8 +561,16 @@ abstract class IntegrationTestCase extends TestCase
         // fixtures do this) rather than addData() on lazily-created addresses.
         $billingAddress = $om->create(\Magento\Quote\Model\Quote\Address::class, ['data' => $addressData]);
         $billingAddress->setAddressType('billing');
-        $shippingAddress = clone $billingAddress;
-        $shippingAddress->setId(null)->setAddressType('shipping');
+
+        // $shippingOverride exists so a test can make the two addresses DIFFER.
+        // Sourcing tests cannot use the cloned default: with both addresses
+        // identical, a lookup sent to the wrong one is indistinguishable from a
+        // lookup sent to the right one.
+        $shippingAddress = $om->create(
+            \Magento\Quote\Model\Quote\Address::class,
+            ['data' => array_merge($addressData, $shippingOverride)]
+        );
+        $shippingAddress->setAddressType('shipping');
 
         /** @var Quote $quote */
         $quote = $om->create(Quote::class);
@@ -749,6 +764,25 @@ abstract class IntegrationTestCase extends TestCase
             $qtys[(int) $item->getId()] = $item->getQtyOrdered();
         }
 
+        $shipment = $this->get(ShipmentFactory::class)->create($order, $qtys);
+        $shipment->register();
+        $shipment->getOrder()->setIsInProcess(true);
+
+        $this->get(ShipmentRepositoryInterface::class)->save($shipment);
+
+        return $shipment;
+    }
+
+    /**
+     * Ship part of an order: one shipment covering only the given item
+     * quantities, leaving the rest to ship later. Each save fires
+     * sales_order_shipment_save_after, which is what drives the capture
+     * observer on the shipment trigger.
+     *
+     * @param array<int, float> $qtys order item id => qty to ship
+     */
+    protected function createPartialShipment(Order $order, array $qtys): ShipmentInterface
+    {
         $shipment = $this->get(ShipmentFactory::class)->create($order, $qtys);
         $shipment->register();
         $shipment->getOrder()->setIsInProcess(true);

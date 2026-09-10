@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../fixtures/taxcloudLog';
 import { ProductPage } from '../../pages/storefront/ProductPage';
 import { CheckoutPage, type GuestAddress } from '../../pages/storefront/CheckoutPage';
 import { AdminLoginPage } from '../../pages/admin/AdminLoginPage';
@@ -52,6 +52,12 @@ test('admin credit memo refunds the order', async ({ page }) => {
   const order = new AdminOrderPage(page);
   await order.openByIncrement(orderNo);
   await order.createInvoice();
+  // TaxCloud records captures asynchronously: a Returned/refund fired within
+  // seconds of the capture can answer "order ... has not been captured yet"
+  // (observed live in CI 2026-08-07 — previously masked by orderId collisions
+  // with long-captured stale orders). Give the sandbox a grace period between
+  // the capture (order placement) and the refund.
+  await page.waitForTimeout(15_000);
   await order.refundOffline();
 
   // 3. The admin confirms the credit memo, and a full refund closes the order...

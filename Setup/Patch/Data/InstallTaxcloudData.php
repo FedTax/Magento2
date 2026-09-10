@@ -92,6 +92,10 @@ class InstallTaxcloudData implements DataPatchInterface, PatchRevertableInterfac
         $attributeSet = $this->attributeSetFactory->create();
         $attributeGroupId = $attributeSet->getDefaultGroupId($attributeSetId);
 
+        // Retained so upgrades still have the attribute to migrate FROM; a
+        // fresh install creates it and RemoveLegacyCertificateAttribute drops
+        // it again in the same setup run. Removing it here instead would leave
+        // the migration patch reading an attribute that never existed.
         $customerSetup->addAttribute(Customer::ENTITY, 'taxcloud_cert', [
             'type' => 'varchar',
             'label' => 'Taxcloud Exemption Certificate ID',

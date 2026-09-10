@@ -24,12 +24,12 @@ namespace Taxcloud\Magento2\Api;
  * today) satisfies every operation, while individual call sites depend only on
  * the finer-grained interface they actually need
  * ({@see LookupGatewayInterface}, {@see OrderGatewayInterface},
- * {@see AddressGatewayInterface}, {@see ExemptionGatewayInterface}).
+ * {@see AddressGatewayInterface}, {@see CertificateGatewayInterface}).
  */
 interface GatewayInterface extends
     LookupGatewayInterface,
     OrderGatewayInterface,
     AddressGatewayInterface,
-    ExemptionGatewayInterface
+    CertificateGatewayInterface
 {
 }

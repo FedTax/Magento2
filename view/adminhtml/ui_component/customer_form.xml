@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * Adds the exemption-certificate panel as a customer tab.
+ *
+ * It previously rendered into the `content` container, which put it below the
+ * whole customer form rather than beside the other tabs — it read as something
+ * bolted onto the page instead of part of it.
+ *
+ * The block implements TabInterface so the ACL can hide the tab entirely;
+ * `Tabs::addWrappedBlock()` calls canShowTab() before rendering.
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2026 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<form xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <htmlContent name="taxcloud_certificates_content">
+        <block class="Taxcloud\Magento2\Block\Adminhtml\Customer\Edit\Tab\Certificates"
+               name="taxcloud_customer_certificates"
+               template="Taxcloud_Magento2::customer/certificates.phtml">
+            <arguments>
+                <argument name="sort_order" xsi:type="number">30</argument>
+                <argument name="tab_label" xsi:type="string" translate="true">TaxCloud Exemption Certificates</argument>
+            </arguments>
+        </block>
+    </htmlContent>
+</form>

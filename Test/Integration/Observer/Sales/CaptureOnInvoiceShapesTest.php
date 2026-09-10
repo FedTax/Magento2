@@ -47,13 +47,14 @@ class CaptureOnInvoiceShapesTest extends IntegrationTestCase
      *
      * Capturing on the first partial invoice is right: TaxCloud tracks orders,
      * not invoices, and waiting for a full invoice would leave partially
-     * invoiced orders unreported. The second half is where the observer's
-     * dedupe fails. It skips an event when the order already has more than one
-     * invoice, but sales_order_invoice_pay is dispatched from
-     * Invoice::register(), before the invoice is written — so at dispatch time
-     * the collection holds only the EARLIER invoices. For invoice #2 that count
-     * is 1, the guard does not trip, and the sale is filed with TaxCloud a
-     * second time. (The guard only ever engages from invoice #3 on.)
+     * invoiced orders unreported.
+     *
+     * The second half is what the taxcloud_captured flag exists for. Counting
+     * the order's invoices could never have covered it: sales_order_invoice_pay
+     * is dispatched from Invoice::register(), before the invoice is written, so
+     * at dispatch time the collection holds only the EARLIER invoices — for
+     * invoice #2 that count is 1, and a count-based guard would not have
+     * tripped until invoice #3, filing the sale twice in between.
      */
     public function testFirstPartialInvoiceCapturesTheWholeOrderOnce(): void
     {
@@ -75,8 +76,8 @@ class CaptureOnInvoiceShapesTest extends IntegrationTestCase
         );
         $this->assertOrderCapturedFlag($order, true);
 
-        // Invoice the rest. Now the invoice collection is 2, which the observer
-        // skips — the sale is already captured.
+        // Invoice the rest. The order is already flagged as captured, so the
+        // observer skips it.
         $this->payInvoice($this->reloadOrder($order));
 
         $this->assertSame(

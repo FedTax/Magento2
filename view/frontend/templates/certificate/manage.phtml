@@ -1,0 +1,43 @@
+<?php
+/**
+ * Taxcloud_Magento2 - exemption certificates in My Account.
+ *
+ * @var \Taxcloud\Magento2\Block\Certificate\Manage $block
+ * @var \Magento\Framework\Escaper $escaper
+ */
+?>
+<div class="block taxcloud-certificates" data-taxcloud-certificates>
+    <div class="block-title"><strong><?= $escaper->escapeHtml(__('Tax Exemption Certificates')) ?></strong></div>
+
+    <div class="block-content">
+        <p>
+            <?= $escaper->escapeHtml(__(
+                'These are the exemption certificates held for you. They apply automatically when you ship to a state they cover.'
+            )) ?>
+        </p>
+
+        <div data-role="status"></div>
+
+        <table class="data table" data-role="certificate-table" style="display:none;">
+            <caption class="table-caption"><?= $escaper->escapeHtml(__('Your exemption certificates')) ?></caption>
+            <thead>
+            <tr>
+                <th scope="col" class="col"><?= $escaper->escapeHtml(__('Applies in')) ?></th>
+                <th scope="col" class="col"><?= $escaper->escapeHtml(__('Issued to')) ?></th>
+                <th scope="col" class="col"><?= $escaper->escapeHtml(__('Reason')) ?></th>
+                <th scope="col" class="col"><?= $escaper->escapeHtml(__('Actions')) ?></th>
+            </tr>
+            </thead>
+            <tbody data-role="certificate-rows"></tbody>
+        </table>
+
+    </div>
+</div>
+
+<script type="text/x-magento-init">
+{
+    "[data-taxcloud-certificates]": {
+        "Taxcloud_Magento2/js/certificate/my-account": <?= /* @noEscape */ $block->getJsConfig() ?>
+    }
+}
+</script>

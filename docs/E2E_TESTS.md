@@ -160,7 +160,7 @@ lands. Do not fork a parallel seed — extend the shared one.
 ## CI
 
 E2E runs as the **`e2e` job** in the unified pipeline
-[`.github/workflows/test.yml`](../.github/workflows/test.yml), alongside
+[`.github/workflows/test.yml`](https://github.com/FedTax/Magento2/blob/main/.github/workflows/test.yml), alongside
 `unit-tests`, `integration`, `lint-code`, and `security-scan` — the same single
 workflow that gates a release.
 
@@ -174,8 +174,9 @@ across `2.4.7-p10` / `2.4.8-p5` / `2.4.9` (PHP 8.2 / 8.3 / 8.5). Enterprise rows
 are **auto-skipped** (not failed) when Marketplace keys are absent, same as
 integration.
 
-**Secrets:** the same four as integration (`TAXCLOUD_API_ID`, `TAXCLOUD_API_KEY`,
-`MAGENTO_PUBLIC_KEY`, `MAGENTO_PRIVATE_KEY`). No new secrets.
+**Secrets:** the same five as integration (`TAXCLOUD_API_ID`, `TAXCLOUD_API_KEY`,
+`TAXCLOUD_API_V3_KEY`, `MAGENTO_PUBLIC_KEY`, `MAGENTO_PRIVATE_KEY`). No new
+secrets beyond those.
 
 ### Adding a Magento version to the matrix
 

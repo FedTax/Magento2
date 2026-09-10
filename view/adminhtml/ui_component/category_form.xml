@@ -35,6 +35,14 @@
             <argument name="data" xsi:type="array">
                 <item name="config" xsi:type="array">
                     <item name="source" xsi:type="string">category</item>
+                    <!--
+                      The TIC autocomplete: the same component every other TIC
+                      field uses. It only decorates this input — the value stays
+                      freeform and a code the lookup does not know is kept.
+                    -->
+                    <item name="component" xsi:type="string">Taxcloud_Magento2/js/form/element/tic</item>
+                    <item name="searchUrl" xsi:type="url" path="taxcloud/tic/search"/>
+                    <item name="fallbackHint" xsi:type="string" translate="true">Leave empty to inherit from a parent category, or the store's Default TIC when none sets one.</item>
                 </item>
             </argument>
             <settings>

@@ -137,7 +137,7 @@ test('a configurable is taxed on the chosen variant', async ({ page }) => {
   const checkout = new CheckoutPage(page);
 
   await product.open('test-configurable');
-  await product.selectVariant('Red');
+  await product.selectConfigurableOption('Red');
   await product.setQty(2);
   await product.addToCart();
 

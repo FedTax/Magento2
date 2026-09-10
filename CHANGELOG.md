@@ -2,6 +2,159 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## 1.4.0
+
+This release makes TaxCloud's v3 REST API a fully supported transport alongside
+V1 SOAP, adds exemption certificate management, Colorado Retail Delivery Fee
+collection and TIC search to the admin, and reports when another tax module has
+taken over calculation. It includes every fix listed under 1.3.1 below.
+
+Run `bin/magento setup:upgrade` after updating: existing installs are pinned to
+their current API and exemption certificate data is migrated. In production
+mode also run `bin/magento setup:di:compile` — this release adds
+dependency-injection preferences and removes classes.
+
+**This release contains a breaking change**: the `taxcloud_cert` customer
+attribute is removed and its values migrated. Existing exemptions keep working
+with nothing to re-enter, but anything reading that attribute directly needs
+updating — see *Changed*, below.
+
+### Added
+
+- **Full support for TaxCloud's v3 REST API.** A new store-scoped **API Type**
+  setting (*Stores → Configuration → Sales → Tax → TaxCloud Settings*) chooses
+  between **V1 SOAP (legacy)** and **V3 REST**, with the matching credential
+  fields for each (the V3 API Key is stored encrypted). Every TaxCloud
+  operation — tax calculation, order capture, refunds, cancellations, address
+  verification and exemption certificates — runs over whichever API the store
+  selects. Fresh installs default to V3 REST; installs upgrading with saved V1
+  credentials are pinned to V1 SOAP, so nothing changes until an admin
+  switches. A **Test Connection** button verifies the credentials as entered,
+  for either API, before saving.
+- **Automatic V1 → V3 credential migration.** At `setup:upgrade`, every scope
+  with its own V1 credentials is validated against TaxCloud and its V3
+  Connection ID filled in automatically. Until a V3 API Key is saved, REST
+  calls for migrated scopes authenticate with short-lived tokens exchanged
+  from the V1 credentials — so migrated merchants get a working REST
+  connection with no portal action. If validation fails, the upgrade stops
+  naming the scope to fix; set `TAXCLOUD_SKIP_CREDENTIAL_MIGRATION=1` to defer
+  and run `bin/magento taxcloud:migrate-credentials` later.
+- **TIC search.** Every field that takes a Taxability Information Code — the
+  product TIC, the category TIC, the Default TIC and the Shipping TIC — now
+  offers autocomplete: type what you sell and pick from matching codes, each
+  shown with its description. A code already saved is displayed with its
+  meaning. The fields stay free-text: a code TaxCloud doesn't recognise is
+  kept exactly as entered, and saving is never blocked.
+- **Exemption certificate management.** Exempt customers can hold multiple
+  TaxCloud exemption certificates, managed without copying identifiers out of
+  the TaxCloud portal by hand: a certificate panel on the customer admin page
+  lists, creates, attaches and deletes certificates (including a diagnostic
+  showing what a customer's TaxCloud ID actually resolves to — previously a
+  mismatch meant a silently taxed customer), and customers can review and
+  delete their own certificates from My Account. The certificate an
+  administrator attaches to a customer applies automatically at checkout
+  whenever it covers the destination state, and orders record the certificate
+  that untaxed them. Off by default — enable via *Enable Exemption
+  Certificates* in TaxCloud Settings. Works identically on both APIs.
+- **Colorado Retail Delivery Fee collection.** A new store-scoped "Colorado"
+  settings group (off by default) collects Colorado's flat per-order fee on
+  motor-vehicle deliveries of taxable goods: the module decides eligibility
+  (Colorado destination, taxable tangible item, merchant-mapped shipping
+  method), charges the configured amount (default $0.31) as its own
+  "Colorado Retail Delivery Fee" total line — never folded into tax — and
+  sends it as a discrete zero-rated TIC 11098 line in the same lookup and
+  capture payloads on both transports, so TaxCloud files it on the CO RDF
+  return. TaxCloud does not price or validate the fee (verified on both APIs
+  and confirmed by TaxCloud support), so the amount is config-owned and
+  server-side validated to $0.00–$2.00, and the Default/Shipping TIC fields
+  now reject the RDF TIC, whose lines TaxCloud silently zero-rates. The fee
+  persists quote → order → invoice → credit memo, is refunded and reversed in
+  TaxCloud on full returns only (driving the previously hardcoded
+  `returnCoDeliveryFeeWhenNoCartItems` SOAP flag), and a lookup that falls
+  back to Magento rates on a fee-carrying quote logs a reconciliation
+  warning.
+- **The extension now detects when another module has taken over tax
+  calculation, and says so.** Magento's tax total is winner-take-all: if a
+  second tax extension claims the tax collector — by preference, by its own
+  `sales.xml` entry, or by an `around` plugin that skips `$proceed` — TaxCloud's
+  calculation never runs. Nothing errored; the store simply under-collected tax
+  and filed nothing, while the extension still showed as installed, enabled and
+  connected. That state is now reported three ways: a critical admin message
+  naming the module that won, a warning in the TaxCloud log when an order is
+  placed on an affected store (rate limited to one per store per hour), and
+  `bin/magento taxcloud:diagnose`, which reports the verdict per store and exits
+  non-zero when TaxCloud is not the active collector. The admin message can be
+  dismissed, and unlike Magento's own tax notifications the dismissal is scoped
+  to the conflict it acknowledged — a different module taking the slot, or the
+  same one reaching another store view, raises it again on its own. Stores with
+  TaxCloud disabled are not evaluated, so running a different provider on one
+  store view raises nothing. A clean verdict means TaxCloud's collector runs; it
+  does not verify credentials or calculation.
+- **Requests identify the extension.** Every call to TaxCloud carries a
+  `User-Agent` naming the extension, Magento and PHP versions, so TaxCloud
+  support can tell which versions produced a request without asking. It
+  contains no credentials or customer data.
+
+### Changed
+
+- **BREAKING: the `taxcloud_cert` customer attribute has been removed.** Its
+  values are migrated automatically at `setup:upgrade` to a new attribute
+  supporting more than one certificate per customer, so customers exempt
+  before this release stay exempt with nothing to re-enter. Integrations, data
+  imports or custom code reading `taxcloud_cert` directly must be updated to
+  read `taxcloud_certificate_id`.
+- Composite products (bundles, configurables) are now described identically in
+  every payload sent to TaxCloud — calculation, capture and refund — on both
+  APIs, so a composite order can always be cleanly refunded.
+
+### Fixed
+
+- **Orders made only of downloads are now reported to TaxCloud.** A Magento
+  order containing nothing shippable has no shipping address at all — Magento
+  converts one onto the order only for a cart that ships something — and the
+  module read that address without a fallback when it built a destination. On
+  the V3 REST API the result was that no order payload could be built, so a
+  download-only order was taxed at checkout, the customer paid, and the sale was
+  never filed: it did not reach the merchant's return. The same missing
+  destination also abandoned the V1 exempt re-lookup used by tax-only refunds
+  and by cancellation reversal. An order's destination now falls back to its
+  billing address when it has no shipping address, which is the address the sale
+  was already quoted against, so capture, refunds and reversals file where the
+  tax was charged. Orders that ship something are unaffected: a known delivery
+  address is never displaced. Failure is still loud — an order with no usable US
+  address on either side reports failure rather than filing a fabricated one,
+  and the log now names which address each order was sourced to.
+
+  Checkout behaviour is unchanged: Magento already assigns a wholly virtual
+  cart's items to the billing address and a mixed cart's items — downloads
+  included — to the shipping address, so digital sales were being quoted
+  correctly all along. That rule is now pinned by tests rather than left
+  implicit.
+
+- **A failed order capture is no longer lost on the shipment trigger.** Capture
+  was deduplicated partly by counting the order's invoices or shipments, which
+  suppressed every document after the first — so a store capturing on shipment
+  whose first capture failed (a transport error, an expired credential) never
+  filed that order at all, and there is no background job that would have
+  retried it. The `taxcloud_captured` flag is now the only dedupe: a successful
+  capture still files exactly once for the whole order, and a failed one is
+  retried at the order's next invoice or shipment. The invoice and shipment
+  triggers now behave identically here; previously the invoice path got one
+  accidental retry and the shipment path got none.
+- **The sale is filed under the date of the document that triggered the
+  capture** — the order, the invoice or the shipment, per the store's capture
+  trigger — rather than under the clock at the moment the call was made. For a
+  capture that succeeds on its first attempt these are the same instant, so
+  nothing changes; it is what keeps a retried capture in the filing period its
+  fulfillment belongs to instead of the period the retry happened to run in.
+  Applies to both transports (v3 REST `completedDate`, V1 SOAP
+  `dateAuthorized`/`dateCaptured`). The transaction date remains the order's
+  placement time.
+
+Capture remains whole-order on both APIs: an order fulfilled across several
+invoices or shipments is filed once, in full, at the first one. Neither TaxCloud
+API can express a partial capture.
+
 ## 1.3.1
 
 ### Fixed

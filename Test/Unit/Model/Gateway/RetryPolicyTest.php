@@ -364,4 +364,160 @@ class RetryPolicyTest extends TestCase
         $this->assertSame('recovered', $result);
         $this->assertSame(2, $calls, 'a request that never left the client is safe to repeat');
     }
+
+    /**
+     * The REST transport reports connect-stage failures in curl's wording;
+     * they carry the same never-reached-TaxCloud guarantee as their SOAP
+     * counterparts, while curl's total-time "Operation timed out" stays
+     * ambiguous and non-retryable for non-idempotent calls.
+     *
+     * @param string $message
+     * @param bool   $expected
+     * @dataProvider curlMessageProvider
+     */
+    #[DataProvider('curlMessageProvider')]
+    public function testIsRetryableForNonIdempotentRecognizesCurlWording(string $message, bool $expected)
+    {
+        $this->assertSame(
+            $expected,
+            $this->policy()->isRetryableForNonIdempotent(new \RuntimeException($message)),
+            $message
+        );
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: bool}>
+     */
+    public static function curlMessageProvider(): array
+    {
+        return [
+            'dns failure' => ['Could not resolve host: api.v3.taxcloud.com', true],
+            'connect refused' => ['Failed to connect to api.v3.taxcloud.com port 443: Connection refused', true],
+            'connect failed' => ["Failed to connect to api.v3.taxcloud.com port 443 after 3 ms: Couldn't connect to server", true],
+            'connect timeout' => ['Connection timed out after 5001 milliseconds', true],
+            'total-time timeout' => ['Operation timed out after 10000 milliseconds with 0 bytes received', false],
+            'ssl failure after connect' => ['SSL: no alternative certificate subject name matches', false],
+        ];
+    }
+
+    // ---- executeForResponse: the REST response-aware retry loop ----
+
+    private static function restResponse(int $status): \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse
+    {
+        return new \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse($status, '');
+    }
+
+    public function testResponseLoopReturnsTerminalResponseImmediately()
+    {
+        foreach ([200, 404, 422] as $status) {
+            $calls = 0;
+            $response = $this->policy()->executeForResponse(function () use (&$calls, $status) {
+                $calls++;
+                return self::restResponse($status);
+            });
+            $this->assertSame($status, $response->getStatus());
+            $this->assertSame(1, $calls, "status $status must not be retried");
+        }
+    }
+
+    public function testResponseLoopRetriesRetryableStatusThenSucceeds()
+    {
+        $calls = 0;
+        $response = $this->policy()->executeForResponse(function () use (&$calls) {
+            $calls++;
+            return self::restResponse($calls === 1 ? 503 : 200);
+        });
+
+        $this->assertSame(200, $response->getStatus());
+        $this->assertSame(2, $calls);
+    }
+
+    public function testResponseLoopReturnsFinalRetryableResponseWhenBudgetExhausted()
+    {
+        $calls = 0;
+        $response = $this->policy()->executeForResponse(function () use (&$calls) {
+            $calls++;
+            return self::restResponse(429);
+        }, 1);
+
+        $this->assertSame(429, $response->getStatus());
+        $this->assertSame(2, $calls, 'initial attempt plus exactly one retry');
+    }
+
+    public function testResponseLoopNeverRetriesResponsesForNonIdempotentCalls()
+    {
+        $calls = 0;
+        $response = $this->policy()->executeForResponse(
+            function () use (&$calls) {
+                $calls++;
+                return self::restResponse(503);
+            },
+            1,
+            [$this->policy(), 'isRetryableForNonIdempotent'],
+            false
+        );
+
+        $this->assertSame(503, $response->getStatus());
+        $this->assertSame(1, $calls, 'a status in hand proves the request was processed - never repeat it');
+    }
+
+    public function testResponseLoopRetriesConnectFailureThenReturnsResponse()
+    {
+        $calls = 0;
+        $response = $this->policy()->executeForResponse(
+            function () use (&$calls) {
+                $calls++;
+                if ($calls === 1) {
+                    throw new \Taxcloud\Magento2\Model\Gateway\Rest\RestTransportException(
+                        'Could not resolve host: api.v3.taxcloud.com'
+                    );
+                }
+                return self::restResponse(201);
+            },
+            1,
+            [$this->policy(), 'isRetryableForNonIdempotent'],
+            false
+        );
+
+        $this->assertSame(201, $response->getStatus());
+        $this->assertSame(2, $calls, 'a connect-stage failure never reached TaxCloud, so retry is safe');
+    }
+
+    public function testResponseLoopRethrowsAmbiguousTransportFailureForNonIdempotentCalls()
+    {
+        $calls = 0;
+        try {
+            $this->policy()->executeForResponse(
+                function () use (&$calls) {
+                    $calls++;
+                    throw new \Taxcloud\Magento2\Model\Gateway\Rest\RestTransportException(
+                        'Operation timed out after 10000 milliseconds with 0 bytes received'
+                    );
+                },
+                1,
+                [$this->policy(), 'isRetryableForNonIdempotent'],
+                false
+            );
+            $this->fail('expected the ambiguous transport failure to surface without retry');
+        } catch (\Taxcloud\Magento2\Model\Gateway\Rest\RestTransportException $e) {
+            $this->assertSame(1, $calls);
+        }
+    }
+
+    public function testResponseLoopSharesTheRetryBudgetAcrossFailureForms()
+    {
+        // One retry total: spent on the transport failure, so the 503 that
+        // follows must be returned, not retried again.
+        $calls = 0;
+        $response = $this->policy()->executeForResponse(function () use (&$calls) {
+            $calls++;
+            if ($calls === 1) {
+                throw new \Taxcloud\Magento2\Model\Gateway\Rest\RestTransportException('Connection refused');
+            }
+            return self::restResponse(503);
+        }, 1);
+
+        $this->assertSame(503, $response->getStatus());
+        $this->assertSame(2, $calls, 'transport retry and response retry draw from the same budget');
+    }
 }

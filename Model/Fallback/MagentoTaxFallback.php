@@ -110,8 +110,27 @@ class MagentoTaxFallback
     {
         $this->logger->info('Falling back to Magento tax rates');
 
+        // Reconciliation marker: a quote charged the Colorado Retail Delivery
+        // Fee is falling back, so no TaxCloud lookup priced this pass and an
+        // order placed from it may carry a fee TaxCloud has not seen until
+        // capture. The fee stays charged (capture still files it); this line
+        // is what the merchant reconciles against the CO RDF return.
+        /** @var \Magento\Quote\Model\Quote\Address|null $fallbackAddress */
+        $fallbackAddress = $shippingAssignment->getShipping()->getAddress();
+        if ($fallbackAddress && (float) $fallbackAddress->getTaxcloudRdfAmount() > 0) {
+            $this->logger->warning(
+                'Quote ' . ($quote->getId() ?: '(new)') . ' carries the Colorado Retail Delivery Fee ('
+                . $fallbackAddress->getTaxcloudRdfAmount()
+                . ') but this pass used Magento fallback rates; the fee was not priced through a TaxCloud lookup.'
+            );
+        }
+
         $result = [self::ITEM_TYPE_PRODUCT => [], self::ITEM_TYPE_SHIPPING => 0];
 
+        // Typed as core types it (CommonTaxCollector::mapAddress): a shipping
+        // assignment's address is the concrete quote address setFromAddress()
+        // copies from.
+        /** @var \Magento\Quote\Model\Quote\Address $address */
         $address = $shippingAssignment->getShipping()->getAddress();
         if (!$address) {
             $this->logger->critical(
@@ -138,6 +157,7 @@ class MagentoTaxFallback
             // accessors below live on AbstractItem, not CartItemInterface.
             /** @var \Magento\Quote\Model\Quote\Item\AbstractItem[] $keyedAddressItems */
             $keyedAddressItems = [];
+            /** @var \Magento\Quote\Model\Quote\Item\AbstractItem $item */
             foreach ($shippingAssignment->getItems() as $item) {
                 // Skip composite child lines with no tax calculation id (null
                 // array key is a PHP 8 deprecation, fatal in developer mode).

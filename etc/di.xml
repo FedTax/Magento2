@@ -41,6 +41,20 @@
   <preference for="Magento\Tax\Model\Sales\Total\Quote\Tax" type="Taxcloud\Magento2\Model\Tax" />
 
   <!--
+    The encryptor parameter is optional (unit tests construct the config
+    reader without one), and Magento's ObjectManager resolves optional
+    constructor parameters to their DEFAULT, never by auto-wiring — so
+    without this explicit argument the production instance gets a null
+    encryptor and getRestApiKey() returns the stored ciphertext, which the
+    v3 API rejects with 401.
+  -->
+  <type name="Taxcloud\Magento2\Model\Config\TaxcloudConfig">
+    <arguments>
+      <argument name="encryptor" xsi:type="object">Magento\Framework\Encryption\EncryptorInterface</argument>
+    </arguments>
+  </type>
+
+  <!--
     Reverse the TaxCloud sale when an order is cancelled. registerCancellation()
     is the one method every cancellation path reaches, so this is the whole of
     the module's cancellation wiring.
@@ -57,15 +71,16 @@
   </type>
 
   <!--
-    Bind the TaxCloud gateway contracts to the SOAP implementation. Consumers
-    type-hint the finer-grained interface they need; the REST migration can
-    swap the concrete type here without touching any call site.
+    Bind the TaxCloud gateway contracts to the store-aware router, which
+    dispatches each call to the transport selected by the api_type setting of
+    the entity's store. Consumers type-hint the finer-grained interface they
+    need and stay transport-unaware; adding REST tax operations only changes
+    the router's target wiring, never a call site.
   -->
-  <preference for="Taxcloud\Magento2\Api\GatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
-  <preference for="Taxcloud\Magento2\Api\ExemptionGatewayInterface" type="Taxcloud\Magento2\Model\Api" />
+  <preference for="Taxcloud\Magento2\Api\GatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+  <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+  <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+  <preference for="Taxcloud\Magento2\Api\AddressGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
 
   <!-- SOAP transport is the default client provider for the gateway. -->
   <preference for="Taxcloud\Magento2\Model\Gateway\Soap\SoapClientProviderInterface"
@@ -93,13 +108,103 @@
   <type name="Taxcloud\Magento2\Model\Gateway\RequestBuilder">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="addressResolver" xsi:type="object">Taxcloud\Magento2\Model\Address\TaxAddressResolver</argument>
     </arguments>
   </type>
-  <type name="Taxcloud\Magento2\Model\Gateway\ExemptionValidator">
+  <!--
+    Which address a sale is sourced to, bound explicitly at each of the three
+    call sites. The constructors default it as well, so a store whose compiled
+    DI is stale after an upgrade still resolves an address rather than fataling;
+    these bindings are what make a <preference> for the resolver take effect,
+    since a defaulted argument the object manager never supplies would bypass
+    one silently.
+  -->
+  <type name="Taxcloud\Magento2\Observer\Sales\RecordCertificate">
+    <arguments>
+      <argument name="addressResolver" xsi:type="object">Taxcloud\Magento2\Model\Address\TaxAddressResolver</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\PersistRetailDeliveryFee">
+    <arguments>
+      <argument name="addressResolver" xsi:type="object">Taxcloud\Magento2\Model\Address\TaxAddressResolver</argument>
+    </arguments>
+  </type>
+  <!--
+    REST transport collaborators: the same config-gated logger discipline as
+    their SOAP counterparts, and the module's own cache type for the
+    exemption-state cache.
+  -->
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestGateway">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <!--
+    The router receives the REST gateway as a proxy: a store fleet that never
+    selects "V3 REST" never instantiates the REST stack (auth provider, token
+    cache, curl client).
+  -->
+  <type name="Taxcloud\Magento2\Model\Gateway\Router">
+    <arguments>
+      <argument name="rest" xsi:type="object">Taxcloud\Magento2\Model\Gateway\Rest\RestGateway\Proxy</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestRequestBuilder">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\RestResponseMapper">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+  <!--
+    Certificate transports get the config-gated logger like every other gateway
+    collaborator, so their output honours the store's logging settings.
+  -->
+  <type name="Taxcloud\Magento2\Model\Certificate\SoapCertificateGateway">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <type name="Taxcloud\Magento2\Model\Certificate\RestCertificateGateway">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <preference for="Taxcloud\Magento2\Api\CertificateGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
+
+  <type name="Taxcloud\Magento2\Model\Certificate\CertificateRepository">
+    <arguments>
+      <!--
+        Proxied deliberately. The router holds the SOAP gateway, which holds the
+        certificate resolver, which holds this repository - so a non-lazy
+        argument here would be a construction cycle.
+      -->
+      <argument name="gateway" xsi:type="object">Taxcloud\Magento2\Model\Gateway\Router\Proxy</argument>
       <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
     </arguments>
+  </type>
+
+  <type name="Taxcloud\Magento2\Model\Certificate\CertificateResolver">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
+
+  <!--
+    Guards the TaxCloud customer identity on EVERY write path - admin form,
+    storefront account edit, REST, GraphQL, import - by sitting on the
+    repository rather than on any one controller.
+  -->
+  <type name="Magento\Customer\Api\CustomerRepositoryInterface">
+    <plugin name="taxcloud_guard_customer_identity"
+            type="Taxcloud\Magento2\Plugin\Customer\GuardTaxCloudIdentity"
+            sortOrder="10"/>
   </type>
 
   <!--
@@ -114,6 +219,65 @@
       <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
     </arguments>
   </type>
+  <type name="Taxcloud\Magento2\Model\Gateway\Rest\TokenCache">
+    <arguments>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\Tic\TicCache">
+    <arguments>
+      <argument name="cacheType" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <!--
+    The collector verdict is the one thing NOT cached in the module's own type.
+    It describes DI state, not TaxCloud data, so it belongs in the config cache:
+    setup:upgrade and any module/DI change flush that type, which means a stale
+    verdict cannot outlive the thing that would change it. The notification's
+    dismissal controller cleans the same type, so acknowledging a conflict
+    invalidates the cached verdict for free.
+  -->
+  <type name="Taxcloud\Magento2\Model\Diagnostics\TaxCollectorDiagnostics">
+    <arguments>
+      <argument name="cache" xsi:type="object">Magento\Framework\App\Cache\Type\Config</argument>
+    </arguments>
+  </type>
+
+  <!--
+    The observer's rate limit is TaxCloud data, not DI state, so unlike the
+    verdict above it lives in the module's own cache type.
+  -->
+  <type name="Taxcloud\Magento2\Observer\Sales\VerifyTaxCollector">
+    <arguments>
+      <argument name="cache" xsi:type="object">Taxcloud\Magento2\Model\Cache\Type\Taxcloud</argument>
+    </arguments>
+  </type>
+
+  <!--
+    TIC lookup follows the gateway's own rule: the store's api_type decides
+    which API answers, so the picker can never disagree with the transport the
+    same store transacts over. Both backends are proxied, so a fleet that only
+    ever selects one API never builds the other's stack.
+  -->
+  <preference for="Taxcloud\Magento2\Api\TicLookupInterface"
+              type="Taxcloud\Magento2\Model\Tic\TicLookupRouter" />
+  <type name="Taxcloud\Magento2\Model\Tic\TicLookupRouter">
+    <arguments>
+      <argument name="soap" xsi:type="object">Taxcloud\Magento2\Model\Tic\SoapTicLookup\Proxy</argument>
+      <argument name="rest" xsi:type="object">Taxcloud\Magento2\Model\Tic\RestTicLookup\Proxy</argument>
+    </arguments>
+  </type>
+
+  <type name="Magento\Framework\Console\CommandList">
+    <arguments>
+      <argument name="commands" xsi:type="array">
+        <item name="taxcloud_migrate_credentials" xsi:type="object">Taxcloud\Magento2\Console\Command\MigrateCredentialsCommand</item>
+        <item name="taxcloud_diagnose" xsi:type="object">Taxcloud\Magento2\Console\Command\DiagnoseCommand</item>
+      </argument>
+    </arguments>
+  </type>
+
   <type name="Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>

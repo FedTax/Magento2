@@ -294,6 +294,12 @@ if [ "${E2E:-0}" = "1" ]; then
     # Turn it off so E2E can navigate to admin URLs directly.
     echo "==> Disabling admin URL secret key (E2E admin tests)..."
     docker compose exec -T app bin/magento config:set admin/security/use_form_key 0 2>/dev/null || true
+
+    # The module's directories are symlinks into /srv/module, so its .phtml
+    # templates resolve outside the Magento root and the template validator
+    # rejects them ("Invalid template file") unless symlinks are allowed.
+    echo "==> Allowing symlinked templates (module is symlinked)..."
+    docker compose exec -T app bin/magento config:set dev/template/allow_symlink 1 2>/dev/null || true
 fi
 docker compose exec -T app bin/magento setup:upgrade --no-interaction
 docker compose exec -T app bin/magento setup:di:compile

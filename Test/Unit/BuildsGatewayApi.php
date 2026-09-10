@@ -17,7 +17,6 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Event\GatewayEventDispatcher;
 use Taxcloud\Magento2\Model\Fallback\MagentoTaxFallback;
 use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
-use Taxcloud\Magento2\Model\Gateway\ExemptionValidator;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\Gateway\ResponseMapper;
 use Taxcloud\Magento2\Model\Gateway\RetryPolicy;
@@ -40,6 +39,8 @@ use Taxcloud\Magento2\Model\Logging\GatewayLogger;
  */
 trait BuildsGatewayApi
 {
+    use BuildsUserAgent;
+
     /**
      * @param array $leaf
      * @return array Constructor arguments for Model\Api, in order.
@@ -47,14 +48,21 @@ trait BuildsGatewayApi
     private function gatewayApiCollaborators(array $leaf): array
     {
         $config = new TaxcloudConfig($leaf['scopeConfig']);
-        $soapGateway = new SoapGateway($leaf['soapClientFactory'], $config, new NullLogger());
+        $soapGateway = new SoapGateway(
+            $leaf['soapClientFactory'],
+            $config,
+            $this->userAgent(),
+            new NullLogger()
+        );
         $requestBuilder = new RequestBuilder(
             $config,
             $leaf['scopeConfig'],
             $leaf['regionFactory'],
             $leaf['productTicService'],
             $leaf['refundDistributor'],
-            new NullLogger()
+            new \Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService($config, $leaf['regionFactory']),
+            new NullLogger(),
+            new \Taxcloud\Magento2\Model\Address\TaxAddressResolver()
         );
         $responseMapper = new ResponseMapper($leaf['cartItemResponseHandler'], new NullLogger());
         $cacheKeyBuilder = new CacheKeyBuilder();
@@ -67,20 +75,28 @@ trait BuildsGatewayApi
             $config,
             $timezone
         );
-        $exemptionValidator = new ExemptionValidator(
-            $soapGateway,
-            $config,
-            $leaf['cacheType'],
-            $cacheKeyBuilder,
-            $responseMapper,
-            new NullLogger()
-        );
         $fallback = new MagentoTaxFallback(
             $leaf['customerAddressFactory'],
             $leaf['quoteDetailsFactory'],
             $leaf['quoteDetailsItemFactory'],
             $leaf['taxClassKeyFactory'],
             $leaf['taxCalculationService'],
+            new NullLogger()
+        );
+        $certificateGateway = new \Taxcloud\Magento2\Model\Certificate\SoapCertificateGateway(
+            $soapGateway,
+            $config,
+            new \Taxcloud\Magento2\Model\Certificate\SoapCertificateMapper(),
+            new NullLogger()
+        );
+        $certificateResolver = new \Taxcloud\Magento2\Model\Certificate\CertificateResolver(
+            new \Taxcloud\Magento2\Model\Certificate\CertificateRepository(
+                $certificateGateway,
+                $config,
+                $cacheKeyBuilder,
+                $leaf['cacheType']
+            ),
+            new \Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity(),
             new NullLogger()
         );
         $eventDispatcher = new GatewayEventDispatcher($leaf['eventManager'], $leaf['objectFactory']);
@@ -96,7 +112,8 @@ trait BuildsGatewayApi
             $requestBuilder,
             $responseMapper,
             $resultCache,
-            $exemptionValidator,
+            $certificateGateway,
+            $certificateResolver,
             $fallback,
             $eventDispatcher,
             $retryPolicy,

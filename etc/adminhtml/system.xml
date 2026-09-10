@@ -71,12 +71,23 @@
           </depends>
         </field>
 
+        <field id="api_type" translate="label" type="select" sortOrder="35" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+          <label>API Type</label>
+          <source_model>Taxcloud\Magento2\Model\Config\Source\ApiType</source_model>
+          <config_path>tax/taxcloud_settings/api_type</config_path>
+          <tooltip>V3 REST is TaxCloud's current API and the default for new installs. V1 SOAP (legacy) remains available for existing integrations. Each API type uses its own credentials below.</tooltip>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
         <field id="api_id" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
           <label>API ID</label>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/api_id</config_path>
           <depends>
             <field id="enabled">1</field>
+            <field id="api_type">soap</field>
           </depends>
         </field>
 
@@ -84,6 +95,37 @@
           <label>API Key</label>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/api_key</config_path>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">soap</field>
+          </depends>
+        </field>
+
+        <field id="rest_api_key" translate="label" type="obscure" sortOrder="52" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>API Key</label>
+          <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+          <config_path>tax/taxcloud_settings/rest_api_key</config_path>
+          <comment>Optional if V1 SOAP credentials are configured &#8212; they are exchanged automatically. Generate a key in your TaxCloud dashboard under Developer &#8594; API to use direct key authentication.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+          </depends>
+        </field>
+
+        <field id="rest_connection_id" translate="label" type="text" sortOrder="54" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Connection ID</label>
+          <validate>required-entry</validate>
+          <config_path>tax/taxcloud_settings/rest_connection_id</config_path>
+          <comment>The UUID of your Custom API connection, found in your TaxCloud dashboard under Integrations &#8594; Custom API (e.g. 25eb9b97-5acb-492d-b720-c03e79cf715a). The connection determines whether requests are processed as test or production.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+          </depends>
+        </field>
+
+        <field id="test_connection" translate="label" type="button" sortOrder="56" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Verify Credentials</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TestConnection</frontend_model>
           <depends>
             <field id="enabled">1</field>
           </depends>
@@ -101,6 +143,8 @@
 
         <field id="default_tic" translate="label" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Default TIC</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
+          <backend_model>Taxcloud\Magento2\Model\Config\Backend\NonRdfTic</backend_model>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/default_tic</config_path>
           <tooltip>Default TIC if not specified per product (Default 00000)</tooltip>
@@ -111,6 +155,8 @@
 
         <field id="shipping_tic" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Shipping TIC</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
+          <backend_model>Taxcloud\Magento2\Model\Config\Backend\NonRdfTic</backend_model>
           <validate>required-entry</validate>
           <config_path>tax/taxcloud_settings/shipping_tic</config_path>
           <tooltip>Shipping TIC (Use 11010 if you charge only postage, and 11000 for shipping &amp; handling)</tooltip>
@@ -183,6 +229,88 @@
             <field id="calculations_only">0</field>
           </depends>
         </field>
+
+        <!--
+          Exemption certificates. OFF BY DEFAULT, deliberately: a certificate is
+          an unverified attestation, and offering one is inviting a shopper to
+          stop paying tax. A merchant turns this on knowingly.
+        -->
+        <field id="exemptions_enabled" translate="label comment" type="select" sortOrder="120" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Enable Exemption Certificates</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <config_path>tax/taxcloud_settings/exemptions_enabled</config_path>
+          <comment>Lets exempt customers hold TaxCloud exemption certificates and apply them at checkout. TaxCloud does not verify exemption claims — you remain responsible for holding valid certificates on file.</comment>
+          <depends>
+            <field id="enabled">1</field>
+          </depends>
+        </field>
+
+
+
+        <field id="company_name" translate="label comment" type="text" sortOrder="135" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Company Name</label>
+          <config_path>tax/taxcloud_settings/company_name</config_path>
+          <comment>Your business name, recorded on certificates customers create as the seller they are claiming exemption from.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="exemptions_enabled">1</field>
+          </depends>
+        </field>
+
+        <!--
+          Colorado Retail Delivery Fee. TaxCloud does not calculate this fee:
+          TIC 11098 marks a zero-rated line whose amount the integration
+          supplies, and TaxCloud files it from the captured cart. The fee
+          amount below is therefore authoritative — TaxCloud will accept and
+          remit whatever is sent, without validation.
+        -->
+        <group id="colorado" translate="label comment" sortOrder="140" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Colorado Retail Delivery Fee</label>
+          <comment><![CDATA[Colorado charges a flat Retail Delivery Fee on every delivery by motor vehicle to a Colorado address that contains taxable goods. You are generally exempt if your Colorado retail sales in the previous year were $500,000 or less, or if you have no physical presence in Colorado and your sales there do not exceed $100,000. Enable collection only if you are liable; when enabled, the fee is added at checkout and included in the sales data TaxCloud files.]]></comment>
+          <depends>
+            <field id="*/enabled">1</field>
+          </depends>
+
+          <field id="co_rdf_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Collect Retail Delivery Fee</label>
+            <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+            <config_path>tax/taxcloud_settings/co_rdf_enabled</config_path>
+            <comment>Enabling this is your declaration that your store is liable for the fee.</comment>
+          </field>
+
+          <field id="co_rdf_delivery_methods" translate="label comment" type="multiselect" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Motor-Vehicle Delivery Methods</label>
+            <source_model>Magento\Shipping\Model\Config\Source\Allmethods</source_model>
+            <config_path>tax/taxcloud_settings/co_rdf_delivery_methods</config_path>
+            <can_be_empty>1</can_be_empty>
+            <comment>Only orders shipped with a selected method are charged the fee. Leave store pickup and other non-delivery methods unselected.</comment>
+            <depends>
+              <field id="co_rdf_enabled">1</field>
+            </depends>
+          </field>
+
+          <field id="co_rdf_amount" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+            <label>Fee Amount</label>
+            <validate>required-entry validate-number validate-number-range number-range-0-2</validate>
+            <backend_model>Taxcloud\Magento2\Model\Config\Backend\CoRdfAmount</backend_model>
+            <config_path>tax/taxcloud_settings/co_rdf_amount</config_path>
+            <comment><![CDATA[The Colorado Department of Revenue resets this amount every July 1 — check the <a href="https://tax.colorado.gov/retail-delivery-fee" target="_blank">current rate</a> and update it here. TaxCloud does not calculate or correct it: this exact amount is charged to customers and remitted.]]></comment>
+            <depends>
+              <field id="co_rdf_enabled">1</field>
+            </depends>
+          </field>
+
+          <field id="co_rdf_tic" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+            <label>Retail Delivery Fee TIC</label>
+            <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\TicField</frontend_model>
+            <validate>required-entry</validate>
+            <config_path>tax/taxcloud_settings/co_rdf_tic</config_path>
+            <comment>The TaxCloud code identifying the fee line. Change only if TaxCloud reassigns it.</comment>
+            <depends>
+              <field id="co_rdf_enabled">1</field>
+            </depends>
+          </field>
+        </group>
 
       </group>
     </section>

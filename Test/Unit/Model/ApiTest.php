@@ -211,6 +211,72 @@ class ApiTest extends TestCase
     }
 
     /**
+     * A no-cart-items full return on a memo carrying the CO Retail Delivery
+     * Fee must drive returnCoDeliveryFeeWhenNoCartItems=true — the empty
+     * Returned cart reverses the remainder, and only this flag tells TaxCloud
+     * to return the fee with it.
+     */
+    public function testReturnOrderWithFeeAndNoCartItemsDrivesTheRdfFlag()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+                ['tax/taxcloud_settings/api_id', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_id'],
+                ['tax/taxcloud_settings/api_key', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, 'test_api_key'],
+            ]);
+        $this->soapClientFactory->method('create')->willReturn($this->mockSoapClient);
+        $this->objectFactory->method('create')->willReturn($this->mockDataObject);
+
+        $order = $this->getMockBuilder(Dbl\OrderDouble::class)
+            ->onlyMethods(['getIncrementId', 'getBaseTaxAmount'])
+            ->getMock();
+        $order->method('getIncrementId')->willReturn('TEST_ORDER_RDF');
+        $order->method('getBaseTaxAmount')->willReturn(0);
+
+        $creditmemo = $this->getMockBuilder(Dbl\CreditmemoDouble::class)
+            ->onlyMethods(['getOrder', 'getAllItems', 'getShippingAmount', 'getBaseTaxcloudRdfAmount'])
+            ->getMock();
+        $creditmemo->method('getOrder')->willReturn($order);
+        $creditmemo->method('getAllItems')->willReturn([]);
+        $creditmemo->method('getShippingAmount')->willReturn(0);
+        $creditmemo->method('getBaseTaxcloudRdfAmount')->willReturn(0.31);
+
+        $mockResponse = new \stdClass();
+        $mockResponse->ReturnedResult = new \stdClass();
+        $mockResponse->ReturnedResult->ResponseType = 'OK';
+        $mockResponse->ReturnedResult->Messages = [];
+        $this->mockSoapClient->method('Returned')->willReturn($mockResponse);
+
+        // The flag must already be true in the params handed to the
+        // before-event — that is the module's own decision, pre-observers.
+        $capturedParams = null;
+        $this->mockDataObject->method('setParams')->willReturnCallback(
+            function ($params) use (&$capturedParams) {
+                $capturedParams = $params;
+                return $this->mockDataObject;
+            }
+        );
+        $this->mockDataObject->method('getParams')->willReturnCallback(
+            static function () use (&$capturedParams) {
+                return $capturedParams;
+            }
+        );
+        $this->mockDataObject->method('setResult')->willReturnSelf();
+        $this->mockDataObject->method('getResult')->willReturn([
+            'ResponseType' => 'OK',
+            'Messages' => []
+        ]);
+
+        $this->assertTrue($this->api->returnOrder($creditmemo));
+        $this->assertIsArray($capturedParams);
+        $this->assertTrue(
+            $capturedParams['returnCoDeliveryFeeWhenNoCartItems'],
+            'A no-cart-items return of a fee-carrying memo must return the fee via the flag'
+        );
+        $this->assertSame([], $capturedParams['cartItems']);
+    }
+
+    /**
      * Tax-only refund: empty credit memo where refund amount equals the order tax.
      * Returned is called with empty cartItems (TaxCloud treats this as a full order return),
      * then an exempt re-create is attempted via Lookup and AuthorizedWithCapture.
@@ -1055,7 +1121,9 @@ class ApiTest extends TestCase
         $customer->method('getId')->willReturn(42);
         $customer->method('getCustomAttribute')
             ->willReturnCallback(function ($attr) use ($certAttr) {
-                return $attr === 'taxcloud_cert' ? $certAttr : null;
+                return $attr === \Taxcloud\Magento2\Model\Certificate\CertificateResolver::ATTACHED_ATTRIBUTE
+                    ? $certAttr
+                    : null;
             });
 
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
@@ -1213,12 +1281,22 @@ class ApiTest extends TestCase
             $this->setUpLookupWithCert($certID, $destinationState);
         $lookupParams = &$this->capturedLookupParams;
 
-        // Cache key is scoped per (customer, certificate, TaxCloud account);
-        // customer ID is 42 in setUpLookupWithCert(), api_id is test_api_id.
-        $certCacheKey = 'taxcloud_cert_states_42_' . $certID . '_' . hash('sha256', 'test_api_id');
-        $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedStates) {
+        // The cached unit is now the customer's whole certificate SET, keyed on
+        // the TaxCloud identity and the account — not one certificate's states.
+        // The identity is unset here, so it defaults to customer id 42; the
+        // account discriminator is the api_id, test_api_id.
+        $certCacheKey = 'taxcloud_customer_certs_' . hash('sha256', '42') . '_' . hash('sha256', 'test_api_id');
+        $cachedSet = json_encode([[
+            'id' => $certID,
+            'customer' => '42',
+            'states' => $cachedStates,
+            'disabled' => false,
+            'single' => false,
+            'detail' => [],
+        ]]);
+        $this->cacheType->method('load')->willReturnCallback(function ($key) use ($certCacheKey, $cachedSet) {
             if ($key === $certCacheKey) {
-                return json_encode($cachedStates);
+                return $cachedSet;
             }
             return false;
         });

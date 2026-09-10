@@ -1,0 +1,50 @@
+<?php
+/**
+ * Taxcloud_Magento2 - the certificate that exempted this order.
+ *
+ * @var \Taxcloud\Magento2\Block\Adminhtml\Order\CertificateInfo $block
+ * @var \Magento\Framework\Escaper $escaper
+ */
+if (!$block->hasCertificate()) {
+    return;
+}
+?>
+<section class="admin__page-section taxcloud-order-certificate">
+    <div class="admin__page-section-title">
+        <span class="title"><?= $escaper->escapeHtml(__('TaxCloud Exemption')) ?></span>
+    </div>
+
+    <div class="admin__page-section-content">
+        <p>
+            <?= $escaper->escapeHtml(__(
+                'This order was untaxed under exemption certificate %1.',
+                $block->getCertificateId()
+            )) ?>
+        </p>
+
+        <p class="admin__field-note">
+            <?= $escaper->escapeHtml(__(
+                'Recorded as it stood when the order was placed. TaxCloud does not keep the certificate document, and a certificate can be changed or deleted later — this record does not change with it.'
+            )) ?>
+        </p>
+
+        <table class="admin__table-secondary">
+            <tr>
+                <th><?= $escaper->escapeHtml(__('Applies in')) ?></th>
+                <td><?= $escaper->escapeHtml($block->getStatesLabel() ?: __('not recorded')) ?></td>
+            </tr>
+            <?php foreach ($block->getDetailRows() as $label => $value): ?>
+                <tr>
+                    <th><?= $escaper->escapeHtml($label) ?></th>
+                    <td><?= $escaper->escapeHtml($value) ?></td>
+                </tr>
+            <?php endforeach; ?>
+        </table>
+
+            <p class="admin__field-note">
+                <?= $escaper->escapeHtml(__(
+                    'This order has been filed with TaxCloud, so the certificate applied to it can no longer be changed.'
+                )) ?>
+            </p>
+    </div>
+</section>

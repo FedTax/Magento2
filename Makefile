@@ -1,7 +1,8 @@
 .PHONY: test test-unit test-unit-version lint lint-fix phpstan analyse help \
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
-        e2e-trace e2e-clean
+        e2e-trace e2e-clean e2e-cleanup-certificates \
+        docs docs-build docs-clean docs-screenshots
 
 # Defaults — override on the command line, e.g.:
 #   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
@@ -48,9 +49,18 @@ help:
 	@echo "  make e2e-test-ui       - Open Playwright's interactive UI mode"
 	@echo "  make e2e-test-headed   - Run headed (visible browser) for debugging"
 	@echo "  make e2e-trace         - Open the trace viewer for the last failed run"
+	@echo "  make e2e-cleanup-certificates - Delete the certificates this run filed at TaxCloud"
 	@echo "  make e2e-clean         - Remove E2E artifacts (test-results, playwright-report)"
 	@echo "                           First run from scratch:"
 	@echo "                             make e2e-setup && make e2e-test"
+	@echo ""
+	@echo "Documentation site (docs/, published to GitHub Pages):"
+	@echo "  make docs              - Serve the docs locally with live reload at"
+	@echo "                           http://127.0.0.1:8000 (Ctrl-C to stop)"
+	@echo "  make docs-build        - Build the static site into ./site to check it compiles"
+	@echo "  make docs-clean        - Remove the local venv and built site"
+	@echo "  make docs-screenshots  - Regenerate docs/images/*.png from the E2E store"
+	@echo "                           (needs make e2e-setup + make e2e-install first)"
 	@echo ""
 	@echo "Lint:"
 	@echo "  make lint              - Run PHP CodeSniffer (Magento2 coding standard)"
@@ -213,18 +223,26 @@ e2e-test:
 		echo "(If you changed the port, pass MAGENTO_BASE_URL=... to make as well.)"; \
 		exit 1; \
 	}
-	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test
+	@set -a; [ -f .env ] && . ./.env; set +a; cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test
 
 # Interactive UI mode — watch/step through tests in a GUI.
 e2e-test-ui:
-	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --ui
+	@set -a; [ -f .env ] && . ./.env; set +a; cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --ui
 
 # Headed run (visible browser) for debugging.
 e2e-test-headed:
-	@cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --headed
+	@set -a; [ -f .env ] && . ./.env; set +a; cd $(E2E_DIR) && MAGENTO_BASE_URL=$(MAGENTO_BASE_URL) npx playwright test --headed
 
 # Open the trace viewer for the most recent failed test (traces are
 # retain-on-failure, so this only finds something after a failure).
+# Certificates are filed at TaxCloud under a run-unique identity and outlive the
+# containers, so they need an explicit delete. CI does this automatically after
+# every run; locally it is worth doing after an interrupted one.
+e2e-cleanup-certificates:
+	@docker compose -f docker-compose.yml -f docker-compose.e2e.yml \
+		exec -T -w /var/www/html app \
+		php /srv/module/scripts/cleanup-test-certificates.php
+
 e2e-trace:
 	@cd $(E2E_DIR) && latest=$$(ls -dt test-results/*/trace.zip 2>/dev/null | head -1); \
 	if [ -z "$$latest" ]; then \
@@ -240,3 +258,37 @@ e2e-clean:
 	@echo "Removing E2E artifacts..."
 	@rm -rf $(E2E_DIR)/test-results $(E2E_DIR)/playwright-report
 	@echo "Removed $(E2E_DIR)/test-results and $(E2E_DIR)/playwright-report"
+
+# ---------------------------------------------------------------------------
+# Documentation site
+#
+# MkDocs and its theme are installed into a local, git-ignored virtualenv so
+# previewing the docs never touches the system Python. The venv is created on
+# first use and reused afterwards; `make docs-clean` throws it away.
+# ---------------------------------------------------------------------------
+DOCS_VENV := .venv-docs
+DOCS_MKDOCS := $(DOCS_VENV)/bin/mkdocs
+
+$(DOCS_MKDOCS):
+	python3 -m venv $(DOCS_VENV)
+	$(DOCS_VENV)/bin/pip install --quiet --upgrade pip
+	$(DOCS_VENV)/bin/pip install --quiet mkdocs-material
+
+docs: $(DOCS_MKDOCS)
+	@echo "Serving docs at http://127.0.0.1:8000 — Ctrl-C to stop"
+	$(DOCS_MKDOCS) serve
+
+docs-build: $(DOCS_MKDOCS)
+	$(DOCS_MKDOCS) build
+
+docs-clean:
+	rm -rf $(DOCS_VENV) site
+
+# Regenerate the documentation screenshots from the seeded E2E store.
+#
+# The E2E store is the only acceptable source: its admin credentials are public
+# in this repository, 2FA is off, and its catalogue and customers are fixtures —
+# so no live API key or real customer can end up on the public docs site.
+# Requires `make e2e-setup` (the store) and `make e2e-install` (the browser).
+docs-screenshots:
+	@cd $(E2E_DIR) && E2E_DOCS_SCREENSHOTS=1 npx playwright test --project=docs-screenshots

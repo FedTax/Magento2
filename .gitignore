@@ -20,3 +20,7 @@ phpunit.integration.xml
 # Integration test environment
 .env
 .composer-cache/
+
+# MkDocs build output and local preview virtualenv (make docs)
+/site/
+/.venv-docs/

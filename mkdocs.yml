@@ -1,0 +1,87 @@
+# Documentation site — built by .github/workflows/docs.yml and published to
+# GitHub Pages at https://fedtax.github.io/Magento2/. Source pages live in
+# docs/ as plain Markdown; run `mkdocs serve` (pip install mkdocs-material)
+# for a live-reloading local preview at http://127.0.0.1:8000.
+site_name: TaxCloud for Magento 2
+site_description: Documentation for the TaxCloud sales tax extension for Magento 2 / Adobe Commerce
+site_url: https://fedtax.github.io/Magento2/
+repo_url: https://github.com/FedTax/Magento2
+repo_name: FedTax/Magento2
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.action.edit
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Overview: overview.md
+      - Before you begin: before-you-begin.md
+      - Installing the extension: installing.md
+      - Quick start: quick-start.md
+  - Configuration:
+      - Settings reference: settings.md
+      - Choosing your API: choosing-your-api.md
+      - Multi-store setups: multi-store.md
+      - Colorado Retail Delivery Fee: colorado-retail-delivery-fee.md
+  - Taxability (TICs):
+      - How TICs work: tics.md
+      - Assigning TICs: assigning-tics.md
+      - Shipping and handling: shipping-and-handling.md
+  - Exemption certificates:
+      - Turning exemptions on: exemptions-setup.md
+      - Managing certificates in the admin: managing-certificates.md
+      - What the customer sees: customer-account.md
+      - How an order becomes exempt: how-an-order-becomes-exempt.md
+  - Orders and tax lifecycle:
+      - At checkout: checkout.md
+      - Capture: capture.md
+      - Refunds and credit memos: refunds.md
+      - Cancellations: cancellations.md
+      - Filing your returns: filing.md
+  - Troubleshooting:
+      - Reading the log: logs.md
+      - Clearing the TaxCloud cache: clearing-the-cache.md
+      - Common problems: common-problems.md
+      - Another extension is calculating tax: extension-conflicts.md
+      - Testing your setup: testing-your-setup.md
+  - Development:
+      - Extending the extension: extending.md
+      - Integration tests: INTEGRATION_TESTS.md
+      - E2E tests: E2E_TESTS.md
+      - Writing documentation: writing-documentation.md

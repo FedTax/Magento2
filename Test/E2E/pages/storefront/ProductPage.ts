@@ -39,22 +39,19 @@ export class ProductPage {
     await expect(this.successMessage).toBeVisible({ timeout: 30_000 });
   }
 
+  /**
+   * Choose a configurable option by its label (the seeded configurable's
+   * color attribute renders as a plain dropdown).
+   */
+  async selectConfigurableOption(label: string): Promise<void> {
+    const select = this.page.locator('.product-options-wrapper select.super-attribute-select').first();
+    await expect(select).toBeVisible({ timeout: 30_000 });
+    await select.selectOption({ label });
+  }
+
   /** Set the quantity before adding. */
   async setQty(qty: number): Promise<void> {
     await this.qtyInput.fill(String(qty));
-  }
-
-  /**
-   * Choose a configurable variant by its option label ("Red").
-   *
-   * Selected by label rather than value: the attribute id and its option value
-   * indexes are assigned at install time, so anything keyed on them would pass
-   * on the box it was written against and nowhere else.
-   */
-  async selectVariant(label: string): Promise<void> {
-    const select = this.page.locator('select.super-attribute-select').first();
-    await expect(select).toBeVisible({ timeout: 30_000 });
-    await select.selectOption({ label });
   }
 
   /**

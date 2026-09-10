@@ -1,0 +1,57 @@
+<?php
+/**
+ * Taxcloud_Magento2
+ *
+ * "Test Connection" button + inline result area.
+ *
+ * @var \Taxcloud\Magento2\Block\Adminhtml\System\Config\TestConnection $block
+ * @var \Magento\Framework\Escaper $escaper
+ */
+?>
+<button type="button" id="taxcloud_test_connection_btn" class="action-default scalable">
+    <span><?= $escaper->escapeHtml(__('Test Connection')) ?></span>
+</button>
+<p id="taxcloud_test_connection_result" style="display:none; margin-top: 0.8rem;"></p>
+<script>
+require(['jquery'], function ($) {
+    'use strict';
+
+    var button = $('#taxcloud_test_connection_btn');
+    var result = $('#taxcloud_test_connection_result');
+
+    // Reads the live form value so unsaved edits are what get tested.
+    function fieldValue(id) {
+        var el = $('#' + id);
+        return el.length ? el.val() : '';
+    }
+
+    function show(success, message) {
+        result
+            .show()
+            .css('color', success ? '#006400' : '#e22626')
+            .text(message);
+    }
+
+    button.on('click', function () {
+        button.prop('disabled', true);
+        show(true, '<?= $escaper->escapeJs(__('Testing connection…')) ?>');
+
+        $.post('<?= $escaper->escapeJs($block->getAjaxUrl()) ?>', {
+            form_key: window.FORM_KEY,
+            api_type: fieldValue('tax_taxcloud_api_type'),
+            api_id: fieldValue('tax_taxcloud_api_id'),
+            api_key: fieldValue('tax_taxcloud_api_key'),
+            rest_api_key: fieldValue('tax_taxcloud_rest_api_key'),
+            rest_connection_id: fieldValue('tax_taxcloud_rest_connection_id'),
+            website: '<?= $escaper->escapeJs($block->getWebsiteParam()) ?>',
+            store: '<?= $escaper->escapeJs($block->getStoreParam()) ?>'
+        }).done(function (response) {
+            show(response.success, response.message);
+        }).fail(function () {
+            show(false, '<?= $escaper->escapeJs(__('The request failed — check the admin session and try again.')) ?>');
+        }).always(function () {
+            button.prop('disabled', false);
+        });
+    });
+});
+</script>

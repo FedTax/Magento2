@@ -18,6 +18,21 @@
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
 
+  <!--
+    Before the quote becomes an order: the last point both are in hand, which is
+    what recording the applied certificate on the order needs.
+  -->
+  <event name="sales_model_service_quote_submit_before">
+    <observer name="taxcloudRecordCertificate" instance="Taxcloud\Magento2\Observer\Sales\RecordCertificate"/>
+    <observer name="taxcloudPersistRdf" instance="Taxcloud\Magento2\Observer\Sales\PersistRetailDeliveryFee"/>
+    <!--
+      Same event, different job: the certificate record needs both quote and
+      order in hand, this one needs the quote's transient collector mark, which
+      exists only in the request that collected totals. Both die with the
+      request, which is why they share this hook.
+    -->
+    <observer name="taxcloudVerifyTaxCollector" instance="Taxcloud\Magento2\Observer\Sales\VerifyTaxCollector"/>
+  </event>
   <event name="sales_order_place_after">
     <observer name="afterOrder" instance="Taxcloud\Magento2\Observer\Sales\Complete"/>
   </event>
@@ -38,6 +53,15 @@
   -->
 
   <event name="taxcloud_lookup_before">
+    <observer name="addressVerify" instance="Taxcloud\Magento2\Observer\Sales\Address"/>
+  </event>
+
+  <!--
+    Same observer on the REST lookup's before-event: it detects the v3 cart
+    payload shape and verifies each cart's destination, so in-quote address
+    verification works identically on both transports.
+  -->
+  <event name="taxcloud_rest_lookup_before">
     <observer name="addressVerify" instance="Taxcloud\Magento2\Observer\Sales\Address"/>
   </event>
 

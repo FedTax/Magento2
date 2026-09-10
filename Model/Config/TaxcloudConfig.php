@@ -18,7 +18,9 @@
 namespace Taxcloud\Magento2\Model\Config;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Store\Model\ScopeInterface;
+use Taxcloud\Magento2\Model\Config\Source\ApiType;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 /**
@@ -43,6 +45,25 @@ class TaxcloudConfig
     public const DEFAULT_SOAP_TIMEOUT = 10;
 
     /**
+     * Production TaxCloud v3 REST API base URL.
+     *
+     * Also declared as the field default in etc/config.xml. This constant is
+     * the fallback for installs whose stored value is blank, so the module
+     * keeps reaching production even if the config row is cleared.
+     */
+    public const DEFAULT_REST_ENDPOINT = 'https://api.v3.taxcloud.com';
+
+    /**
+     * Production host of the v1→v3 credential exchange service.
+     *
+     * Undocumented but load-bearing: TaxCloud's own WooCommerce plugin ships
+     * this same host. Config-overridable (config.xml default, no admin field)
+     * so a vendor-side move needs no code release. Staging equivalent:
+     * https://staging-taxcloudapi.azurewebsites.net
+     */
+    public const DEFAULT_REST_AUTH_ENDPOINT = 'https://taxcloudapi-appservice-core-prod.azurewebsites.net';
+
+    /**
      * Production TaxCloud SOAP WSDL endpoint.
      *
      * Also declared as the field default in etc/config.xml. This constant is the
@@ -55,6 +76,15 @@ class TaxcloudConfig
      * Default TIC (Taxability Information Code) when configuration is empty.
      */
     public const DEFAULT_TIC = '00000';
+
+    /**
+     * Colorado Retail Delivery Fee defaults. The amount is the module's
+     * authority: TaxCloud zero-rates the TIC 11098 line and remits whatever
+     * amount is sent, without calculating or validating it. Colorado resets
+     * the rate every July 1.
+     */
+    public const DEFAULT_CO_RDF_AMOUNT = 0.31;
+    public const DEFAULT_CO_RDF_TIC = '11098';
 
     /**
      * Default shipping TIC when configuration is empty.
@@ -78,6 +108,7 @@ class TaxcloudConfig
      * Store-config paths.
      */
     public const XML_PATH_ENABLED = 'tax/taxcloud_settings/enabled';
+    public const XML_PATH_API_TYPE = 'tax/taxcloud_settings/api_type';
     public const XML_PATH_LOGGING = 'tax/taxcloud_settings/logging';
     public const XML_PATH_API_ID = 'tax/taxcloud_settings/api_id';
     public const XML_PATH_API_KEY = 'tax/taxcloud_settings/api_key';
@@ -85,12 +116,30 @@ class TaxcloudConfig
     public const XML_PATH_CACHE_LIFETIME = 'tax/taxcloud_settings/cache_lifetime';
     public const XML_PATH_FALLBACK_TO_MAGENTO = 'tax/taxcloud_settings/fallback_to_magento';
     public const XML_PATH_CALCULATIONS_ONLY = 'tax/taxcloud_settings/calculations_only';
+
+    /**
+     * Master switch for exemption certificates. Off by default.
+     */
+    public const XML_PATH_EXEMPTIONS_ENABLED = 'tax/taxcloud_settings/exemptions_enabled';
+
+    /**
+     * Seller name recorded on certificates customers create.
+     */
+    public const XML_PATH_COMPANY_NAME = 'tax/taxcloud_settings/company_name';
     public const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
     public const XML_PATH_WSDL_URL = 'tax/taxcloud_settings/wsdl_url';
+    public const XML_PATH_REST_API_KEY = 'tax/taxcloud_settings/rest_api_key';
+    public const XML_PATH_REST_CONNECTION_ID = 'tax/taxcloud_settings/rest_connection_id';
+    public const XML_PATH_REST_ENDPOINT = 'tax/taxcloud_settings/rest_endpoint';
+    public const XML_PATH_REST_AUTH_ENDPOINT = 'tax/taxcloud_settings/rest_auth_endpoint';
     public const XML_PATH_VERIFY_ADDRESS = 'tax/taxcloud_settings/verify_address';
     public const XML_PATH_CAPTURE_TRIGGER = 'tax/taxcloud_settings/capture_trigger';
     public const XML_PATH_DEFAULT_TIC = 'tax/taxcloud_settings/default_tic';
     public const XML_PATH_SHIPPING_TIC = 'tax/taxcloud_settings/shipping_tic';
+    public const XML_PATH_CO_RDF_ENABLED = 'tax/taxcloud_settings/co_rdf_enabled';
+    public const XML_PATH_CO_RDF_DELIVERY_METHODS = 'tax/taxcloud_settings/co_rdf_delivery_methods';
+    public const XML_PATH_CO_RDF_AMOUNT = 'tax/taxcloud_settings/co_rdf_amount';
+    public const XML_PATH_CO_RDF_TIC = 'tax/taxcloud_settings/co_rdf_tic';
     /**#@-*/
 
     /**
@@ -99,11 +148,18 @@ class TaxcloudConfig
     private $scopeConfig;
 
     /**
-     * @param ScopeConfigInterface $scopeConfig
+     * @var EncryptorInterface|null
      */
-    public function __construct(ScopeConfigInterface $scopeConfig)
+    private $encryptor;
+
+    /**
+     * @param ScopeConfigInterface $scopeConfig
+     * @param EncryptorInterface|null $encryptor
+     */
+    public function __construct(ScopeConfigInterface $scopeConfig, ?EncryptorInterface $encryptor = null)
     {
         $this->scopeConfig = $scopeConfig;
+        $this->encryptor = $encryptor;
     }
 
     /**
@@ -155,6 +211,27 @@ class TaxcloudConfig
     public function isAdvancedLoggingEnabled($store = null): bool
     {
         return $this->getLoggingMode($store) === self::LOGGING_ADVANCED;
+    }
+
+    /**
+     * Which TaxCloud API generation this store uses (ApiType::SOAP or ::REST).
+     *
+     * Unknown or blank stored values collapse to REST — the shipped default —
+     * so a corrupted row selects the current API rather than the legacy one.
+     * Existing installs are pinned to SOAP by a data patch at upgrade, not
+     * here: deriving the type from other fields at read time would make the
+     * effective value depend on data this accessor can't show in the admin UI.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getApiType($store = null): string
+    {
+        $value = $this->scopeConfig->getValue(self::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, $store);
+        if (!in_array($value, [ApiType::SOAP, ApiType::REST], true)) {
+            return ApiType::REST;
+        }
+        return $value;
     }
 
     /**
@@ -278,6 +355,80 @@ class TaxcloudConfig
     }
 
     /**
+     * TaxCloud v3 REST API key, decrypted.
+     *
+     * Stored encrypted by the admin field's Encrypted backend model. Returns
+     * null when unset/blank. Without an encryptor (test construction), the
+     * stored value is returned as-is.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string|null
+     */
+    public function getRestApiKey($store = null)
+    {
+        $stored = $this->scopeConfig->getValue(self::XML_PATH_REST_API_KEY, ScopeInterface::SCOPE_STORE, $store);
+        if ($stored === null || $stored === '') {
+            return null;
+        }
+        return $this->encryptor !== null ? $this->encryptor->decrypt($stored) : $stored;
+    }
+
+    /**
+     * TaxCloud v3 REST connection ID (UUID from Integrations → Custom API).
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string|null
+     */
+    public function getRestConnectionId($store = null)
+    {
+        $value = $this->scopeConfig->getValue(
+            self::XML_PATH_REST_CONNECTION_ID,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+        $value = is_string($value) ? trim($value) : '';
+
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * TaxCloud v3 REST base URL, or the production default when unset/blank.
+     *
+     * Lets an install point at a staging endpoint without a code change (the
+     * field is config-only, not shown in admin). Trailing slashes are trimmed
+     * so callers can append paths directly.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getRestEndpoint($store = null): string
+    {
+        $configured = $this->scopeConfig->getValue(self::XML_PATH_REST_ENDPOINT, ScopeInterface::SCOPE_STORE, $store);
+        $configured = is_string($configured) ? trim($configured) : '';
+
+        return rtrim($configured !== '' ? $configured : self::DEFAULT_REST_ENDPOINT, '/');
+    }
+
+    /**
+     * Host of the v1→v3 credential exchange service, or the production
+     * default when unset/blank. Trailing slashes trimmed for path appending.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getRestAuthEndpoint($store = null): string
+    {
+        $configured = $this->scopeConfig->getValue(
+            self::XML_PATH_REST_AUTH_ENDPOINT,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+        $configured = is_string($configured) ? trim($configured) : '';
+
+        return rtrim($configured !== '' ? $configured : self::DEFAULT_REST_AUTH_ENDPOINT, '/');
+    }
+
+    /**
      * Whether TaxCloud address verification (VerifyAddress) is enabled.
      *
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
@@ -336,5 +487,108 @@ class TaxcloudConfig
         $value = $this->scopeConfig->getValue(self::XML_PATH_SHIPPING_TIC, ScopeInterface::SCOPE_STORE, $store);
 
         return ($value !== null && $value !== '') ? (string) $value : self::DEFAULT_SHIPPING_TIC;
+    }
+
+    /**
+     * Whether Colorado Retail Delivery Fee collection is enabled.
+     *
+     * Enabling is the merchant's assertion of liability for the fee; the
+     * module never determines it.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function isCoRdfEnabled($store = null): bool
+    {
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_CO_RDF_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+    }
+
+    /**
+     * Shipping method codes (carrier_method) configured as motor-vehicle
+     * delivery for the Colorado Retail Delivery Fee. Empty when none are
+     * mapped — in which case no order can incur the fee.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string[]
+     */
+    public function getCoRdfDeliveryMethods($store = null): array
+    {
+        $value = (string) $this->scopeConfig->getValue(
+            self::XML_PATH_CO_RDF_DELIVERY_METHODS,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+
+        return $value === '' ? [] : array_values(array_filter(array_map('trim', explode(',', $value))));
+    }
+
+    /**
+     * The Colorado Retail Delivery Fee amount to charge per eligible order.
+     *
+     * This value is authoritative: TaxCloud zero-rates the fee line and remits
+     * the amount as sent, so no downstream correction exists.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return float
+     */
+    public function getCoRdfAmount($store = null): float
+    {
+        $value = $this->scopeConfig->getValue(self::XML_PATH_CO_RDF_AMOUNT, ScopeInterface::SCOPE_STORE, $store);
+
+        return ($value !== null && $value !== '') ? (float) $value : self::DEFAULT_CO_RDF_AMOUNT;
+    }
+
+    /**
+     * TIC identifying the Colorado Retail Delivery Fee line, or the
+     * DEFAULT_CO_RDF_TIC fallback when configuration is empty.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getCoRdfTic($store = null): string
+    {
+        $value = $this->scopeConfig->getValue(self::XML_PATH_CO_RDF_TIC, ScopeInterface::SCOPE_STORE, $store);
+
+        return ($value !== null && $value !== '') ? (string) $value : self::DEFAULT_CO_RDF_TIC;
+    }
+
+    /**
+     * Whether exemption certificates are offered at all for this store.
+     *
+     * Defaults to false. A certificate is an unverified attestation, so a store
+     * gains the feature only by an admin turning it on, never by upgrading.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function areExemptionsEnabled($store = null): bool
+    {
+        // getValue + cast, like isEnabled() above, rather than isSetFlag():
+        // consistent with the rest of this class and immune to a scope-config
+        // double that only implements getValue.
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_EXEMPTIONS_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+    }
+
+    /**
+     * Seller name recorded on certificates customers create.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return string
+     */
+    public function getCompanyName($store = null): string
+    {
+        return (string) $this->scopeConfig->getValue(
+            self::XML_PATH_COMPANY_NAME,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
     }
 }

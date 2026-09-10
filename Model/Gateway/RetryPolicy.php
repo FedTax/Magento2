@@ -106,12 +106,79 @@ class RetryPolicy
                 }
                 $attempt++;
                 $this->logger->warning(
-                    'SOAP call failed, retrying (' . $attempt . '/' . $maxRetries
+                    'Gateway call failed, retrying (' . $attempt . '/' . $maxRetries
                     . ') after backoff: ' . get_class($e) . ': ' . $e->getMessage()
                 );
                 if ($this->backoffUs > 0) {
                     usleep($this->backoffUs);
                 }
+            }
+        }
+    }
+
+    /**
+     * Execute $call returning a {@see Rest\RestResponse}, retrying while the
+     * outcome is retryable.
+     *
+     * REST failures come in two forms with different retry evidence: a thrown
+     * {@see Rest\RestTransportException} (no HTTP response — judged by the
+     * throwable predicate, exactly like {@see execute()}) and a returned
+     * response whose status marks it retryable (429/5xx —
+     * {@see Rest\RestResponse::isRetryable()}). Both consume the same retry
+     * budget. The final response is returned even when still failing, so call
+     * sites keep their own status handling; a terminal response (2xx or other
+     * 4xx) is returned immediately.
+     *
+     * Non-idempotent operations (order creation, refunds) pass
+     * {@see isRetryableForNonIdempotent} as the throwable predicate and — by
+     * that same never-reached-TaxCloud logic — must not retry on any HTTP
+     * response, so they use $retryResponses = false: a status in hand proves
+     * the request was processed enough to be dangerous to repeat.
+     *
+     * @param callable      $call            fn(): Rest\RestResponse
+     * @param int           $maxRetries      Retries after the initial attempt (default 1)
+     * @param callable|null $isRetryable     fn(Throwable): bool, overriding the
+     *                                       instance default for this call only
+     * @param bool          $retryResponses  Whether retryable HTTP responses may be retried
+     * @return Rest\RestResponse
+     */
+    public function executeForResponse(
+        callable $call,
+        $maxRetries = 1,
+        ?callable $isRetryable = null,
+        bool $retryResponses = true
+    ) {
+        $retryable = $isRetryable ?? $this->isRetryable ?? [$this, 'isRetryableByDefault'];
+
+        $attempt = 0;
+        while (true) {
+            try {
+                $response = $call();
+            } catch (Throwable $e) {
+                if (!$retryable($e) || $attempt >= $maxRetries) {
+                    throw $e;
+                }
+                $attempt++;
+                $this->logger->warning(
+                    'Gateway call failed, retrying (' . $attempt . '/' . $maxRetries
+                    . ') after backoff: ' . get_class($e) . ': ' . $e->getMessage()
+                );
+                if ($this->backoffUs > 0) {
+                    usleep($this->backoffUs);
+                }
+                continue;
+            }
+
+            if (!$retryResponses || !$response->isRetryable() || $attempt >= $maxRetries) {
+                return $response;
+            }
+            $attempt++;
+            $this->logger->warning(
+                'Gateway call returned retryable status ' . $response->getStatus()
+                . ', retrying (' . $attempt . '/' . $maxRetries . ') after backoff'
+            );
+            if ($this->backoffUs > 0) {
+                usleep($this->backoffUs);
             }
         }
     }
@@ -162,9 +229,15 @@ class RetryPolicy
      */
     public function isConnectionFailure(Throwable $e)
     {
+        // First alternation group: SOAP-extension wording. Second group: curl
+        // wording (the REST transport) — all connect-stage only. "Operation
+        // timed out" (curl's total-time limit) is deliberately absent: by then
+        // the request may have been sent and processed.
         return (bool) preg_match(
             '/Could not connect to host|failed to open|Connection refused'
-            . '|Name or service not known|Temporary failure in name resolution/i',
+            . '|Name or service not known|Temporary failure in name resolution'
+            . '|Could not resolve host|Couldn\'t connect to server|Failed to connect to'
+            . '|Connection timed out/i',
             $e->getMessage()
         );
     }

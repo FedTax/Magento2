@@ -16,6 +16,7 @@ name: CI
 #   MAGENTO_PUBLIC_KEY, MAGENTO_PRIVATE_KEY  - Marketplace keys (repo.magento.com),
 #                                              needed by unit AND integration.
 #   TAXCLOUD_API_ID, TAXCLOUD_API_KEY        - sandbox creds, integration only.
+#   TAXCLOUD_API_V3_KEY                      - v3 REST key (Developer → API), integration + e2e.
 # Enterprise integration rows are skipped (not failed) when Marketplace keys are
 # absent, so forks without a Commerce contract still exercise the community rows.
 #
@@ -223,6 +224,7 @@ jobs:
       COMPOSER_CACHE_DIR: ${{ github.workspace }}/.composer-cache
       TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
       TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
+      TAXCLOUD_API_V3_KEY: ${{ secrets.TAXCLOUD_API_V3_KEY }}
       MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
       MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
 
@@ -257,6 +259,7 @@ jobs:
           missing=()
           [[ -z "$TAXCLOUD_API_ID"     ]] && missing+=(TAXCLOUD_API_ID)
           [[ -z "$TAXCLOUD_API_KEY"    ]] && missing+=(TAXCLOUD_API_KEY)
+          [[ -z "$TAXCLOUD_API_V3_KEY" ]] && missing+=(TAXCLOUD_API_V3_KEY)
           [[ -z "$MAGENTO_PUBLIC_KEY"  ]] && missing+=(MAGENTO_PUBLIC_KEY)
           [[ -z "$MAGENTO_PRIVATE_KEY" ]] && missing+=(MAGENTO_PRIVATE_KEY)
           if (( ${#missing[@]} > 0 )); then
@@ -283,6 +286,17 @@ jobs:
         run: |
           docker compose exec -T -w /var/www/html app \
             vendor/bin/phpunit -c /srv/module/phpunit.integration.xml.dist --testdox
+
+      # always(): the certificates this job filed at TaxCloud outlive the
+      # container, and a failed run is exactly when cleanup gets skipped and the
+      # sandbox grows. The script never fails the build — the tests have already
+      # had their say, and an uncleaned certificate is untidy, not broken.
+      - name: Remove certificates this run filed at TaxCloud
+        if: always() && steps.gate.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          docker compose exec -T -w /var/www/html app \
+            php /srv/module/scripts/cleanup-test-certificates.php
 
       - name: Collect debug logs on failure
         if: failure() && steps.gate.outputs.skip != 'true'
@@ -348,6 +362,7 @@ jobs:
       MAGENTO_BASE_URL: 'http://localhost:8080'
       TAXCLOUD_API_ID: ${{ secrets.TAXCLOUD_API_ID }}
       TAXCLOUD_API_KEY: ${{ secrets.TAXCLOUD_API_KEY }}
+      TAXCLOUD_API_V3_KEY: ${{ secrets.TAXCLOUD_API_V3_KEY }}
       MAGENTO_PUBLIC_KEY: ${{ secrets.MAGENTO_PUBLIC_KEY }}
       MAGENTO_PRIVATE_KEY: ${{ secrets.MAGENTO_PRIVATE_KEY }}
 
@@ -382,6 +397,7 @@ jobs:
           missing=()
           [[ -z "$TAXCLOUD_API_ID"     ]] && missing+=(TAXCLOUD_API_ID)
           [[ -z "$TAXCLOUD_API_KEY"    ]] && missing+=(TAXCLOUD_API_KEY)
+          [[ -z "$TAXCLOUD_API_V3_KEY" ]] && missing+=(TAXCLOUD_API_V3_KEY)
           [[ -z "$MAGENTO_PUBLIC_KEY"  ]] && missing+=(MAGENTO_PUBLIC_KEY)
           [[ -z "$MAGENTO_PRIVATE_KEY" ]] && missing+=(MAGENTO_PRIVATE_KEY)
           if (( ${#missing[@]} > 0 )); then
@@ -430,6 +446,15 @@ jobs:
         working-directory: Test/E2E
         run: npx playwright test
 
+      # See the integration job: same reasoning, same always().
+      - name: Remove certificates this run filed at TaxCloud
+        if: always() && steps.gate.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml \
+            exec -T -w /var/www/html app \
+            php /srv/module/scripts/cleanup-test-certificates.php
+
       - name: Upload Playwright artifacts
         if: failure() && steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@v7
@@ -446,6 +471,14 @@ jobs:
           mkdir -p ./debug-logs
           docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --no-color \
             > ./debug-logs/docker-compose-e2e.log 2>&1 || true
+          # The module's own log is the only record of what each gateway call
+          # sent and got back. The e2e journeys never fail on a gateway error
+          # by themselves (the module doesn't block checkout on one), so when
+          # the log-watcher fixture does fail a run, this file is the entire
+          # diagnosis — without it, a CI-only failure cannot be investigated.
+          cp "$MAGENTO_INSTALL_DIR/var/log/taxcloud.log" ./debug-logs/taxcloud.log 2>/dev/null || true
+          cp "$MAGENTO_INSTALL_DIR/var/log/exception.log" ./debug-logs/exception.log 2>/dev/null || true
+          cp "$MAGENTO_INSTALL_DIR/var/log/system.log" ./debug-logs/system.log 2>/dev/null || true
 
       - name: Upload Docker logs
         if: failure() && steps.gate.outputs.skip != 'true'
