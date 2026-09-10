@@ -62,7 +62,8 @@ class RequestBuilderTest extends TestCase
             $this->productTicService,
             $this->refundDistributor,
             $this->feeService,
-            new NullLogger()
+            new NullLogger(),
+            new \Taxcloud\Magento2\Model\Address\TaxAddressResolver()
         );
     }
 
@@ -240,6 +241,176 @@ class RequestBuilderTest extends TestCase
         $this->assertSame('Duluth', $destination['City']);
         $this->assertSame('GA', $destination['State']);
         $this->assertSame('30097', $destination['Zip5']);
+    }
+
+    /**
+     * The defect: an order placed from a wholly virtual cart has no shipping
+     * address at all (Magento converts one only for a non-virtual quote), and
+     * this method used to answer "no destination" — which every caller reads as
+     * "cannot proceed", so the order was never filed with TaxCloud.
+     */
+    public function testBuildDestinationFromOrderFallsBackToBillingWhenNothingShips()
+    {
+        $billing = $this->createMock(OrderAddress::class);
+        $billing->method('getPostcode')->willReturn('78701');
+        $billing->method('getCountryId')->willReturn('US');
+        $billing->method('getStreet')->willReturn(['1401 Lavaca St']);
+        $billing->method('getCity')->willReturn('Austin');
+        $billing->method('getRegionCode')->willReturn('TX');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getShippingAddress')->willReturn(false);
+        $order->method('getBillingAddress')->willReturn($billing);
+
+        $destination = $this->builder->buildDestinationFromOrder($order);
+
+        $this->assertIsArray($destination, 'A digital-only order must still resolve a destination.');
+        $this->assertSame('Austin', $destination['City']);
+        $this->assertSame('TX', $destination['State']);
+        $this->assertSame('78701', $destination['Zip5']);
+    }
+
+    /**
+     * And the billing address is consulted only as a fallback: a known delivery
+     * address always governs, whatever the billing address says.
+     */
+    public function testBuildDestinationFromOrderPrefersShippingOverBilling()
+    {
+        $shipping = $this->createMock(OrderAddress::class);
+        $shipping->method('getPostcode')->willReturn('80202');
+        $shipping->method('getCountryId')->willReturn('US');
+        $shipping->method('getStreet')->willReturn(['1701 Broadway']);
+        $shipping->method('getCity')->willReturn('Denver');
+        $shipping->method('getRegionCode')->willReturn('CO');
+
+        $billing = $this->createMock(OrderAddress::class);
+        $billing->method('getPostcode')->willReturn('78701');
+        $billing->method('getCountryId')->willReturn('US');
+        $billing->method('getStreet')->willReturn(['1401 Lavaca St']);
+        $billing->method('getCity')->willReturn('Austin');
+        $billing->method('getRegionCode')->willReturn('TX');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getShippingAddress')->willReturn($shipping);
+        $order->method('getBillingAddress')->willReturn($billing);
+
+        $this->assertSame('CO', $this->builder->buildDestinationFromOrder($order)['State']);
+    }
+
+    /**
+     * The fallback widens which address is acceptable, not what counts as
+     * usable: an unusable billing address still fails, rather than being
+     * patched up into something TaxCloud would accept but the merchant never
+     * sold to.
+     *
+     * @dataProvider unusableBillingProvider
+     */
+    #[DataProvider('unusableBillingProvider')]
+    public function testBuildDestinationFromOrderRejectsAnUnusableBillingAddress(
+        ?string $postcode,
+        string $countryId,
+        string $message
+    ) {
+        $billing = $this->createMock(OrderAddress::class);
+        $billing->method('getPostcode')->willReturn($postcode);
+        $billing->method('getCountryId')->willReturn($countryId);
+
+        $order = $this->createMock(Order::class);
+        $order->method('getShippingAddress')->willReturn(false);
+        $order->method('getBillingAddress')->willReturn($billing);
+
+        $this->assertNull($this->builder->buildDestinationFromOrder($order), $message);
+    }
+
+    public static function unusableBillingProvider(): array
+    {
+        return [
+            'non-US billing' => ['M5V 2T6', 'CA', 'A non-US billing address is not a US destination'],
+            'no postcode' => [null, 'US', 'A billing address with no ZIP cannot be sourced to'],
+            'unparseable ZIP' => ['not-a-zip', 'US', 'A ZIP that will not parse cannot be sourced to'],
+        ];
+    }
+
+    public function testBuildDestinationFromOrderReturnsNullWhenTheOrderHasNoAddressAtAll()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getShippingAddress')->willReturn(false);
+        $order->method('getBillingAddress')->willReturn(false);
+
+        $this->assertNull($this->builder->buildDestinationFromOrder($order));
+    }
+
+    /**
+     * A digital order correctly sourced to a billing address and a physical one
+     * wrongly sourced to one produce identical payloads. The log line is the
+     * only thing that tells them apart afterwards, so it is asserted.
+     *
+     * @dataProvider sourcedAddressTypeProvider
+     */
+    #[DataProvider('sourcedAddressTypeProvider')]
+    public function testTheLogNamesWhichAddressWasSourcedTo(bool $hasShipping, string $expectedType)
+    {
+        $address = $this->createMock(OrderAddress::class);
+        $address->method('getPostcode')->willReturn('78701');
+        $address->method('getCountryId')->willReturn('US');
+        $address->method('getStreet')->willReturn(['1401 Lavaca St']);
+        $address->method('getCity')->willReturn('Austin');
+        $address->method('getRegionCode')->willReturn('TX');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getIncrementId')->willReturn('100000042');
+        $order->method('getShippingAddress')->willReturn($hasShipping ? $address : false);
+        $order->method('getBillingAddress')->willReturn($address);
+
+        $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('info')
+            ->with($this->logicalAnd(
+                $this->stringContains('100000042'),
+                $this->stringContains($expectedType . ' address')
+            ));
+
+        $this->builderWithLogger($logger)->buildDestinationFromOrder($order);
+    }
+
+    public static function sourcedAddressTypeProvider(): array
+    {
+        return [
+            'shipping' => [true, 'shipping'],
+            'billing fallback' => [false, 'billing'],
+        ];
+    }
+
+    public function testTheLogNamesAnOrderWithNoUsableAddress()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getIncrementId')->willReturn('100000043');
+        $order->method('getShippingAddress')->willReturn(false);
+        $order->method('getBillingAddress')->willReturn(false);
+
+        $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('error')
+            ->with($this->stringContains('100000043'));
+
+        $this->assertNull($this->builderWithLogger($logger)->buildDestinationFromOrder($order));
+    }
+
+    /**
+     * A second builder over the same collaborators, with a logger that records.
+     */
+    private function builderWithLogger($logger): RequestBuilder
+    {
+        return new RequestBuilder(
+            $this->config,
+            $this->scopeConfig,
+            $this->regionFactory,
+            $this->productTicService,
+            $this->refundDistributor,
+            $this->feeService,
+            $logger,
+            new \Taxcloud\Magento2\Model\Address\TaxAddressResolver()
+        );
     }
 
     /**

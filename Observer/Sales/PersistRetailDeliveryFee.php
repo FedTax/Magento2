@@ -21,6 +21,7 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use Magento\Framework\Event\Observer;
 use Magento\Framework\Event\ObserverInterface;
+use Taxcloud\Magento2\Model\Address\TaxAddressResolver;
 
 /**
  * Copies the charged Colorado Retail Delivery Fee from the quote onto the
@@ -33,13 +34,31 @@ use Magento\Framework\Event\ObserverInterface;
  * event fires with both quote and order in hand, just before conversion, and
  * writing the column directly on the order survives to the database.
  *
- * The amount is read from the address that bears it — shipping for a physical
- * order (the only kind the fee applies to) — so the order stores exactly what
- * was charged, which capture and refunds then read instead of re-consulting
- * config (the rate moves every July 1).
+ * The amount is read from the address that bears it — the one Magento
+ * collected the quote's totals on, which TaxAddressResolver names — so the
+ * order stores exactly what was charged, which capture and refunds then read
+ * instead of re-consulting config (the rate moves every July 1). In practice
+ * that is always the shipping address, since the fee applies only to tangible
+ * goods; asking the resolver rather than assuming it keeps that a consequence
+ * of the fee's eligibility rules rather than a second, separate assumption
+ * about them.
  */
 class PersistRetailDeliveryFee implements ObserverInterface
 {
+    /**
+     * @var TaxAddressResolver
+     */
+    private $addressResolver;
+
+    /**
+     * @param TaxAddressResolver|null $addressResolver Bound in di.xml; defaulted
+     *        so a stale compiled DI cannot fatal order placement
+     */
+    public function __construct(?TaxAddressResolver $addressResolver = null)
+    {
+        $this->addressResolver = $addressResolver ?? new TaxAddressResolver();
+    }
+
     /**
      * @param Observer $observer
      * @return void
@@ -52,7 +71,7 @@ class PersistRetailDeliveryFee implements ObserverInterface
             return;
         }
 
-        $address = $quote->getShippingAddress() ?: $quote->getBillingAddress();
+        $address = $this->addressResolver->forQuote($quote);
         if (!$address) {
             return;
         }

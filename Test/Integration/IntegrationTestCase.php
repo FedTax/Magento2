@@ -530,8 +530,11 @@ abstract class IntegrationTestCase extends TestCase
      * @param string $storeCode store view the quote belongs to — multi-store
      *        tests pass SECOND_STORE_CODE to build a second-store cart.
      */
-    protected function newGuestQuote(array $addressOverride = [], string $storeCode = 'default'): Quote
-    {
+    protected function newGuestQuote(
+        array $addressOverride = [],
+        string $storeCode = 'default',
+        array $shippingOverride = []
+    ): Quote {
         $om = $this->objectManager();
 
         /** @var StoreManagerInterface $storeManager */
@@ -558,8 +561,16 @@ abstract class IntegrationTestCase extends TestCase
         // fixtures do this) rather than addData() on lazily-created addresses.
         $billingAddress = $om->create(\Magento\Quote\Model\Quote\Address::class, ['data' => $addressData]);
         $billingAddress->setAddressType('billing');
-        $shippingAddress = clone $billingAddress;
-        $shippingAddress->setId(null)->setAddressType('shipping');
+
+        // $shippingOverride exists so a test can make the two addresses DIFFER.
+        // Sourcing tests cannot use the cloned default: with both addresses
+        // identical, a lookup sent to the wrong one is indistinguishable from a
+        // lookup sent to the right one.
+        $shippingAddress = $om->create(
+            \Magento\Quote\Model\Quote\Address::class,
+            ['data' => array_merge($addressData, $shippingOverride)]
+        );
+        $shippingAddress->setAddressType('shipping');
 
         /** @var Quote $quote */
         $quote = $om->create(Quote::class);

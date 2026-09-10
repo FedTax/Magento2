@@ -130,6 +130,37 @@ trait SeededCatalogTrait
     }
 
     /**
+     * A verifyAddress double that echoes back the address it was given.
+     *
+     * The canned response in the seeded baseline returns a fixed Austin TX
+     * address whatever it is asked about, and Observer\Sales\Address
+     * substitutes that result into the lookup destination. That is harmless for
+     * a test asserting WHAT is in a cart, and fatal for one asserting WHERE the
+     * cart is sourced to: every destination comes back Austin, so a lookup sent
+     * to the wrong address is indistinguishable from one sent to the right one.
+     *
+     * Echoing keeps the verification path exercised — the observer still runs,
+     * still round-trips the address — while leaving the destination readable.
+     */
+    protected function echoingVerifyAddressResponder(): \Closure
+    {
+        return static function (array $args): array {
+            return [
+                'VerifyAddressResult' => [
+                    'ErrNumber' => 0,
+                    'ErrDescription' => '',
+                    'Address1' => strtoupper((string) ($args['address1'] ?? '')),
+                    'Address2' => strtoupper((string) ($args['address2'] ?? '')),
+                    'City' => strtoupper((string) ($args['city'] ?? '')),
+                    'State' => (string) ($args['state'] ?? ''),
+                    'Zip5' => (string) ($args['zip5'] ?? ''),
+                    'Zip4' => (string) ($args['zip4'] ?? ''),
+                ],
+            ];
+        };
+    }
+
+    /**
      * A lookup double that taxes whatever it is handed at a flat rate.
      *
      * Asserting against real TaxCloud rates would make these tests a subscription

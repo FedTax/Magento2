@@ -19,6 +19,7 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use Magento\Framework\Event\Observer;
 use Magento\Framework\Event\ObserverInterface;
+use Taxcloud\Magento2\Model\Address\TaxAddressResolver;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
 use Taxcloud\Magento2\Model\Certificate\OrderCertificateRecord;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
@@ -64,21 +65,30 @@ class RecordCertificate implements ObserverInterface
     private $logger;
 
     /**
+     * @var TaxAddressResolver
+     */
+    private $addressResolver;
+
+    /**
      * @param CertificateResolver $resolver
      * @param OrderCertificateRecord $record
      * @param TaxcloudConfig $config
      * @param GatewayLogger $logger
+     * @param TaxAddressResolver|null $addressResolver Bound in di.xml; defaulted
+     *        so a stale compiled DI cannot fatal order placement
      */
     public function __construct(
         CertificateResolver $resolver,
         OrderCertificateRecord $record,
         TaxcloudConfig $config,
-        GatewayLogger $logger
+        GatewayLogger $logger,
+        ?TaxAddressResolver $addressResolver = null
     ) {
         $this->resolver = $resolver;
         $this->record = $record;
         $this->config = $config;
         $this->logger = $logger;
+        $this->addressResolver = $addressResolver ?? new TaxAddressResolver();
     }
 
     /**
@@ -129,15 +139,16 @@ class RecordCertificate implements ObserverInterface
     }
 
     /**
-     * The state tax was calculated against — shipping where there is one,
-     * billing for a virtual order.
+     * The state tax was calculated against — the same address the sale is
+     * sourced to when it is filed, so a certificate is matched against the
+     * state the order is actually taxed in.
      *
      * @param \Magento\Sales\Api\Data\OrderInterface|\Magento\Framework\DataObject $order
      * @return string
      */
     private function destinationState($order)
     {
-        $address = $order->getShippingAddress() ?: $order->getBillingAddress();
+        $address = $this->addressResolver->forOrder($order);
         if (!$address) {
             return '';
         }

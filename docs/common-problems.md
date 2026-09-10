@@ -36,6 +36,20 @@ Expected. Until a shopper has entered a shipping address there is nothing to
 calculate against. Tax appears once they reach checkout and give an address.
 See [At checkout](checkout.md).
 
+## A download-only order was taxed in the wrong state
+
+Check the billing address on the order. An order made only of downloads,
+licences, virtual products or virtual gift cards has no shipping address —
+Magento skips the shipping step for it — so it is taxed against the billing
+address. Add anything shippable to the same basket and the whole order,
+downloads included, is taxed against the shipping address instead. See
+[Digital and downloadable
+products](checkout.md#digital-and-downloadable-products).
+
+A customer whose billing address is a company head office or a PO box in a
+different state from where they live will be taxed at the head office. That is
+the address you hold for them, and it is the one the sale is sourced to.
+
 ## The tax amount looks wrong
 
 **Check the TIC first.** This is the usual answer. A product taxed as general
@@ -89,6 +103,10 @@ reached that point were never reported. See [Capture](capture.md).
 
 **Which store?** Orders from a store view with different credentials go to a
 different TaxCloud account.
+
+**Was it a download-only order?** [The log](logs.md) records which address each
+order was reported against. An order with no usable shipping *or* billing
+address cannot be reported at all, and the log says so by order number.
 
 ## A refund is not showing in TaxCloud
 
