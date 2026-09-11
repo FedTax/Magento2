@@ -4,7 +4,7 @@ name: CI
 #   - push tag v* / manual dispatch / PR into main -> the full pipeline: unit
 #     tests (community only) + lint + security + the full integration AND e2e
 #     matrices (community + enterprise across all supported versions).
-#   - any other pull_request (e.g. into develop) / push to branches -> unit +
+#   - any other pull_request (e.g. into a release branch) / push to branches -> unit +
 #     lint + security only; the expensive integration/e2e matrices are skipped.
 #   A release tag and a PR into main are therefore gated by the same full run
 #   covering unit + integration + e2e.
@@ -27,7 +27,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop, DEV-* ]
+    branches: [ main, DEV-* ]
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:

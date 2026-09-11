@@ -534,7 +534,10 @@ Two things to keep in mind:
 
 ## Automated Deployment
 
-This extension includes automated deployment to sandbox environments via GitHub Actions.
+This extension includes an automated deployment pipeline for sandbox
+environments via GitHub Actions. The pipeline runs itself end to end — tests,
+file transfer, and Magento setup — but you start it by hand; see **Deployment**
+below.
 
 ### Setup
 
@@ -554,8 +557,8 @@ This extension includes automated deployment to sandbox environments via GitHub 
 
 ### Deployment
 
-- **Automatic**: Push to `main`, `develop`, or `DEV-`* branches
-- **Manual**: Go to Actions → Deploy to Sandbox → Run workflow
+Sandbox deployment is manual only: go to Actions → Deploy to Sandbox → Run
+workflow. No branch triggers a deployment on push.
 
 The deployment process will:
 - Run all integration tests
