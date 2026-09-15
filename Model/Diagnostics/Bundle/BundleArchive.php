@@ -81,12 +81,13 @@ class BundleArchive
      *
      * @param string $name
      * @param string $content
+     * @param bool   $maskPii See BundleContext::scrub()
      * @return void
      */
-    public function addString(string $name, string $content): void
+    public function addString(string $name, string $content, bool $maskPii = true): void
     {
         if ($this->context !== null) {
-            $content = $this->context->scrub($content);
+            $content = $this->context->scrub($content, $maskPii);
         }
         $this->zip->addFromString($name, $content);
         $this->entries[$name] = strlen($content);
@@ -97,16 +98,17 @@ class BundleArchive
      *
      * @param string $name
      * @param array  $data
+     * @param bool   $maskPii See BundleContext::scrub()
      * @return void
      */
-    public function addJson(string $name, array $data): void
+    public function addJson(string $name, array $data, bool $maskPii = true): void
     {
         $encoded = json_encode(
             $data,
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
                 | JSON_PARTIAL_OUTPUT_ON_ERROR
         );
-        $this->addString($name, (string) $encoded . "\n");
+        $this->addString($name, (string) $encoded . "\n", $maskPii);
     }
 
     /**

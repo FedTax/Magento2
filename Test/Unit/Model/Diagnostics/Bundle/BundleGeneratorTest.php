@@ -189,12 +189,15 @@ class BundleGeneratorTest extends TestCase
         // The probe echoes credentials into error messages, as a careless
         // transport exception might.
         $probe = $this->createMock(ApiProbe::class);
-        $probe->method('probe')->willReturn(['configurations' => [[
+        $probe->method('probe')->willReturn([
+            'test_address' => ['Address1' => '162 East Avenue', 'City' => 'Norwalk', 'State' => 'CT', 'Zip5' => '06851'],
+            'configurations' => [[
             'stores' => ['us_en'],
             'api_type' => 'soap',
             'calls' => ['lookup' => ['success' => false,
                 'error_message' => 'SoapFault: invalid apiKey ' . self::DEFAULT_API_KEY]],
-        ]]]);
+            ]],
+        ]);
 
         $sections = array_merge([
             new SettingsSection($scopeConfig, $sourceReader, $inventory, new CredentialFingerprint()),
@@ -381,6 +384,11 @@ class BundleGeneratorTest extends TestCase
         $this->assertArrayHasKey('manifest.json', $listed);
         $this->assertStringContainsString('customer details: **masked**', $entries['summary.md']);
         $this->assertStringContainsString('Customer details were masked', $entries['summary.md']);
+
+        // The probe's fixed test address is not customer data and stays readable
+        // when masking is on; the credential in its error message is still redacted.
+        $this->assertStringContainsString('"Address1": "162 East Avenue"', $entries['probe.json']);
+        $this->assertStringNotContainsString(self::DEFAULT_API_KEY, $entries['probe.json']);
 
         unlink($result->getPath());
     }

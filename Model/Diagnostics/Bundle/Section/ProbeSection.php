@@ -68,7 +68,10 @@ class ProbeSection implements SectionInterface
             $data = ['ran' => true] + $this->probe->probe($context->getScope()->getStores());
         }
 
-        $archive->addJson(self::FILE, $data);
+        // No customer data: the probe uses a fixed test address and the store's
+        // own origin. Masking it would mark TaxCloud's office address as hidden
+        // customer data. Credentials are still redacted.
+        $archive->addJson(self::FILE, $data, false);
 
         return $data;
     }

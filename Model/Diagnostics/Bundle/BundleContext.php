@@ -157,13 +157,15 @@ class BundleContext
      * Apply every redaction rule to text leaving the store.
      *
      * @param string $text
+     * @param bool   $maskPii False only for content that provably holds no customer data (the probe's fixed
+     *                        test address); credential redaction applies regardless
      * @return string
      */
-    public function scrub(string $text): string
+    public function scrub(string $text, bool $maskPii = true): string
     {
         $text = LogRedactor::redactText($text, array_map('strval', array_keys($this->secrets)));
 
-        return $this->piiRedactor !== null ? $this->piiRedactor->maskText($text) : $text;
+        return $maskPii && $this->piiRedactor !== null ? $this->piiRedactor->maskText($text) : $text;
     }
 
     /**
