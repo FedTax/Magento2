@@ -8,6 +8,8 @@
  *
  * What it seeds (idempotent — safe to re-run):
  *   - Admin user      admin / admin@example.com / 1234567a (Administrators)
+ *   - Admin user      tax-no-diagnostics / 1234567a (tax settings + orders, no
+ *                     TaxCloud Diagnostics Export — for the E2E ACL checks)
  *   - Category        "Test Category" (url key: test-category)
  *   - Product         "Test Product"  (sku: test-product, simple, $10,
  *                     in stock, assigned to Test Category)
@@ -181,6 +183,65 @@ if ($productsOnly) {
 
     $step('admin user "' . ADMIN_USERNAME . '" <' . ADMIN_EMAIL . '> '
         . ($existed ? 'updated' : 'created') . " (role $adminRoleId)");
+}
+
+// --- 1b. Restricted admin user ----------------------------------------------
+
+// An admin who may edit tax settings and view orders but NOT export
+// diagnostics. The E2E suite signs in as this user to prove the diagnostics
+// buttons are hidden and the export route refuses them: the bundle carries
+// customer data, so it has its own ACL grant separate from tax configuration.
+const RESTRICTED_ADMIN_USERNAME = 'tax-no-diagnostics';
+const RESTRICTED_ADMIN_EMAIL    = 'tax-no-diagnostics@example.com';
+const RESTRICTED_ROLE_NAME      = 'Tax Settings Without Diagnostics';
+const RESTRICTED_ROLE_RESOURCES = [
+    'Magento_Backend::dashboard',
+    'Magento_Sales::sales',
+    'Magento_Sales::sales_operation',
+    'Magento_Sales::sales_order',
+    'Magento_Sales::actions',
+    'Magento_Sales::actions_view',
+    'Magento_Backend::stores',
+    'Magento_Backend::stores_settings',
+    'Magento_Config::config',
+    'Magento_Tax::config_tax',
+];
+
+if ($productsOnly) {
+    $step('skipped restricted admin user (--products-only)');
+} else {
+    /** @var \Magento\Authorization\Model\Role $restrictedRole */
+    $restrictedRole = $om->create(\Magento\Authorization\Model\RoleFactory::class)->create();
+    $restrictedRole->load(RESTRICTED_ROLE_NAME, 'role_name');
+    $restrictedRole->setRoleName(RESTRICTED_ROLE_NAME)
+        ->setUserType(\Magento\Authorization\Model\UserContextInterface::USER_TYPE_ADMIN)
+        ->setParentId(0)
+        ->setTreeLevel(1)
+        ->setSortOrder(0)
+        ->setRoleType(\Magento\Authorization\Model\Acl\Role\Group::ROLE_TYPE)
+        ->save();
+
+    // saveRel() writes an explicit deny for every resource not listed, so the
+    // stores_settings grant does not flow down to Taxcloud_Magento2::diagnostics.
+    $om->create(\Magento\Authorization\Model\RulesFactory::class)->create()
+        ->setRoleId($restrictedRole->getId())
+        ->setResources(RESTRICTED_ROLE_RESOURCES)
+        ->saveRel();
+
+    /** @var \Magento\User\Model\User $restrictedUser */
+    $restrictedUser = $om->create(\Magento\User\Model\UserFactory::class)->create();
+    $restrictedUser->loadByUsername(RESTRICTED_ADMIN_USERNAME);
+    $restrictedUser->setFirstname('Tax')
+        ->setLastname('Settings')
+        ->setUsername(RESTRICTED_ADMIN_USERNAME)
+        ->setEmail(RESTRICTED_ADMIN_EMAIL)
+        ->setPassword(ADMIN_PASSWORD)
+        ->setIsActive(1)
+        ->setRoleId((int) $restrictedRole->getId());
+    $restrictedUser->save();
+
+    $step('restricted admin user "' . RESTRICTED_ADMIN_USERNAME . '" (role "' . RESTRICTED_ROLE_NAME
+        . '", no diagnostics export)');
 }
 
 // --- 2. System configuration -------------------------------------------------

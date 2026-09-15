@@ -167,4 +167,31 @@ class SoapGatewayTest extends TestCase
 
         $this->assertNull($this->gateway()->getClient());
     }
+
+    /**
+     * The diagnostics probe needs trace on to read the HTTP status, whatever the
+     * store's logging mode, without touching the client operations share.
+     */
+    public function testCreateClientAppliesOverridesAndBypassesTheCache()
+    {
+        $clients = [];
+        $this->soapClientFactory->expects($this->exactly(2))
+            ->method('create')
+            ->willReturnCallback(function ($wsdl, $options) use (&$clients) {
+                $client = $this->getMockBuilder(SoapClientDouble::class)->disableOriginalConstructor()->getMock();
+                $clients[] = [$options, $client];
+                return $client;
+            });
+
+        $gateway = $this->gateway();
+        $shared = $gateway->getClient();
+        $probe = $gateway->createClient(null, ['trace' => true, 'connection_timeout' => 3]);
+
+        $this->assertNotSame($shared, $probe);
+        $this->assertArrayNotHasKey('trace', $clients[0][0]);
+        $this->assertTrue($clients[1][0]['trace']);
+        $this->assertSame(3, $clients[1][0]['connection_timeout']);
+        $this->assertArrayHasKey('stream_context', $clients[1][0], 'the store options still apply');
+        $this->assertSame($shared, $gateway->getClient(), 'the shared client is unaffected');
+    }
 }

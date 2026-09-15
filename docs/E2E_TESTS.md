@@ -140,6 +140,7 @@ seed already provides everything a browser checkout needs:
 - an active **payment** method (Check / Money Order) and **shipping** method
   (Flat Rate),
 - the admin user (`admin` / `1234567a`),
+- a restricted admin user (`tax-no-diagnostics` / `1234567a`) whose role can edit tax settings and view orders but not export diagnostics,
 - TaxCloud config + ship-from origin,
 - a second website/group/store view (code `second`) with the same catalog and
   TaxCloud **disabled** at store scope; store codes are in URLs

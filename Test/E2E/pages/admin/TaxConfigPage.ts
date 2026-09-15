@@ -16,6 +16,7 @@ export class TaxConfigPage {
   readonly restConnectionId: Locator;
   readonly testConnectionButton: Locator;
   readonly testConnectionResult: Locator;
+  readonly downloadDiagnosticsButton: Locator;
   readonly saveButton: Locator;
   readonly exemptionsEnabled: Locator;
   readonly coRdfEnabled: Locator;
@@ -31,6 +32,7 @@ export class TaxConfigPage {
     this.restConnectionId = page.locator('#tax_taxcloud_rest_connection_id');
     this.testConnectionButton = page.locator('#taxcloud_test_connection_btn');
     this.testConnectionResult = page.locator('#taxcloud_test_connection_result');
+    this.downloadDiagnosticsButton = page.locator('#taxcloud_download_diagnostics_btn');
     this.saveButton = page.locator('#save');
     this.exemptionsEnabled = page.locator('#tax_taxcloud_exemptions_enabled');
     this.coRdfEnabled = page.locator('#tax_taxcloud_colorado_co_rdf_enabled');
@@ -38,8 +40,11 @@ export class TaxConfigPage {
     this.coRdfAmount = page.locator('#tax_taxcloud_colorado_co_rdf_amount');
   }
 
-  async open(): Promise<void> {
-    await this.page.goto('/admin/admin/system_config/edit/section/tax/');
+  /**
+   * @param scopePath optional scope segment, e.g. 'store/2/' to edit a store view
+   */
+  async open(scopePath = ''): Promise<void> {
+    await this.page.goto('/admin/admin/system_config/edit/section/tax/' + scopePath);
     await this.saveButton.waitFor({ timeout: 40_000 });
     // The TaxCloud Settings group persists its open/closed state per session;
     // expand it if the fields aren't already interactable. The API Type select

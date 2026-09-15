@@ -143,10 +143,7 @@ class SoapGateway implements SoapClientProviderInterface
         // retried on the next call, matching the previous single-client behavior.
         if (!isset($this->clients[$storeKey])) {
             try {
-                $this->clients[$storeKey] = $this->soapClientFactory->create(
-                    $this->config->getWsdlUrl($store),
-                    $this->buildSoapOptions($store)
-                );
+                $this->clients[$storeKey] = $this->createClient($store);
                 $this->logger->debug(
                     'SoapClient created: endpoint=' . $this->config->getWsdlUrl($store)
                     . ', timeout=' . $this->config->getSoapTimeout($store) . 's'
@@ -159,6 +156,27 @@ class SoapGateway implements SoapClientProviderInterface
             }
         }
         return $this->clients[$storeKey];
+    }
+
+    /**
+     * Build a new, uncached SoapClient for a store.
+     *
+     * getClient() is the path every operation uses; this exists for callers
+     * that need a client of their own with different options — the diagnostics
+     * probe turns trace on to read the HTTP status, regardless of the store's
+     * logging mode, without altering the shared cached client.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @param array $optionOverrides Merged over buildSoapOptions()
+     * @return \SoapClient
+     * @throws Throwable When the WSDL cannot be fetched or parsed
+     */
+    public function createClient($store = null, array $optionOverrides = [])
+    {
+        return $this->soapClientFactory->create(
+            $this->config->getWsdlUrl($store),
+            $optionOverrides + $this->buildSoapOptions($store)
+        );
     }
 
     /**

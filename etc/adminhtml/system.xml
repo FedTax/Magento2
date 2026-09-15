@@ -131,6 +131,12 @@
           </depends>
         </field>
 
+        <field id="download_diagnostics" translate="label" type="button" sortOrder="57" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Diagnostics</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\DownloadDiagnostics</frontend_model>
+          <!-- No depends on "enabled": a store with TaxCloud switched off is exactly one support needs to see. -->
+        </field>
+
         <field id="guest_customer_id" translate="label" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Guest Customer ID</label>
           <validate>required-entry</validate>

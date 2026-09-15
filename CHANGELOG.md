@@ -2,6 +2,57 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## Unreleased
+
+### Added
+
+- **Diagnostics bundle.** A **Download Diagnostics** button in *Stores →
+  Configuration → Sales → Tax → TaxCloud Settings* and a **TaxCloud
+  Diagnostics** button on the admin order view create a single ZIP to attach to
+  a support ticket: a summary report that flags blockers and anomalies, TaxCloud
+  settings at every scope with where each value comes from and whether it is
+  locked in `app/etc/env.php` or `app/etc/config.php`, Magento's native tax
+  configuration, installed modules, environment, cron and indexer state, the
+  tax collector verdict, a live read-only API probe (DNS and TLS measured
+  separately from the API result), and the TaxCloud log with TaxCloud-related
+  lines from `system.log` and `exception.log`. The order button narrows the
+  bundle to that order: totals, items with the TIC used and where it came from,
+  addresses, RDF state, documents, and only that order's log lines. A dialog
+  sets customer-detail masking, the log window and whether to run the probe
+  before anything is generated. Credentials are never included under any
+  option — each is replaced by a fingerprint (set, length, last four
+  characters, hash prefix, whitespace flags). Access is a new ACL resource,
+  **TaxCloud Diagnostics Export**; every export is audited. Also available as
+  `bin/magento taxcloud:diagnostics:export [--order=] [--redact] [--output=]`.
+  The summary also lists each distinct warning and error found in the included
+  logs (count, first and last seen), when TaxCloud last looked up tax, captured
+  and refunded, flags a TaxCloud log that has gone silent, and blocks on a
+  pending `bin/magento setup:upgrade`.
+- **Log correlation.** TaxCloud log lines written during a tax lookup, address
+  verification, capture, refund or cancellation now end with a JSON context
+  carrying a per-operation `correlation_id`, the `operation`, and the
+  `quote_id` / `order_increment_id` when known, so every line for one order can
+  be found with a single search.
+- **Capture and refund outcomes in Basic logging.** Each capture now ends with
+  `Order … captured in TaxCloud` or `Order … was NOT captured in TaxCloud`, and
+  each refund with `Refund for order … recorded in TaxCloud` or `… was NOT
+  recorded`, so the outcome is visible without Advanced logging.
+- **Request identity on every log line.** Each TaxCloud log record ends with
+  `{"request":"…","pid":…}` identifying the request, command or background job
+  that wrote it, so lines from concurrent requests can be told apart. `pid` is
+  omitted on hosts that disable `getmypid()`.
+
+### Fixed
+
+- V1 SOAP log records were multi-line (`print_r` dumps, raw headers and XML),
+  so the correlation labels sat on each record's last line where a search for
+  the order number missed them. SOAP parameters and responses are now logged as
+  single-line JSON, wire traces on one line, and SOAP operations are labelled
+  `(v1 SOAP)` as REST ones are labelled `(v3 REST)`.
+- The refund log line named the credit memo, which has no number yet at that
+  point, and read `for creditmemo ` with nothing after it. It now names the
+  order.
+
 ## 1.4.0
 
 This release makes TaxCloud's v3 REST API a fully supported transport alongside

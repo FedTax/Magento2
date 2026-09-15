@@ -76,6 +76,7 @@ marked *conditional* only appear once a related setting is turned on.
 | [API Key](#api-key-v3-rest) (V3) | Password | — | Key from Developer → API (conditional) |
 | [Connection ID](#connection-id) | Text | — | UUID from Integrations → Custom API (conditional) |
 | [Verify Credentials](#verify-credentials) | Button | — | — |
+| [Diagnostics](#diagnostics) | Button | — | — |
 | [Guest Customer ID](#guest-customer-id) | Text | `-1` | Any identifier |
 | [Default TIC](#default-tic) | Text (autocomplete) | `00000` | Any TaxCloud TIC |
 | [Shipping TIC](#shipping-tic) | Text (autocomplete) | `11010` | Any TaxCloud TIC |
@@ -248,6 +249,22 @@ It tells you which of these you are looking at:
 - TaxCloud does not recognise the Connection ID.
 - TaxCloud could not be reached at all — a network, firewall or DNS problem on
   your server rather than a credential problem.
+
+---
+
+### Diagnostics
+
+**Type:** Button (labelled **Download Diagnostics**)
+
+Creates a ZIP file describing your TaxCloud setup — settings, Magento tax
+configuration, installed extensions, recent log entries and a live connection
+test — to attach to a support ticket. It covers the store view selected in the
+**Store View** switcher, or every store at **Default Config**. Your credentials
+are never included.
+
+Shown whether or not TaxCloud is enabled, to admin users whose role includes
+**TaxCloud Diagnostics Export**. See
+[Sending diagnostics to support](diagnostics.md).
 
 ---
 

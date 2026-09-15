@@ -440,6 +440,52 @@ Three surfaces report the same verdict:
 
 A clean verdict means only that this module's collector runs — it says nothing about credentials or calculation correctness. See [Another extension is calculating tax](docs/extension-conflicts.md) for the merchant-facing version, including the `<sequence>` recipe for coexisting with a specific named module.
 
+### Diagnostics bundle
+
+A single ZIP with everything needed to diagnose a store without access to it, designed to be attached to a support ticket and read by an engineer or an AI assistant. Merchant-facing documentation: [Sending diagnostics to support](docs/diagnostics.md).
+
+```
+bin/magento taxcloud:diagnostics:export [--order=INCREMENT_ID] [--redact] [--output=PATH]
+                                        [--store=ID | --website=ID] [--no-probe]
+                                        [--log-window=standard|extended|maximum]
+```
+
+Writes `var/taxcloud-diagnostics-{scope-code}-{YYYYMMDD-HHMMSS}.zip` (UTC timestamp) unless `--output` names a file or directory, and prints the path. Without `--order` the bundle covers every store (or the `--store`/`--website` given); with it, the bundle is narrowed to that order at its store scope. Increment IDs are sequenced per store, so when the same one exists in several stores the command stops and asks for `--store` to pick one. `--redact` masks customer names, street lines, emails and phones; credentials are redacted unconditionally. Exit code is non-zero only when no bundle could be written — a bundle whose sections partly failed is still a success, and lists the failures.
+
+The same bundle comes from **Download Diagnostics** in the TaxCloud settings group (scoped to the config scope being edited) and **TaxCloud Diagnostics** on the admin order view. Both POST to `taxcloud/diagnostics/export`, guarded by the `Taxcloud_Magento2::diagnostics` ACL resource.
+
+| File | Contents |
+|---|---|
+| `summary.md` | Flattened report: blockers first, then environment, effective settings, collector verdict, probe, order |
+| `manifest.json` | Schema version (`BundleGenerator::SCHEMA_VERSION`), module version, generated-at (UTC and store TZ), generating user, redaction mode, files with byte counts, failed sections |
+| `settings.json` | Every `tax/taxcloud_settings/*` value at default/website/store scope, inherited vs explicit, source (database, `config.xml`, `env.php`, `config.php`, environment variable) and lock state, plus the effective value per store |
+| `magento-tax.json` | Native `tax/*` config, tax rules, rates (capped at 2,000), tax classes, `taxcloud` cache type state |
+| `modules.json` | Every module with composer version, `setup_version` and enabled state |
+| `environment.json` | Magento/PHP/extension versions, PHP ini limits, deploy mode, cache and session backend names, cron health, indexer states, time zones |
+| `collector-diagnostics.json` | `TaxCollectorDiagnostics` verdict per store |
+| `probe.json` | Live Lookup + VerifyAddress per distinct configuration, with DNS and TLS measured separately from the API result |
+| `order.json` | Per-order only: totals, items with TIC and TIC source, addresses, TaxCloud order columns, RDF state, invoices/credit memos/shipments |
+| `logs/` | `taxcloud.log` (and rotations) within the window, or the order's correlated records; TaxCloud-related records of `system.log` and `exception.log` |
+
+Implementation notes:
+
+* Collection lives in `Model/Diagnostics/Bundle/`, independent of HTTP. Sections implement `Section\SectionInterface` and are registered, in order, on `BundleGenerator` in `etc/di.xml`; a section that throws is recorded in the manifest and the rest still run.
+* Every byte written passes through `BundleContext::scrub()`: `LogRedactor::redactText()` (credential patterns in XML, JSON, print_r, headers, Bearer tokens) plus every credential value configured at any scope, locked in a deployment file, or cached as a Bearer token (`Redaction\CredentialInventory`). `app/etc/env.php` is read only through `ConfigSourceReader`, which keeps the `system` subtree and a hardcoded key whitelist.
+* The log path is read from the `Taxcloud\Magento2\Logger\Handler` the object manager builds, so a relocated log (below) is still found. Logs are tailed with seeks and a timestamp binary search, never loaded whole; the ZIP is written to `var/tmp/taxcloud-diagnostics/` and streamed from disk, then deleted.
+* Generating a bundle is audited to `system.log`, and on Adobe Commerce to the Admin Actions Log (`etc/logging.xml`).
+
+### Log correlation
+
+`Model\Logging\GatewayLogger::beginOperation($operation, $quoteId, $orderIncrementId)` binds a correlation context at each operation entry point (the gateways' lookup, verify-address, capture, refund, cancel and order-details methods, and the capture/refund/cancel observers), alongside the existing `setStore()` binding. Every record forwarded while it is bound carries `correlation_id`, `operation`, `quote_id` and `order_increment_id` in its context array, which Monolog's line formatter renders as JSON at the end of the line:
+
+```
+[2026-09-14T10:15:02.418223+00:00] tclogger.INFO: Calling authorizeCapture (v3 REST) for order 100000123 {"correlation_id":"3f9a1c07b2e4","operation":"capture","quote_id":"4411","order_increment_id":"100000123"} {"request":"9f3c1a2b","pid":812}
+```
+
+Beginning an operation replaces the previous context, so a long-running process never attributes one order's lines to another; beginning one for the same order (an observer, then the gateway call it makes) keeps the correlation id. Calls made with no context bound log exactly as before, and keys a call site passes explicitly win over the bound ones.
+
+Every record also carries the request that wrote it in Monolog's `extra` (the second JSON group): `request`, a random id fixed per logger instance (one HTTP request, CLI run, or cron/consumer process), and `pid` when the host allows `getmypid()`. `Logger\Processor\RequestIdentityProcessor` adds it, registered on the channel in `etc/di.xml`; on hosts with `getmypid` in `disable_functions` it omits `pid` rather than failing. Messages are one line each — trailing line breaks are trimmed, SOAP params and responses are written as JSON, and SOAP wire traces are collapsed with ` | ` — so a line-oriented search finds every record of an order. SOAP operations are labelled `(v1 SOAP)` and REST operations `(v3 REST)`.
+
 ### Clearing the TaxCloud cache
 
 The extension stores its API responses — tax lookups, address verifications, and exemption-certificate state lists — in a dedicated **TaxCloud** cache type rather than the general application cache. It appears as its own row under *System → Cache Management*, alongside Configuration, Page Cache, and the rest.
