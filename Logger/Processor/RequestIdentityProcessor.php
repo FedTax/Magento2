@@ -91,7 +91,7 @@ class RequestIdentityProcessor
         } catch (\Throwable $e) {
             // No entropy source available: uniqid() needs none.
             try {
-                return substr(md5(uniqid('', true)), 0, 8);
+                return substr(hash('sha256', uniqid('', true)), 0, 8);
             } catch (\Throwable $e) {
                 return null;
             }

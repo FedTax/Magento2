@@ -263,7 +263,10 @@ class LogsSection implements SectionInterface
         $out = $this->driver->fileOpen($staged, 'wb');
         $bytes = 0;
         try {
-            $stats = $this->reader->readRange($path, $start, null, $notBefore, function ($record, $timestamp) use (
+            $sink = function (
+                $record,
+                $timestamp
+            ) use (
                 $context,
                 $out,
                 $entry,
@@ -273,7 +276,8 @@ class LogsSection implements SectionInterface
                 $this->driver->fileWrite($out, $clean);
                 $bytes += strlen($clean);
                 $this->digest->add($entry, $clean, $timestamp, true);
-            });
+            };
+            $stats = $this->reader->readRange($path, $start, null, $notBefore, $sink);
         } finally {
             $this->driver->fileClose($out);
             if ($cleanup !== null) {
@@ -348,7 +352,14 @@ class LogsSection implements SectionInterface
             'lookup_error_records' => 0,
         ];
 
-        $sink = function ($record, $timestamp = null) use ($context, $out, $patterns, $contextLines, $outputCap, &$state) {
+        $sink = function ($record, $timestamp = null) use (
+            $context,
+            $out,
+            $patterns,
+            $contextLines,
+            $outputCap,
+            &$state
+        ) {
             if ($state['capped']) {
                 return;
             }
@@ -507,7 +518,10 @@ class LogsSection implements SectionInterface
         $bytes = 0;
         $records = 0;
         try {
-            $stats = $this->reader->readRange($path, $start, null, $notBefore, function ($record, $timestamp) use (
+            $sink = function (
+                $record,
+                $timestamp
+            ) use (
                 $context,
                 $out,
                 $cap,
@@ -523,7 +537,8 @@ class LogsSection implements SectionInterface
                 $this->driver->fileWrite($out, $clean);
                 $bytes += strlen($clean);
                 $records++;
-            });
+            };
+            $stats = $this->reader->readRange($path, $start, null, $notBefore, $sink);
         } finally {
             $this->driver->fileClose($out);
         }
