@@ -219,6 +219,15 @@ if ($productsOnly) {
         ->setTreeLevel(1)
         ->setSortOrder(0)
         ->setRoleType(\Magento\Authorization\Model\Acl\Role\Group::ROLE_TYPE)
+        // Adobe Commerce role scopes (Magento_AdminGws): its load observer marks
+        // a role that does not exist yet as scoped to no website at all, and a
+        // save would persist that — the role could then open no store-scoped
+        // admin page, configuration included ("store that was requested wasn't
+        // found"). The admin form always posts this; a script has to set it.
+        // On Magento Open Source these columns do not exist and are ignored.
+        ->setData('gws_is_all', 1)
+        ->setData('gws_websites', null)
+        ->setData('gws_store_groups', null)
         ->save();
 
     // saveRel() writes an explicit deny for every resource not listed, so the
@@ -1427,7 +1436,13 @@ if ($productsOnly) {
 // gives every run its own orderId namespace on the shared account. Digits
 // only: the e2e specs assert /^\d+$/ on the order number, and TaxCloud gets a
 // plain numeric string. Orders only — no other increment id reaches TaxCloud.
-$orderPrefix = date('ymdHis');
+//
+// The timestamp alone is not enough: CI installs the matrix rows in parallel,
+// and two rows seeding in the same second got the same prefix, filed the same
+// order numbers on the shared account, and each captured and refunded the
+// other's orders (2026-09-15, community 2.4.8-p5 and 2.4.9 both seeded
+// 260915120919). Four random digits separate same-second runs.
+$orderPrefix = date('ymdHis') . sprintf('%04d', random_int(0, 9999));
 $connection = $om->get(\Magento\Framework\App\ResourceConnection::class)->getConnection('sales');
 $profileTable = $connection->getTableName('sales_sequence_profile');
 $metaTable = $connection->getTableName('sales_sequence_meta');
@@ -1446,10 +1461,13 @@ $step("order increment prefix = $orderPrefix ($updated sequence profile(s), all 
 // previous install already authorized on the shared sandbox account; the
 // module reads that as benign success, nothing files under the new orderID,
 // and every later refund fails "could not be found or has not been captured
-// yet" (diagnosed from CI 2026-08-07, 2.4.8-p5). Start the quote sequence at
-// the current unix timestamp: unique per run and well inside quote.entity_id's
-// unsigned-int range.
-$quoteStart = time();
+// yet" (diagnosed from CI 2026-08-07, 2.4.8-p5). Start the quote sequence at a
+// random point above the current unix timestamp, rather than at the timestamp
+// itself: parallel matrix rows seeding in the same second would otherwise
+// share a cartID range. Each run uses at most a few thousand quote ids, so
+// runs started anywhere in a two-billion-wide range practically never overlap,
+// and the result stays inside quote.entity_id's unsigned-int range.
+$quoteStart = time() + random_int(0, 2000000000);
 $connection->query(
     'ALTER TABLE ' . $connection->getTableName('quote') . ' AUTO_INCREMENT = ' . (int) $quoteStart
 );
