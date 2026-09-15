@@ -352,7 +352,10 @@ class LogsSection implements SectionInterface
             'lookup_error_records' => 0,
         ];
 
-        $sink = function ($record, $timestamp = null) use (
+        $sink = function (
+            $record,
+            $timestamp = null
+        ) use (
             $context,
             $out,
             $patterns,

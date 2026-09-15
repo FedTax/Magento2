@@ -29,6 +29,10 @@ When the merchant chooses to mask customer details, names, street address lines,
 - **WHEN** a bundle is generated with customer details masked
 - **THEN** a street address in a log payload is shown as the marker and its ZIP code is unchanged
 
+#### Scenario: Probe test address is not customer data
+- **WHEN** a bundle is generated with customer details masked
+- **THEN** `probe.json` shows the probe's fixed test address unmasked, and credentials in it are still redacted
+
 ### Requirement: A failing part never fails the bundle
 If a collector throws, the bundle SHALL still be generated, and the failure SHALL be recorded in `manifest.json` and as a blocker in `summary.md`. Temporary files SHALL be removed on success and on failure.
 
@@ -63,3 +67,22 @@ Generation SHALL require the `Taxcloud_Magento2::diagnostics` ACL resource and a
 #### Scenario: Admin with tax configuration access only
 - **WHEN** an admin role grants tax configuration but not TaxCloud Diagnostics Export
 - **THEN** the role is not allowed to generate a bundle
+
+### Requirement: The summary surfaces what the logs show
+`summary.md` SHALL list, per included log file, each distinct warning-or-worse message with numbers and identifiers normalised, its count, and when it was first and last seen relative to generation, and SHALL flag errors seen within the 24 hours before generation. It SHALL state when TaxCloud last performed a successful lookup, a capture, a refund, a failed capture or refund, and a Magento fallback, as recorded in the exported logs, and SHALL warn when the TaxCloud log has not been written for more than 24 hours while logging is enabled.
+
+#### Scenario: Recurring stale error
+- **WHEN** the same error for different orders was last logged twenty days before generation
+- **THEN** the summary lists it once with its count and a last-seen age of twenty days, and does not flag it as recent
+
+#### Scenario: Silent log
+- **WHEN** logging is enabled and the TaxCloud log was last written five days before generation
+- **THEN** the summary warns that nothing has been logged for five days
+
+### Requirement: A pending setup upgrade is a blocker
+`environment.json` SHALL record whether module versions, schema patches or data patches are ahead of the database, and `summary.md` SHALL list a pending `bin/magento setup:upgrade` under Blockers, naming the modules concerned.
+
+#### Scenario: Module deployed without setup:upgrade
+- **WHEN** a module's code version is newer than the version recorded in the database
+- **THEN** the summary's Blockers name the module and both versions and instruct to run `bin/magento setup:upgrade`
+
