@@ -27,8 +27,8 @@ use Taxcloud\Magento2\Logger\Logger;
  *
  * Read from the handler the object manager built for the TaxCloud channel —
  * i.e. from the DI-configured fileName argument — rather than assumed to be
- * var/log/taxcloud.log. The README tells operators how to relocate the log; a
- * merchant who did so must still get their log in the bundle.
+ * var/log/taxcloud.log. docs/extending.md tells operators how to relocate the
+ * log; a merchant who did so must still get their log in the bundle.
  */
 class LogPathResolver
 {

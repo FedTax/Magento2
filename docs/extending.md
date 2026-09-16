@@ -67,7 +67,7 @@ to any destination — see [Reading the log](logs.md).
 
 ## Advanced settings with no admin field
 
-Three values have no admin field and are set with `bin/magento config:set`:
+Two values have no admin field and are set with `bin/magento config:set`:
 
 | Path | Default | Purpose |
 |---|---|---|

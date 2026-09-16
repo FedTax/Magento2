@@ -19,7 +19,7 @@ use Taxcloud\Magento2\Model\Diagnostics\Bundle\Log\LogPathResolver;
 
 /**
  * The bundle must find the log where the DI-configured handler writes it — a
- * merchant who relocated it per the README still gets their log.
+ * merchant who relocated it per the docs still gets their log.
  */
 #[AllowMockObjectsWithoutExpectations]
 class LogPathResolverTest extends TestCase

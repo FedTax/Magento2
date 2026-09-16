@@ -40,7 +40,8 @@ class Handler extends Base
 
     /**
      * Operators can point TaxCloud logging elsewhere by overriding the fileName
-     * argument in their own di.xml — see README "Changing the log file location".
+     * argument in their own di.xml — see "Changing the log file location" on
+     * the docs page "Extending the extension" (docs/extending.md).
      *
      * @param DriverInterface $filesystem
      * @param string|null $filePath
