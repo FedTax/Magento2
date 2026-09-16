@@ -76,6 +76,11 @@ class RestGatewayTest extends TestCase
     private $config;
 
     /**
+     * @var GatewayLogger&\PHPUnit\Framework\MockObject\MockObject
+     */
+    private $gatewayLogger;
+
+    /**
      * @var string[] Event names dispatched (before and after), in order
      */
     private $dispatchedEvents = [];
@@ -141,8 +146,10 @@ class RestGatewayTest extends TestCase
             }
         );
 
+        $this->gatewayLogger = $this->createMock(GatewayLogger::class);
+
         return new RestGateway(
-            $this->createMock(GatewayLogger::class),
+            $this->gatewayLogger,
             $this->config,
             $this->restClient,
             $this->restRequestBuilder,
@@ -517,6 +524,25 @@ class RestGatewayTest extends TestCase
         $creditmemo->method('getAllItems')->willReturn([]);
 
         return $creditmemo;
+    }
+
+    public function testReturnOrderNamesTheOrderWhenTheCreditMemoIsNotYetNumbered()
+    {
+        $gateway = $this->gateway();
+        $this->restRequestBuilder->method('buildRefundItems')->willReturn(
+            ['items' => [], 'wasTaxOnlyRefund' => false, 'skip' => true, 'fullRefund' => false]
+        );
+        $messages = [];
+        $this->gatewayLogger->method('info')->willReturnCallback(function ($message) use (&$messages) {
+            $messages[] = $message;
+        });
+        $creditmemo = $this->createMock(Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($this->orderMock());
+        $creditmemo->method('getIncrementId')->willReturn(null);
+
+        $gateway->returnOrder($creditmemo);
+
+        $this->assertContains('Calling returnOrder (v3 REST) for order 100000042', $messages);
     }
 
     public function testReturnOrderSkipCaseSucceedsWithoutApiCall()

@@ -179,6 +179,7 @@ class RestGateway implements GatewayInterface
         // against the quote's store, not the ambient request store.
         $storeId = $quote->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('lookup', $quote->getId(), $quote->getReservedOrderId());
 
         $this->tclogger->info('Calling lookupTaxes (v3 REST)');
         $this->tclogger->debug(
@@ -281,9 +282,8 @@ class RestGateway implements GatewayInterface
             return $cacheResult;
         }
 
-        $this->tclogger->info('Calling lookupTaxes LIVE API (v3 carts)');
-        $this->tclogger->debug('lookupTaxes PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->info('Calling lookupTaxes LIVE API (v3 REST)');
+        $this->tclogger->debug('lookupTaxes PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             $response = $this->retryPolicy->executeForResponse(function () use ($payload, $storeId) {
@@ -335,6 +335,7 @@ class RestGateway implements GatewayInterface
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('capture', $order->getQuoteId(), $order->getIncrementId());
 
         $this->tclogger->info('Calling authorizeCapture (v3 REST) for order ' . $order->getIncrementId());
 
@@ -354,8 +355,14 @@ class RestGateway implements GatewayInterface
         $order = $creditmemo->getOrder();
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('refund', $order->getQuoteId(), $order->getIncrementId());
 
-        $this->tclogger->info('Calling returnOrder (v3 REST) for creditmemo ' . $creditmemo->getIncrementId());
+        // The refund observer runs before the credit memo is saved, so it
+        // usually has no number yet; the order number always identifies it.
+        $this->tclogger->info(
+            'Calling returnOrder (v3 REST) for order ' . $order->getIncrementId()
+            . ($creditmemo->getIncrementId() ? ' (credit memo ' . $creditmemo->getIncrementId() . ')' : '')
+        );
 
         $built = $this->restRequestBuilder->buildRefundItems($creditmemo);
         if ($built['skip']) {
@@ -399,6 +406,7 @@ class RestGateway implements GatewayInterface
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('cancel', $order->getQuoteId(), $order->getIncrementId());
 
         $this->tclogger->info(
             'Calling returnOrderCancellation (v3 REST) for order ' . $order->getIncrementId()
@@ -425,6 +433,7 @@ class RestGateway implements GatewayInterface
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('order_details', $order->getQuoteId(), $order->getIncrementId());
 
         $this->tclogger->info('Calling getOrderDetails (v3 REST) for order ' . $order->getIncrementId());
 
@@ -472,6 +481,8 @@ class RestGateway implements GatewayInterface
     public function verifyAddress($address, $store = null)
     {
         $this->tclogger->setStore($store);
+        // Runs nested inside a lookup (the address observer): keep its context.
+        $this->tclogger->continueOperation('verify_address');
 
         $this->tclogger->info('Calling verifyAddress (v3 REST)');
 
@@ -487,9 +498,8 @@ class RestGateway implements GatewayInterface
         // Call before event
         $payload = $this->eventDispatcher->dispatchBefore('taxcloud_rest_verify_address_before', $payload);
 
-        $this->tclogger->info('Calling verifyAddress LIVE API (v3)');
-        $this->tclogger->debug('verifyAddress PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->info('Calling verifyAddress LIVE API (v3 REST)');
+        $this->tclogger->debug('verifyAddress PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             $response = $this->retryPolicy->executeForResponse(function () use ($payload, $store) {
@@ -562,8 +572,7 @@ class RestGateway implements GatewayInterface
             'order' => $order,
         ]);
 
-        $this->tclogger->debug($operation . ' PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->debug($operation . ' PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             // Order creation is not idempotent in a way we can prove — only a
@@ -628,8 +637,7 @@ class RestGateway implements GatewayInterface
             $payload['items'] = [];
         }
 
-        $this->tclogger->debug($operation . ' PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->debug($operation . ' PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             // Refunds are not idempotent — only retry a failure that never

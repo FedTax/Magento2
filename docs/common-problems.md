@@ -2,6 +2,13 @@
 
 Symptoms first, in rough order of how often they come up.
 
+!!! tip "Contacting support? Send a diagnostics file first"
+    If the checks on this page do not solve it, create a diagnostics file and
+    attach it to your ticket — from the order itself if the problem is about one
+    order. It gives support your settings, versions, logs and a live connection
+    test in one go, so they can start on the answer instead of asking questions.
+    See [Sending diagnostics to support](diagnostics.md).
+
 ## No tax is charged at all
 
 **Is TaxCloud enabled?** *Stores → Configuration → Sales → Tax →* **TaxCloud

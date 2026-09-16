@@ -115,6 +115,7 @@ The seeded baseline every test can rely on:
 | What | Value |
 | ---- | ----- |
 | Admin user | `admin` / `1234567a` (`admin@example.com`, Administrators role) |
+| Restricted admin user | `tax-no-diagnostics` / `1234567a` (tax settings and order view, no **TaxCloud Diagnostics Export** grant — used by the E2E ACL checks) |
 | Category | "Test Category" (`test-category`) |
 | Product | `test-product` — simple, $10.00, in stock, in Test Category |
 | Configurable | `test-configurable` on a `test_variant_color` attribute, with variants `test-variant-red` (TIC 20010) and `test-variant-blue` (TIC 00000); parent has no TIC |

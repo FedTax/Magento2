@@ -75,6 +75,7 @@ nav:
       - Cancellations: cancellations.md
       - Filing your returns: filing.md
   - Troubleshooting:
+      - Sending diagnostics to support: diagnostics.md
       - Reading the log: logs.md
       - Clearing the TaxCloud cache: clearing-the-cache.md
       - Common problems: common-problems.md

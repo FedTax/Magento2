@@ -10,10 +10,13 @@ import { type Page, type Locator, expect } from '@playwright/test';
 export class AdminOrderPage {
   readonly page: Page;
   readonly successMessage: Locator;
+  /** "TaxCloud Diagnostics" in the order-view button bar. */
+  readonly diagnosticsButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
     this.successMessage = page.locator('.message-success').first();
+    this.diagnosticsButton = page.locator('button#taxcloud_diagnostics');
   }
 
   /** Find the order in the grid by increment id and open its view page. */

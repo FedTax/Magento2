@@ -57,6 +57,14 @@
          print_r()-as-output, not as a string builder. Both files are SOAP-era code
          the REST migration replaces. -->
     <rule ref="Magento2.Functions.DiscouragedFunction">
+        <!-- Not deferred: permanent, and scoped to the two files that need raw
+             streams. LogFileReader tails multi-gigabyte logs with seek + fgets,
+             which must see line endings (DriverInterface::fileReadLine strips
+             them) to group multi-line records. EndpointCheck probes DNS and the
+             TLS handshake with socket primitives that have no framework
+             equivalent; that separation is the point of the probe. -->
+        <exclude-pattern>Model/Diagnostics/Bundle/Log/LogFileReader\.php$</exclude-pattern>
+        <exclude-pattern>Model/Diagnostics/Bundle/Probe/EndpointCheck\.php$</exclude-pattern>
         <exclude-pattern>Model/Api\.php$</exclude-pattern>
         <exclude-pattern>Model/Gateway/Soap/SoapGateway\.php$</exclude-pattern>
     </rule>
@@ -75,5 +83,8 @@
          wants would have no body to protect. SOAP-era code. -->
     <rule ref="Magento2.Exceptions.TryProcessSystemResources">
         <exclude-pattern>Model/Gateway/Soap/SoapGateway\.php$</exclude-pattern>
+        <!-- Same stream_context_create() finding; the socket it configures is
+             opened inside a try and closed in a finally. -->
+        <exclude-pattern>Model/Diagnostics/Bundle/Probe/EndpointCheck\.php$</exclude-pattern>
     </rule>
 </ruleset>

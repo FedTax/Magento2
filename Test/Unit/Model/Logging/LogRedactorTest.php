@@ -88,4 +88,44 @@ class LogRedactorTest extends TestCase
 
         $this->assertSame($xml, LogRedactor::redactXml($xml));
     }
+
+    public function testRedactTextMasksEveryCredentialShapeAnyVersionCouldHaveLogged()
+    {
+        $text = implode("\n", [
+            '{"apiLoginID":"' . self::SENTINEL_API_ID . '","apiKey":"' . self::SENTINEL_API_KEY . '","orderID":"1"}',
+            '    [apiKey] => ' . self::SENTINEL_API_KEY,
+            "    'apiLoginID' => '" . self::SENTINEL_API_ID . "',",
+            '<apiKey>' . self::SENTINEL_API_KEY . '</apiKey>',
+            'X-API-KEY: ' . self::SENTINEL_API_KEY,
+            'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl',
+            '{"access_token":"eyJhbGciOiJIUzI1NiJ9.payload.sig","access_token_validTo":"2026-09-15"}',
+            'GET /x?apiKey=' . self::SENTINEL_API_KEY . '&connection=abc',
+        ]);
+
+        $redacted = LogRedactor::redactText($text);
+
+        $this->assertStringNotContainsString(self::SENTINEL_API_ID, $redacted);
+        $this->assertStringNotContainsString(self::SENTINEL_API_KEY, $redacted);
+        $this->assertStringNotContainsString('eyJhbGciOiJIUzI1NiJ9', $redacted);
+        $this->assertStringContainsString('"orderID":"1"', $redacted);
+        $this->assertStringContainsString('"access_token_validTo":"2026-09-15"', $redacted);
+        $this->assertStringContainsString('connection=abc', $redacted);
+    }
+
+    public function testRedactTextMasksKnownSecretValuesWherever()
+    {
+        $secret = 'a1b2c3d4-e5f6-7788-99aa-bbccddeeff00';
+        $text = 'SoapFault: auth failed for ' . $secret . ' (retrying with ' . strtoupper($secret) . ')';
+
+        $redacted = LogRedactor::redactText($text, [$secret, "  $secret  "]);
+
+        $this->assertStringNotContainsString($secret, $redacted);
+        // Exact match only: a differently-cased value is a different string.
+        $this->assertStringContainsString(strtoupper($secret), $redacted);
+    }
+
+    public function testRedactTextIgnoresTooShortKnownValues()
+    {
+        $this->assertSame('tax 1 of 12', LogRedactor::redactText('tax 1 of 12', ['1', '']));
+    }
 }

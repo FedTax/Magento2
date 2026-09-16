@@ -35,6 +35,15 @@
       <argument name="handlers" xsi:type="array">
         <item name="system" xsi:type="object">Taxcloud\Magento2\Logger\Handler</item>
       </argument>
+      <!--
+        Stamps each record with the request (and, where the host allows it, the
+        PHP process) that wrote it, so interleaved lines from concurrent
+        requests can be told apart. Degrades silently on hosts that disable
+        getmypid().
+      -->
+      <argument name="processors" xsi:type="array">
+        <item name="request_identity" xsi:type="object">Taxcloud\Magento2\Logger\Processor\RequestIdentityProcessor</item>
+      </argument>
     </arguments>
   </type>
 
@@ -274,6 +283,7 @@
       <argument name="commands" xsi:type="array">
         <item name="taxcloud_migrate_credentials" xsi:type="object">Taxcloud\Magento2\Console\Command\MigrateCredentialsCommand</item>
         <item name="taxcloud_diagnose" xsi:type="object">Taxcloud\Magento2\Console\Command\DiagnoseCommand</item>
+        <item name="taxcloud_diagnostics_export" xsi:type="object">Taxcloud\Magento2\Console\Command\DiagnosticsExportCommand</item>
       </argument>
     </arguments>
   </type>
@@ -320,4 +330,24 @@
     </arguments>
   </type>
 
+  <!--
+    Diagnostics bundle. Sections run in the order listed: settings first (the
+    summary's credential checks read it), logs before order (order.json reads
+    the correlated log evidence), and each is isolated — one that throws is
+    recorded in the manifest and the bundle still generates.
+  -->
+  <type name="Taxcloud\Magento2\Model\Diagnostics\Bundle\BundleGenerator">
+    <arguments>
+      <argument name="sections" xsi:type="array">
+        <item name="settings" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\SettingsSection</item>
+        <item name="magento_tax" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\MagentoTaxSection</item>
+        <item name="modules" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\ModulesSection</item>
+        <item name="environment" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\EnvironmentSection</item>
+        <item name="collector" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\CollectorSection</item>
+        <item name="probe" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\ProbeSection</item>
+        <item name="logs" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\LogsSection</item>
+        <item name="order" xsi:type="object">Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\OrderSection</item>
+      </argument>
+    </arguments>
+  </type>
 </config>

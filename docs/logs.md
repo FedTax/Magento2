@@ -8,9 +8,9 @@ this is where you look first.
 
 `var/log/taxcloud.log`, under your Magento installation.
 
-Reading it needs file access to the server. If you do not have that, ask your
-developer or host for the file — or for the last few hundred lines of it, which
-is usually enough.
+Reading it directly needs file access to the server. If you do not have that,
+create a [diagnostics file](diagnostics.md) from the admin: it includes the
+recent log, or just an order's entries when created from the order.
 
 ## The three modes
 
@@ -40,10 +40,48 @@ exact request sent and the exact response received.
     and log-shipping tools never carry your credentials, so you can send a log
     file to support without exposing them.
 
+## What a line looks like
+
+```text
+[2026-09-14T10:15:02.418223+00:00] tclogger.INFO: Calling authorizeCapture (v3 REST) for order 100000123 {"correlation_id":"3f9a1c07b2e4","operation":"capture","quote_id":"4411","order_increment_id":"100000123"} {"request":"9f3c1a2b","pid":812}
+```
+
+Each line starts with the time (UTC) and the level — `INFO` for what happened,
+`WARNING` and `ERROR` for problems, `DEBUG` for the extra detail Advanced mode
+adds. Then comes the message.
+
+Every line ends with the request that wrote it, and lines written while
+TaxCloud is working on a cart or an order carry a group of labels before that:
+
+| Label | What it is |
+|---|---|
+| `correlation_id` | A short code shared by every line of one piece of work — one tax calculation, one capture, one refund. Lines with the same code belong together |
+| `operation` | What the work was: `lookup` (tax calculation), `verify_address`, `capture`, `refund`, `cancel` or `order_details` |
+| `quote_id` | The shopping cart, when known |
+| `order_increment_id` | The order number, when known |
+
+A tax calculation at checkout usually shows the cart but not yet the order
+number; the capture and later steps show both. Lines that are not about a cart
+or an order show `[]` in place of these labels.
+
+The last group identifies the request:
+
+| Label | What it is |
+|---|---|
+| `request` | A short code shared by every line one page load, admin action, command or background job wrote. Several shoppers and admins use the store at once, so their lines are mixed together by time; this tells them apart |
+| `pid` | The server process that wrote the line. Some hosting providers do not allow reading it, and it is then left out |
+
+Each entry is on a single line, request and response details included, and
+names the API it used: `(v3 REST)` or `(v1 SOAP)`.
+
 ## What to look for
 
-**Was this order reported?** Search the log for the order increment ID. A
-successful capture is recorded with the order.
+**Was this order reported?** Search the log for the order number, for example
+`"order_increment_id":"100000123"`. The capture ends with a line saying either
+`Order 100000123 captured in TaxCloud` or `Order 100000123 was NOT captured in
+TaxCloud`, with the reason on the line before it. Refunds end the same way:
+`Refund for order 100000123 recorded in TaxCloud`, or `was NOT recorded`. To
+follow one step from start to finish, search for its `correlation_id`.
 
 **Why was there no tax?** Look around the time of the order for a skipped
 address, a non-US destination, an invalid ZIP, or a failed lookup.
@@ -66,16 +104,18 @@ stale answer from a fresh one.
 
 ## Sending a log to support
 
-When TaxCloud support asks for logs:
+You do not need to send the log file by hand. A
+[diagnostics file](diagnostics.md) includes it, with your credentials removed —
+and when created from an order, only that order's entries.
+
+When TaxCloud support asks for detailed logs:
 
 1. Set **Logging** to `Enable - Advanced`.
 2. Reproduce the problem — place the order, issue the refund, whatever it is.
-3. Note the time and the order number.
-4. Take the log file, or the section around that time.
-5. Set logging back to `Enable - Basic`.
+3. Create a diagnostics file — from the order, if the problem is about one.
+4. Set logging back to `Enable - Basic`.
 
-Tell them the order number and roughly when it happened; it saves everyone
-reading through unrelated traffic.
+Tell them the order number and roughly when it happened.
 
 ## Changing where the log is written
 

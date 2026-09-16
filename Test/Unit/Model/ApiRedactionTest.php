@@ -191,6 +191,22 @@ class ApiRedactionTest extends TestCase
         ));
         $this->assertStringContainsString('authorizedWithCapture PARAMS:', $haystack);
         $this->assertStringContainsString(Api::REDACTED_PLACEHOLDER, $haystack);
+
+        // One record per line, labelled with the transport, payloads as JSON:
+        // a multi-line dump would put the correlation context on its last line
+        // only, where a search for the order number cannot find the dump.
+        foreach ($logger->messages as $message) {
+            $this->assertStringNotContainsString("\n", (string) $message, 'multi-line log record: ' . $message);
+        }
+        $this->assertContains('Calling authorizeCapture (v1 SOAP) for order TEST_ORDER_REDACT', $logger->messages);
+        $params = null;
+        foreach ($logger->messages as $message) {
+            if (strpos((string) $message, 'authorizedWithCapture PARAMS: ') === 0) {
+                $params = json_decode(substr((string) $message, strlen('authorizedWithCapture PARAMS: ')), true);
+            }
+        }
+        $this->assertIsArray($params, 'the PARAMS record is parseable JSON');
+        $this->assertSame(Api::REDACTED_PLACEHOLDER, $params['apiKey']);
     }
 
     /**
@@ -251,7 +267,10 @@ class ApiRedactionTest extends TestCase
             $logger->messages
         ));
 
-        // The wire trace made it to the log...
+        // The wire trace made it to the log, one record per line...
+        foreach ($logger->messages as $message) {
+            $this->assertStringNotContainsString("\n", (string) $message, 'multi-line log record: ' . $message);
+        }
         $this->assertStringContainsString('SOAP request XML', $haystack);
         $this->assertStringContainsString('SOAP response XML', $haystack);
         $this->assertStringContainsString('HTTP/1.1 500 Internal Server Error', $haystack);

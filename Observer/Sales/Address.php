@@ -83,6 +83,9 @@ class Address implements ObserverInterface
 
         if ($this->tclogger instanceof GatewayLogger) {
             $this->tclogger->setStore($storeId);
+            // Fires inside the lookup's before-event, so the lookup's context
+            // is normally already bound; this only binds when it is not.
+            $this->tclogger->continueOperation('verify_address');
         }
 
         if (!$this->config->isEnabled($storeId)) {
