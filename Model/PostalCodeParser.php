@@ -53,6 +53,27 @@ class PostalCodeParser
     }
 
     /**
+     * Parse and validate a Canadian postal code.
+     *
+     * Accepts any case, with or without the space (and stray surrounding
+     * whitespace), and returns the canonical uppercase "A1A 1A1" form. The
+     * letters D, F, I, O, Q and U never appear, and W and Z never lead — a
+     * code that breaks those rules is not a Canadian postal code.
+     *
+     * @param string|null $postcode
+     * @return string|null Canonical postal code, or null when invalid
+     */
+    public static function parseCanadian($postcode)
+    {
+        $compact = strtoupper((string) preg_replace('/\s+/', '', (string) $postcode));
+        if (!preg_match('/^[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\d[ABCEGHJ-NPRSTV-Z]\d$/', $compact)) {
+            return null;
+        }
+
+        return substr($compact, 0, 3) . ' ' . substr($compact, 3);
+    }
+
+    /**
      * Validate if a parsed ZIP code is valid for TaxCloud API
      *
      * @param array $parsedZip Array with 'Zip5' and 'Zip4' keys

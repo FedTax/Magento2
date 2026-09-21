@@ -237,6 +237,32 @@
         </field>
 
         <!--
+          Canadian tax. OFF BY DEFAULT: Canada is an add-on TaxCloud support
+          enables per account, so turning it on here alone is not enough.
+          V3 REST only — the SOAP API has no Canadian support.
+        -->
+        <field id="canada_tax_enabled" translate="label comment" type="select" sortOrder="115" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Calculate Canadian Tax</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <config_path>tax/taxcloud_settings/canada_tax_enabled</config_path>
+          <comment>Calculates GST, HST, PST and QST on orders shipped to Canada. Canadian tax must also be enabled on your TaxCloud account — contact TaxCloud support to turn it on, then use Check Canada Access to confirm.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+          </depends>
+        </field>
+
+        <field id="check_canada_access" translate="label" type="button" sortOrder="116" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Canada Access</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\CheckCanadaAccess</frontend_model>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+            <field id="canada_tax_enabled">1</field>
+          </depends>
+        </field>
+
+        <!--
           Exemption certificates. OFF BY DEFAULT, deliberately: a certificate is
           an unverified attestation, and offering one is inviting a shopper to
           stop paying tax. A merchant turns this on knowingly.

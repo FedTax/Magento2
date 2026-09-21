@@ -76,7 +76,7 @@ delivered.
 
 ## Address verification
 
-If [Verify Address](settings.md#verify-address) is enabled, the shipping address
+If [Verify Address](settings.md#verify-address) is enabled, a US shipping address
 is standardised by TaxCloud first — most usefully to get the ZIP+4 from a
 five-digit ZIP. A more precise address means a more precise rate, since
 jurisdiction boundaries do not follow five-digit ZIPs.
@@ -87,8 +87,9 @@ Turn it off if another extension already validates addresses.
 
 Not every order goes to TaxCloud:
 
-- **Destinations outside the US.** TaxCloud handles US sales tax; other orders
-  are left to Magento.
+- **Destinations outside the US.** Other orders are left to Magento, with one
+  exception: Canadian addresses, once [Canadian tax](canadian-tax.md) is turned
+  on.
 - **Invalid or unusable addresses.** An address that cannot produce a valid ZIP
   is not sent. It is recorded in [the log](logs.md).
 - **Products with tax class `None`.** Deliberately excluded — and, as

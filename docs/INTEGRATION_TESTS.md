@@ -293,6 +293,41 @@ exercises tax collection, EAV, and config through the real stack:
 
 ---
 
+## Mocking the v3 REST transport
+
+The v3 path has the same need and the same shape, with one difference: there is
+no client factory to rebind, because `RestClient` *is* the transport seam. So
+`installRestMock()` seeds a
+[`RecordingRestClient`](https://github.com/FedTax/Magento2/blob/main/Test/Integration/Doubles/RecordingRestClient.php)
+directly and evicts the REST-dependent singletons (the REST gateway and
+certificate gateway, the router, the `Tax` collector, the observers, the
+cancellation plugin, the Canada access checker and the diagnostics probe).
+
+```php
+protected function setUp(): void
+{
+    parent::setUp();
+    $this->installRestMock($this->restRespondersWith([
+        'POST /carts' => $this->flatRateCartResponder(0.13),
+    ]));
+    // The seeded store runs on SOAP: a REST mock records nothing until the
+    // store is switched over.
+    $this->setScopedConfig('tax/taxcloud_settings/api_type', 'rest');
+}
+```
+
+Responders are keyed `"<METHOD> <path-prefix>"` and matched **longest prefix
+first**, so `POST /orders/refunds` is not served by the `POST /orders` entry.
+`defaultRestResponders()` covers carts (zero tax), orders, refunds, order
+details and verify-address; `flatRateCartResponder()` taxes every line it is
+handed, the v3 counterpart of `flatRateLookupResponder()`. Auth is stubbed —
+`pingForScope()` answers `PingResult::OK` unless a test calls
+`setPingResult()` — so nothing needs credentials.
+
+Assert on the recorder: `callsTo('POST', '/carts')`, `callCount()`,
+`firstBody()`, or `firstLookupCart()` for the first cart of the first lookup.
+`resetCalls()` clears the log between phases of one test.
+
 ## The CI matrix
 
 The workflow currently runs four rows:

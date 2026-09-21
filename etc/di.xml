@@ -330,6 +330,11 @@
       <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
     </arguments>
   </type>
+  <type name="Taxcloud\Magento2\Observer\Adminhtml\CheckCanadaAccessOnSave">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
 
   <!--
     Diagnostics bundle. Sections run in the order listed: settings first (the

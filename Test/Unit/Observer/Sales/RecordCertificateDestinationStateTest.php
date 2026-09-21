@@ -143,10 +143,55 @@ class RecordCertificateDestinationStateTest extends TestCase
         $this->addToAssertionCount(1); // both `never` expectations above are the assertions
     }
 
+    /**
+     * Certificates cover US states only: an order to Canada is never matched
+     * against one — not even a certificate claiming the province code — and
+     * nothing is recorded or requested.
+     */
+    public function testACanadianOrderRecordsNoCertificate()
+    {
+        $canadian = $this->createMock(OrderAddress::class);
+        $canadian->method('getRegionCode')->willReturn('ON');
+        $canadian->method('getCountryId')->willReturn('CA');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getStoreId')->willReturn(3);
+        $order->method('getShippingAddress')->willReturn($canadian);
+        $order->method('getBillingAddress')->willReturn($canadian);
+
+        $customer = $this->createMock(CustomerInterface::class);
+        $customer->method('getId')->willReturn(42);
+
+        $quote = $this->createMock(Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+
+        $config = $this->createMock(TaxcloudConfig::class);
+        $config->method('isEnabled')->willReturn(true);
+
+        $resolver = $this->createMock(CertificateResolver::class);
+        $resolver->expects($this->never())->method('resolve');
+
+        $record = $this->createMock(OrderCertificateRecord::class);
+        $record->expects($this->never())->method('record');
+
+        $observer = new RecordCertificate(
+            $resolver,
+            $record,
+            $config,
+            $this->createMock(GatewayLogger::class),
+            new TaxAddressResolver()
+        );
+
+        $observer->execute($this->observerFor($order, $quote));
+
+        $this->addToAssertionCount(1); // both `never` expectations above are the assertions
+    }
+
     private function address(string $regionCode): OrderAddress
     {
         $address = $this->createMock(OrderAddress::class);
         $address->method('getRegionCode')->willReturn($regionCode);
+        $address->method('getCountryId')->willReturn('US');
 
         return $address;
     }

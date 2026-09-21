@@ -19,6 +19,9 @@ export class TaxConfigPage {
   readonly downloadDiagnosticsButton: Locator;
   readonly saveButton: Locator;
   readonly exemptionsEnabled: Locator;
+  readonly canadaTaxEnabled: Locator;
+  readonly checkCanadaAccessButton: Locator;
+  readonly checkCanadaAccessResult: Locator;
   readonly coRdfEnabled: Locator;
   readonly coRdfDeliveryMethods: Locator;
   readonly coRdfAmount: Locator;
@@ -35,6 +38,9 @@ export class TaxConfigPage {
     this.downloadDiagnosticsButton = page.locator('#taxcloud_download_diagnostics_btn');
     this.saveButton = page.locator('#save');
     this.exemptionsEnabled = page.locator('#tax_taxcloud_exemptions_enabled');
+    this.canadaTaxEnabled = page.locator('#tax_taxcloud_canada_tax_enabled');
+    this.checkCanadaAccessButton = page.locator('#taxcloud_check_canada_access_btn');
+    this.checkCanadaAccessResult = page.locator('#taxcloud_check_canada_access_result');
     this.coRdfEnabled = page.locator('#tax_taxcloud_colorado_co_rdf_enabled');
     this.coRdfDeliveryMethods = page.locator('#tax_taxcloud_colorado_co_rdf_delivery_methods');
     this.coRdfAmount = page.locator('#tax_taxcloud_colorado_co_rdf_amount');
@@ -66,9 +72,18 @@ export class TaxConfigPage {
   }
 
   async save(): Promise<void> {
+    // The admin binds its form handlers on load; clicking a Save button that is
+    // merely painted can land before anything listens for it, and the page then
+    // sits there with no message at all until the wait below times out.
+    await this.page.waitForLoadState('domcontentloaded');
+    await expect(this.saveButton).toBeEnabled({ timeout: 20_000 });
     await this.saveButton.click();
-    await expect(this.page.locator('.message-success').first())
-      .toContainText('You saved the configuration', { timeout: 40_000 });
+    // Match the save confirmation among ALL success messages, not the first
+    // one: a save can produce more than one (turning Canadian tax on also
+    // reports the account check), and which lands on top is not ours to fix.
+    await expect(
+      this.page.locator('.message-success', { hasText: 'You saved the configuration' }).first(),
+    ).toBeVisible({ timeout: 40_000 });
   }
 
   /**
@@ -98,6 +113,41 @@ export class TaxConfigPage {
    */
   async isExemptionsEnabled(): Promise<boolean> {
     return (await this.exemptionsEnabled.inputValue()) === '1';
+  }
+
+  /**
+   * Turn Canadian tax on or off for the default scope.
+   *
+   * The field only exists while V3 REST is the selected API type (Canada is a
+   * v3-only feature), so callers switch the transport first — or this throws
+   * rather than silently setting nothing.
+   */
+  async setCanadaTax(enabled: boolean): Promise<void> {
+    await expect(
+      this.canadaTaxEnabled,
+      'Calculate Canadian Tax is shown for V3 REST only — select that API type first',
+    ).toBeVisible({ timeout: 10_000 });
+    await this.canadaTaxEnabled.selectOption(enabled ? '1' : '0');
+  }
+
+  /** Whether Canadian tax is currently switched on in the form. */
+  async isCanadaTaxEnabled(): Promise<boolean> {
+    return (await this.canadaTaxEnabled.inputValue()) === '1';
+  }
+
+  /**
+   * Click Check Canada Access and wait for the inline result text.
+   *
+   * Unlike Test Connection, this one reads SAVED settings — the button posts
+   * only the scope — so call it after save().
+   */
+  async checkCanadaAccess(): Promise<string> {
+    await this.checkCanadaAccessButton.click();
+    await expect(this.checkCanadaAccessResult).toBeVisible({ timeout: 60_000 });
+    await expect(this.checkCanadaAccessResult).not.toContainText('Checking Canada access', {
+      timeout: 60_000,
+    });
+    return (await this.checkCanadaAccessResult.textContent()) ?? '';
   }
 
   /**

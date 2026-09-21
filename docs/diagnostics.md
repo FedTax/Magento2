@@ -66,7 +66,7 @@ anywhere else.
 | Installed extensions | Every extension on your store, with versions — other extensions are a common cause of tax problems |
 | Server details | Magento, PHP and extension versions, server settings, cron and indexer status, time zones |
 | Tax calculation check | Whether TaxCloud is the extension actually calculating tax on each store — see [Another extension is calculating tax](extension-conflicts.md) |
-| Connection test results | The outcome of the live test, if you left it on |
+| Connection test results | The outcome of the live test, if you left it on — including the [Canada access check](canadian-tax.md#checking-that-your-account-has-canada) for every store with Canadian tax turned on |
 | The TaxCloud log | Recent entries from the [TaxCloud log](logs.md), plus TaxCloud-related entries from Magento's own error logs |
 | The order | For the order button only: the order's totals, items and the TIC used for each, addresses, invoices, credit memos and shipments |
 

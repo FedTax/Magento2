@@ -129,6 +129,34 @@ surface when it lands.
 
 ---
 
+## Feature passes (setup/teardown projects)
+
+Several features are **off** in the seeded store, because that is how a real
+installation ships and what the default-state specs assert. Each one gets a
+Playwright *project* that switches it on, a project holding its specs, and a
+teardown project that switches it back:
+
+| Pass | Switches on | Specs |
+| ---- | ----------- | ----- |
+| `rest-setup` → `checkout-rest` → `rest-teardown` | V3 REST | the US checkout journeys, re-run over v3 |
+| `exemptions-on-*` | Exemption certificates | `specs/exemptions-on/` |
+| `colorado-on-*` | Colorado Retail Delivery Fee | `specs/colorado-on/` |
+| `canada-on-*` | Canadian tax (and V3 REST, which it requires) | `specs/canada-on/` |
+
+A teardown **project** runs even when the specs it guards fail, which an
+`afterEach` does not when a run is killed — and a feature left switched on
+fails a neighbouring spec for reasons invisible in its own code. The passes are
+chained (`dependencies`) so they never interleave, and each directory is listed
+in the `chromium` project's `testIgnore` so its specs do not also run against
+the seeded default.
+
+> **Canadian tax needs the account, not just the setting.** Canada is an add-on
+> TaxCloud enables per account. `canada-on.setup.ts` asserts it with the Check
+> Canada Access button before any journey runs, so an account without Canada
+> fails once, clearly, instead of as a golden-value mismatch at checkout. If
+> that is the failure you are looking at, ask TaxCloud support to enable
+> Canadian tax for the account in `TAXCLOUD_API_ID` / `TAXCLOUD_API_KEY`.
+
 ## Test data
 
 E2E reuses the **same programmatic seed** as integration
@@ -237,9 +265,15 @@ Test/E2E/
     auth.ts               # scaffold — logged-in customer/admin helpers (deferred)
     soap-mock.ts          # documents the deferred server-side SOAP strategy
   pages/
-    storefront/HomePage.ts
+    admin/                  # AdminLoginPage, TaxConfigPage, AdminOrderPage, …
+    storefront/             # HomePage, ProductPage, CheckoutPage
   specs/
-    smoke/storefront-loads.spec.ts   # the pipeline smoke test
+    smoke/                  # the pipeline smoke test
+    checkout/               # guest and signed-in journeys
+    admin/                  # admin-side journeys
+    <feature>-on.setup.ts   # feature passes, with their .teardown.ts
+    <feature>-on/           # the specs that pass guards
+    docs/                   # screenshot generators (make docs-screenshots)
 ```
 
 Page objects keep selectors out of specs: locators in the constructor,

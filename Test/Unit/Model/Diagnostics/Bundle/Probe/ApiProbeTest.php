@@ -11,6 +11,8 @@ namespace Taxcloud\Magento2\Test\Unit\Model\Diagnostics\Bundle\Probe;
 
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
+use Taxcloud\Magento2\Model\Canada\CanadaAccessChecker;
+use Taxcloud\Magento2\Model\Canada\CanadaAccessResult;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\Probe\ApiProbe;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\Probe\EndpointCheck;
@@ -54,12 +56,18 @@ class ApiProbeTest extends TestCase
      */
     private $soapGateway;
 
+    /**
+     * @var CanadaAccessChecker|\PHPUnit\Framework\MockObject\MockObject
+     */
+    private $canadaAccessChecker;
+
     protected function setUp(): void
     {
         $this->restClient = $this->createMock(RestClient::class);
         $this->authProvider = $this->createMock(AuthProvider::class);
         $this->endpointCheck = $this->createMock(EndpointCheck::class);
         $this->soapGateway = $this->createMock(SoapGateway::class);
+        $this->canadaAccessChecker = $this->createMock(CanadaAccessChecker::class);
     }
 
     private function probe(): ApiProbe
@@ -75,7 +83,8 @@ class ApiProbeTest extends TestCase
             $this->createMock(TokenCache::class),
             $this->soapGateway,
             $requestBuilder,
-            $this->endpointCheck
+            $this->endpointCheck,
+            $this->canadaAccessChecker
         );
     }
 
@@ -205,5 +214,69 @@ class ApiProbeTest extends TestCase
         $config = $result['configurations'][0];
         $this->assertSame('soap', $config['api_type']);
         $this->assertSame('credentials not configured', $config['calls']['lookup']['skipped']);
+    }
+
+    /**
+     * A store with Canadian tax on gets its own probe group and a
+     * canada_access call recorded in the common call shape, so a missing
+     * Canadian entitlement shows up in the bundle; stores without it are
+     * probed exactly as before, with no Canadian lookup.
+     */
+    public function testCanadaAccessIsProbedOnlyForStoresWithCanadianTaxOn()
+    {
+        $this->setConfig(
+            [
+                'tax/taxcloud_settings/enabled' => '1',
+                'tax/taxcloud_settings/api_type' => 'rest',
+                'tax/taxcloud_settings/rest_api_key' => 'v3-key',
+                'tax/taxcloud_settings/rest_connection_id' => 'conn-1',
+            ],
+            ['ca' => ['tax/taxcloud_settings/canada_tax_enabled' => '1']]
+        );
+        $this->endpointCheck->method('check')->willReturn($this->network(true, true));
+        $this->restClient->method('request')->willReturn(new RestResponse(200, '{"items":[]}'));
+        $this->canadaAccessChecker->expects($this->once())
+            ->method('check')
+            ->with(3)
+            ->willReturn(new CanadaAccessResult(
+                CanadaAccessResult::NOT_ENABLED,
+                'Contact TaxCloud support to enable it.',
+                null,
+                422,
+                120
+            ));
+
+        $result = $this->probe()->probe($this->stores());
+
+        $this->assertCount(2, $result['configurations'], 'Canada on splits the ca store into its own group');
+        [$us, $ca] = $result['configurations'];
+        $this->assertSame(['us_en', 'us_es'], $us['stores']);
+        $this->assertArrayNotHasKey('canada_access', $us['calls']);
+
+        $this->assertSame(['ca_en'], $ca['stores']);
+        $call = $ca['calls']['canada_access'];
+        $this->assertFalse($call['success']);
+        $this->assertSame('not_enabled', $call['outcome']);
+        $this->assertSame(422, $call['http_status']);
+        $this->assertSame(120, $call['duration_ms']);
+        $this->assertSame('Contact TaxCloud support to enable it.', $call['error_message']);
+        $this->assertStringEndsWith('/tax/connections/conn-1/carts', $call['url']);
+    }
+
+    public function testCanadaAccessIsSkippedWhenTheConnectionIsBlocked()
+    {
+        $this->setConfig([
+            'tax/taxcloud_settings/enabled' => '1',
+            'tax/taxcloud_settings/api_type' => 'rest',
+            'tax/taxcloud_settings/rest_api_key' => 'v3-key',
+            'tax/taxcloud_settings/rest_connection_id' => 'conn-1',
+            'tax/taxcloud_settings/canada_tax_enabled' => '1',
+        ]);
+        $this->endpointCheck->method('check')->willReturn($this->network(false, false));
+        $this->canadaAccessChecker->expects($this->never())->method('check');
+
+        $config = $this->probe()->probe([$this->stores()[1]])['configurations'][0];
+
+        $this->assertSame('DNS resolution failed', $config['calls']['canada_access']['skipped']);
     }
 }

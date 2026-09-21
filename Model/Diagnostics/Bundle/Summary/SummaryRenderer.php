@@ -42,6 +42,7 @@ class SummaryRenderer
         'enabled', 'api_type', 'logging', 'rest_connection_id', 'rest_api_key', 'api_id', 'api_key',
         'verify_address', 'fallback_to_magento', 'calculations_only', 'capture_trigger', 'default_tic',
         'shipping_tic', 'cache_lifetime', 'api_timeout', 'exemptions_enabled', 'co_rdf_enabled',
+        'canada_tax_enabled',
     ];
 
     /**

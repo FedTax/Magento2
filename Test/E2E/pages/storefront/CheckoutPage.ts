@@ -7,10 +7,15 @@ export interface GuestAddress {
   lastname: string;
   street: string;
   city: string;
-  /** State as shown in the region dropdown, e.g. 'Texas'. */
+  /** State or province as shown in the region dropdown, e.g. 'Texas', 'Ontario'. */
   region: string;
   postcode: string;
   telephone: string;
+  /**
+   * Country as shown in the country dropdown, e.g. 'Canada'. Omit for the
+   * store's default country (United States), which is what US specs rely on.
+   */
+  country?: string;
 }
 
 /**
@@ -166,6 +171,14 @@ export class CheckoutPage {
     await this.page.fill('input[name="lastname"]', a.lastname);
     await this.page.fill('input[name="street[0]"]', a.street);
     await this.page.fill('input[name="city"]', a.city);
+    // Country first: changing it reloads the region dropdown with that
+    // country's regions, which would discard a province selected before it.
+    if (a.country) {
+      await this.page.selectOption('select[name="country_id"]', { label: a.country });
+      await expect(
+        this.page.locator(`select[name="region_id"] option:text-is("${a.region}")`),
+      ).toHaveCount(1, { timeout: 20_000 });
+    }
     await this.page.selectOption('select[name="region_id"]', { label: a.region });
     await this.page.fill('input[name="postcode"]', a.postcode);
     await this.page.fill('input[name="telephone"]', a.telephone);

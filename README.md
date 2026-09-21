@@ -154,7 +154,7 @@ The same bundle comes from **Download Diagnostics** in the TaxCloud settings gro
 | `modules.json` | Every module with composer version, `setup_version` and enabled state |
 | `environment.json` | Magento/PHP/extension versions, PHP ini limits, deploy mode, cache and session backend names, cron health, indexer states, time zones |
 | `collector-diagnostics.json` | `TaxCollectorDiagnostics` verdict per store |
-| `probe.json` | Live Lookup + VerifyAddress per distinct configuration, with DNS and TLS measured separately from the API result |
+| `probe.json` | Live Lookup + VerifyAddress per distinct configuration, with DNS and TLS measured separately from the API result; plus the Canada access check (`canada_access`) for configurations with Canadian tax on |
 | `order.json` | Per-order only: totals, items with TIC and TIC source, addresses, TaxCloud order columns, RDF state, invoices/credit memos/shipments |
 | `logs/` | `taxcloud.log` (and rotations) within the window, or the order's correlated records; TaxCloud-related records of `system.log` and `exception.log` |
 

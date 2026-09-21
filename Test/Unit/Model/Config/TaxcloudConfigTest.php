@@ -533,4 +533,57 @@ class TaxcloudConfigTest extends TestCase
             'the encryptor argument must be the framework EncryptorInterface'
         );
     }
+
+    /**
+     * Canadian tax takes effect only where the merchant turned it on AND the
+     * store is on V3 REST, resolved against the given store: the store view
+     * enables it on REST, the default scope does not, and a second store view
+     * that inherits "on" but overrides the API type to SOAP stays off.
+     */
+    public function testCanadaTaxIsResolvedPerStoreAndRequiresRest()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            [TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, ScopeInterface::SCOPE_STORE, null, '0'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, null, 'rest'],
+            [TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, ScopeInterface::SCOPE_STORE, 7, '1'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 7, 'rest'],
+            [TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, ScopeInterface::SCOPE_STORE, 8, '1'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 8, 'soap'],
+        ]);
+        $config = new TaxcloudConfig($scopeConfig);
+
+        $this->assertFalse($config->isCanadaTaxEnabled(), 'off at default scope');
+        $this->assertTrue($config->isCanadaTaxEnabled(7), 'on for the REST store view');
+        $this->assertFalse($config->isCanadaTaxEnabled(8), 'a SOAP store view never taxes Canada');
+    }
+
+    public function testCanadaTaxIsOffWhenUnset()
+    {
+        $this->assertFalse($this->config([])->isCanadaTaxEnabled());
+    }
+
+    /**
+     * Off by default in config.xml, and the admin field is bound to the path
+     * the reader queries, at every scope, shown only for REST.
+     */
+    public function testCanadaTaxDefaultAndAdminFieldWiring()
+    {
+        $configXml = simplexml_load_file(__DIR__ . '/../../../../etc/config.xml');
+        $this->assertNotFalse($configXml, 'etc/config.xml must be parseable');
+        $default = $configXml->xpath('//default/tax/taxcloud_settings/canada_tax_enabled');
+        $this->assertCount(1, $default);
+        $this->assertSame('0', trim((string) $default[0]), 'Canadian tax must be off by default');
+
+        $systemXml = simplexml_load_file(__DIR__ . '/../../../../etc/adminhtml/system.xml');
+        $this->assertNotFalse($systemXml, 'etc/adminhtml/system.xml must be parseable');
+        $field = $systemXml->xpath('//section[@id="tax"]/group[@id="taxcloud"]/field[@id="canada_tax_enabled"]');
+        $this->assertCount(1, $field);
+        $this->assertSame(TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, (string) $field[0]->config_path);
+        foreach (['showInDefault', 'showInWebsite', 'showInStore'] as $scope) {
+            $this->assertSame('1', (string) $field[0][$scope], $scope . ' must be enabled');
+        }
+        $this->assertSame('rest', (string) $field[0]->depends->field[1], 'shown only for V3 REST');
+        $this->assertStringContainsString('TaxCloud support', (string) $field[0]->comment);
+    }
 }

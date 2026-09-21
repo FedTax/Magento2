@@ -45,7 +45,7 @@ and many states tax based on it.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| Country | Select | United States | TaxCloud handles US sales tax only |
+| Country | Select | United States | Must be in the United States |
 | Region/State | Select | — | Required |
 | ZIP | Text | — | **Enter the full ZIP+4** (e.g. `60005-3924`) |
 | City | Text | — | Required |
@@ -86,6 +86,8 @@ marked *conditional* only appear once a related setting is turned on.
 | [Fallback to Magento Tax Rates](#fallback-to-magento-tax-rates) | Select | `Disable` | Enable, Disable |
 | [Only do tax calculations…](#only-do-tax-calculations-without-further-taxcloud-integration) | Select | `Disable` | Enable, Disable |
 | [Capture in TaxCloud](#capture-in-taxcloud) | Select | `On order creation` | On order creation, On payment, On shipment (conditional) |
+| [Calculate Canadian Tax](#calculate-canadian-tax) | Select | `No` | Yes, No (conditional) |
+| [Check Canada Access](#check-canada-access) | Button | — | — (conditional) |
 | [Enable Exemption Certificates](#enable-exemption-certificates) | Select | `No` | Yes, No |
 | [Company Name](#company-name) | Text | — | Your business name (conditional) |
 | [Collect Retail Delivery Fee](#colorado-retail-delivery-fee) | Select | `Disable` | Enable, Disable (Colorado Retail Delivery Fee group) |
@@ -117,8 +119,8 @@ others on your existing setup while you test.
 Writes what the extension does to `var/log/taxcloud.log`.
 
 - **Enable - Basic** — what happened and why: which API calls were made, which
-  were served from cache, orders skipped because the address is not in the US
-  or the ZIP is invalid, and every warning and error. Low volume; safe to leave
+  were served from cache, orders skipped because of the destination country or
+  an invalid ZIP or postal code, and every warning and error. Low volume; safe to leave
   on permanently. This is what installs upgraded from older versions land on.
 - **Enable - Advanced** — everything Basic records, plus the full request and
   response for each call, the raw message sent over the wire, and per-call
@@ -151,6 +153,9 @@ tax rate.
 Set it to `Disable` if you already run an address validation extension. Two
 services correcting the same address is redundant and adds a call to every
 checkout.
+
+Only US addresses are verified. A [Canadian](canadian-tax.md) address is used as
+the customer entered it.
 
 ---
 
@@ -453,6 +458,37 @@ such as purchase orders, checks or bank transfer.
 
 ---
 
+### Calculate Canadian Tax
+
+**Type:** Select · **Default:** `No` · **Values:** `Yes`, `No` · **Shown when:**
+API Type is `V3 REST`
+
+Calculates GST, HST, PST and QST on orders shipped to Canada, and reports those
+orders to TaxCloud like US orders.
+
+Canada must also be enabled on your TaxCloud account — contact TaxCloud support
+to have it turned on. Setting this to `Yes` alone does not give you Canadian
+tax. When you save with this set to `Yes`, the extension checks your account and
+tells you whether Canada is enabled.
+
+Leaving it `No` keeps orders to Canada untaxed by TaxCloud. A store view on
+`V1 SOAP (legacy)` never calculates Canadian tax, whatever this is set to. See
+[Canadian tax](canadian-tax.md).
+
+---
+
+### Check Canada Access
+
+**Type:** Button · **Shown when:** Calculate Canadian Tax is `Yes`
+
+Asks TaxCloud to calculate tax on a sample sale to Toronto with the settings
+saved for this store view, and tells you whether your account has Canada
+enabled, does not have it, or could not be checked (for example because the
+credentials are wrong). Nothing is filed. See
+[Checking that your account has Canada](canadian-tax.md#checking-that-your-account-has-canada).
+
+---
+
 ### Enable Exemption Certificates
 
 **Type:** Select · **Default:** `No` · **Values:** `Yes`, `No`
@@ -629,6 +665,7 @@ the labels shown in the admin.
 | `tax/taxcloud_settings/fallback_to_magento` | `0` | `1` / `0` |
 | `tax/taxcloud_settings/calculations_only` | `0` | `1` / `0` |
 | `tax/taxcloud_settings/capture_trigger` | `order_creation` | `order_creation`, `payment`, `shipment` |
+| `tax/taxcloud_settings/canada_tax_enabled` | `0` | `1` = Yes, `0` = No |
 | `tax/taxcloud_settings/exemptions_enabled` | `0` | `1` = Yes, `0` = No |
 | `tax/taxcloud_settings/company_name` | — | Text |
 | `tax/taxcloud_settings/co_rdf_enabled` | `0` | `1` / `0` |
