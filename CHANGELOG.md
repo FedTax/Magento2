@@ -67,6 +67,14 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Fixed
 
+- **A repeat capture over V1 SOAP is recognized as the duplicate it is.** Only
+  one of TaxCloud's two refusals ("already been marked as authorized") counted
+  as benign; the other ("already been captured") was reported as a failed
+  capture. The order was then never flagged as captured, so a later
+  cancellation skipped its reversal — and the error surfaced in the log for a
+  sale TaxCloud already held. Both wordings now count, as they already did on
+  V3 REST.
+
 - V1 SOAP log records were multi-line (`print_r` dumps, raw headers and XML),
   so the correlation labels sat on each record's last line where a search for
   the order number missed them. SOAP parameters and responses are now logged as

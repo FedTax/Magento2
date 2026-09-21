@@ -59,12 +59,22 @@ export async function loginAsCustomer(
 async function attemptLogin(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/customer/account/login/');
 
-  // Scoped to the login FORM, not the page. Luma also renders a hidden
-  // "authentication popup" carrying an #email/#password/#send2 of its own, so
-  // page-wide locators match two elements and Playwright refuses to guess.
-  // It only stays hidden on a fresh session, which is why an unscoped selector
-  // works right up until a spec visits another page first.
-  const form = page.locator('#login-form');
+  // Scoped to the login BLOCK, not to #login-form, and not to the page.
+  //
+  // Luma's authentication popup carries its own #email/#password/#send2 — and
+  // its own id="login-form", so duplicate ids defeat both a page-wide selector
+  // and a #login-form-scoped one. Worse, that markup is a Knockout template:
+  // the server sends one #send2 and a second appears once KO hydrates the
+  // popup. So whether a click is ambiguous depends on whether hydration won
+  // the race, which is why this passed for months and then failed on the
+  // slower (enterprise) runners.
+  //
+  // .login-container is server-rendered, appears once, and never contains the
+  // popup — so this cannot become ambiguous however the page hydrates.
+  const form = page.locator('.login-container form#login-form');
+  await expect(form, 'the customer login form should be on this page').toBeVisible({
+    timeout: 40_000,
+  });
 
   await form.locator('#email').fill(email);
   await form.locator('#password').fill(password);

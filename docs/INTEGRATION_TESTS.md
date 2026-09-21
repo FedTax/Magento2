@@ -328,6 +328,20 @@ Assert on the recorder: `callsTo('POST', '/carts')`, `callCount()`,
 `firstBody()`, or `firstLookupCart()` for the first cart of the first lookup.
 `resetCalls()` clears the log between phases of one test.
 
+## Tests must not inherit each other's configuration
+
+`setCaptureTrigger()` and `setScopedConfig()` snapshot what they change and
+`tearDown()` puts it back, so a class cannot leave a setting behind for the
+next one. State what your test needs in `setUp()` — the seeded store captures
+**on payment**, so a test asserting a capture at order placement has to set
+`CaptureTrigger::ORDER_CREATION` itself.
+
+This is not hypothetical: four classes silently depended on another class
+having left the trigger at order-creation, and adding one new test class —
+which changed the order — turned that into ten failures whose own code looked
+correct. PHPUnit's result cache reorders defect-first locally, so the same
+suite can fail on one machine and pass in CI purely on ordering.
+
 ## The CI matrix
 
 The workflow currently runs four rows:

@@ -42,7 +42,12 @@ export class CheckoutPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.email = page.locator('#customer-email');
+    // Scoped to the checkout's own fieldset: Luma's authentication popup
+    // renders a second #customer-email (and #send2, and #pass) from a Knockout
+    // template, so a page-wide id matches twice as soon as that template
+    // hydrates — which is a race, not a constant, and shows up as an
+    // occasional "strict mode violation" on a loaded runner.
+    this.email = page.locator('#customer-email-fieldset #customer-email');
     this.placeOrderButton = page
       .locator('button.action.checkout.primary, button.action.primary.checkout')
       .first();
@@ -167,21 +172,28 @@ export class CheckoutPage {
 
   async fillGuestShipping(a: GuestAddress): Promise<void> {
     await this.email.fill(a.email);
-    await this.page.fill('input[name="firstname"]', a.firstname);
-    await this.page.fill('input[name="lastname"]', a.lastname);
-    await this.page.fill('input[name="street[0]"]', a.street);
-    await this.page.fill('input[name="city"]', a.city);
+
+    // Scoped to the guest shipping form for the same reason the email field is:
+    // a signed-in checkout also carries an address MODAL with identically named
+    // inputs, and an unscoped fill is ambiguous the moment that markup exists.
+    const form = this.page.locator('#co-shipping-form');
+    await form.waitFor({ timeout: 40_000 });
+
+    await form.locator('input[name="firstname"]').fill(a.firstname);
+    await form.locator('input[name="lastname"]').fill(a.lastname);
+    await form.locator('input[name="street[0]"]').fill(a.street);
+    await form.locator('input[name="city"]').fill(a.city);
     // Country first: changing it reloads the region dropdown with that
     // country's regions, which would discard a province selected before it.
     if (a.country) {
-      await this.page.selectOption('select[name="country_id"]', { label: a.country });
+      await form.locator('select[name="country_id"]').selectOption({ label: a.country });
       await expect(
-        this.page.locator(`select[name="region_id"] option:text-is("${a.region}")`),
+        form.locator(`select[name="region_id"] option:text-is("${a.region}")`),
       ).toHaveCount(1, { timeout: 20_000 });
     }
-    await this.page.selectOption('select[name="region_id"]', { label: a.region });
-    await this.page.fill('input[name="postcode"]', a.postcode);
-    await this.page.fill('input[name="telephone"]', a.telephone);
+    await form.locator('select[name="region_id"]').selectOption({ label: a.region });
+    await form.locator('input[name="postcode"]').fill(a.postcode);
+    await form.locator('input[name="telephone"]').fill(a.telephone);
   }
 
   /**

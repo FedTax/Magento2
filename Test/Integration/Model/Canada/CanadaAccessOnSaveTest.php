@@ -53,6 +53,12 @@ class CanadaAccessOnSaveTest extends IntegrationTestCase
     /** Ontario HST, as TaxCloud would answer for the sample sale. */
     private const SAMPLE_RATE = 0.13;
 
+    /**
+     * Magento's adminhtml-pinned config structure (a di.xml virtual type), the
+     * one the admin itself saves against.
+     */
+    private const ADMINHTML_CONFIG_STRUCTURE = 'adminhtmlConfigStructure';
+
     private RecordingMessageManager $messages;
 
     protected function setUp(): void
@@ -192,11 +198,14 @@ class CanadaAccessOnSaveTest extends IntegrationTestCase
      * admin config model — the path the Save Config button takes, so the event
      * and its changed paths are Magento's, not this test's.
      *
-     * The save runs in the adminhtml CONFIG scope, because that is where
-     * `system.xml` is read from. In the frontend scope these tests otherwise run
-     * in, the structure knows no fields, so every value lands under the group
-     * path (`tax/taxcloud/<field>`) instead of its `config_path` — which writes
-     * rows nothing reads and reports changed paths the observer cannot match.
+     * The model is built with Magento's own adminhtml-pinned config structure
+     * (`adminhtmlConfigStructure`), because `system.xml` is only read for the
+     * adminhtml scope. Built against the ambient structure, these tests run in
+     * the frontend scope, where the structure knows no fields: every value then
+     * saves under the group path (`tax/taxcloud/<field>`) instead of its
+     * `config_path`, the changed paths reported are ones no observer matches,
+     * and the save quietly does nothing at all. Pinning the structure is what
+     * makes this independent of whatever scope the run happens to be in.
      *
      * @param array<string, string> $fields field id => value
      */
@@ -207,50 +216,57 @@ class CanadaAccessOnSaveTest extends IntegrationTestCase
             $fieldData[$id] = ['value' => $value];
         }
 
-        $this->inAdminConfigScope(function () use ($fieldData): void {
-            /** @var AdminConfig $config */
-            $config = $this->objectManager()->create(AdminConfig::class);
-            $config->setSection('tax');
-            $config->setWebsite(null);
-            $config->setStore(null);
-            $config->setGroups(['taxcloud' => ['fields' => $fieldData]]);
+        /** @var AdminConfig $config */
+        $config = $this->objectManager()->create(AdminConfig::class, [
+            'configStructure' => $this->get(self::ADMINHTML_CONFIG_STRUCTURE),
+        ]);
+        $config->setSection('tax');
+        $config->setWebsite(null);
+        $config->setStore(null);
+        $config->setGroups(['taxcloud' => ['fields' => $fieldData]]);
+
+        $this->inAdminEventScope(static function () use ($config): void {
             $config->save();
         });
 
         $this->get(\Magento\Framework\App\Config\ReinitableConfigInterface::class)->reinit();
+
+        // The save is this test's premise, not its subject: if Magento wrote
+        // nothing, every assertion after it would report a missing observer
+        // rather than a save that never happened.
+        foreach ($fields as $id => $value) {
+            $this->assertSame(
+                $value,
+                $this->get(ScopeConfigInterface::class)->getValue('tax/taxcloud_settings/' . $id),
+                'Magento did not persist ' . $id . ' — the admin config structure resolved no such '
+                . 'field, so nothing was saved and no changed path was reported.'
+            );
+        }
     }
 
     /**
-     * Run a callback with the adminhtml config scope current, restoring the
-     * previous scope afterwards.
+     * Run a callback with the adminhtml CONFIG SCOPE current.
      *
-     * The config structure is a shared instance built lazily from whichever
-     * scope was current when it was first resolved, so it is evicted on the way
-     * in and on the way out — otherwise the structure this test builds (or an
-     * earlier frontend-scoped one) outlives it and misleads the next test.
+     * Magento resolves observers per scope, and this observer is declared in
+     * `etc/adminhtml/events.xml` — in the frontend scope these tests otherwise
+     * run in, `admin_system_config_changed_section_tax` has no observers at
+     * all, so the save would dispatch into nothing and the check would look
+     * like it had silently declined to run.
+     *
+     * The area code is deliberately left alone: only the config scope decides
+     * which events.xml files are merged.
      */
-    private function inAdminConfigScope(callable $callback): void
+    private function inAdminEventScope(callable $callback): void
     {
         $scope = $this->get(\Magento\Framework\Config\ScopeInterface::class);
         $previous = $scope->getCurrentScope();
 
-        $this->resetConfigStructure();
         $scope->setCurrentScope(Area::AREA_ADMINHTML);
         try {
             $callback();
         } finally {
             $scope->setCurrentScope($previous);
-            $this->resetConfigStructure();
         }
-    }
-
-    private function resetConfigStructure(): void
-    {
-        $this->mutateSharedInstances([
-            \Magento\Config\Model\Config\Structure::class,
-            \Magento\Config\Model\Config\Structure\Data::class,
-            \Magento\Config\Model\Config\Structure\Reader::class,
-        ]);
     }
 
     private function assertMessage(string $type, string $contains, string $because): void

@@ -2381,21 +2381,56 @@ class ApiTest extends TestCase
     }
 
     /**
-     * C2.2: TaxCloud's "already authorized" duplicate-message must be treated as success.
+     * C2.2: TaxCloud's duplicate-capture messages must be treated as success.
+     *
+     * TaxCloud has more than one wording for "I already have this order", and
+     * which one comes back depends on how far the first attempt got. Reading
+     * only one of them turns a duplicate into a reported failure, which leaves
+     * the order unflagged as captured — and a later cancellation then skips its
+     * reversal because the order looks as if it was never filed. Observed live:
+     * "already been captured" failed e2e journeys this way.
+     *
+     * @dataProvider duplicateCaptureMessageProvider
      */
-    public function testAuthorizeCaptureTreatsDuplicateAsSuccess()
+    #[DataProvider('duplicateCaptureMessageProvider')]
+    public function testAuthorizeCaptureTreatsDuplicateAsSuccess(string $message)
     {
         $this->configureAuthorizeCaptureScopeConfig();
         $order = $this->buildOrderForAuthorizeCapture();
         $this->setUpPassThroughDataObject();
 
-        $response = $this->buildAuthorizedWithCaptureResponse(
-            'Error',
-            'This transaction has already been marked as authorized'
-        );
+        $response = $this->buildAuthorizedWithCaptureResponse('Error', $message);
         $this->mockSoapClient->method('authorizedWithCapture')->willReturn($response);
 
         $this->assertTrue($this->api->authorizeCapture($order));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function duplicateCaptureMessageProvider(): array
+    {
+        return [
+            'already authorized' => ['This transaction has already been marked as authorized'],
+            'already captured' => ['This transaction has already been captured (OrderID : 100000042)'],
+        ];
+    }
+
+    /**
+     * And the tolerance stops at duplicates: any other refusal is still a
+     * failure, because a missed capture can be retried while a double-filed
+     * order cannot be silently undone.
+     */
+    public function testAuthorizeCaptureStillFailsOnAnyOtherRefusal()
+    {
+        $this->configureAuthorizeCaptureScopeConfig();
+        $order = $this->buildOrderForAuthorizeCapture();
+        $this->setUpPassThroughDataObject();
+
+        $response = $this->buildAuthorizedWithCaptureResponse('Error', 'Invalid cart ID supplied');
+        $this->mockSoapClient->method('authorizedWithCapture')->willReturn($response);
+
+        $this->assertFalse($this->api->authorizeCapture($order));
     }
 
     /** C2.3: non-OK non-duplicate response — returns false. */

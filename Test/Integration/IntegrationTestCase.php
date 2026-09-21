@@ -550,10 +550,16 @@ abstract class IntegrationTestCase extends TestCase
     /**
      * Set when TaxCloud capture happens: CaptureTrigger::ORDER_CREATION,
      * ::PAYMENT or ::SHIPMENT.
+     *
+     * Snapshotted, so tearDown puts the seeded trigger back. It used to write
+     * the value outright, which leaked: a class that left the trigger on
+     * PAYMENT made every later test that captures at placement see no capture
+     * at all — ten unrelated failures whose own code looked blameless, and only
+     * in whatever order the run happened to take.
      */
     protected function setCaptureTrigger(string $value): void
     {
-        $this->writeConfig('tax/taxcloud_settings/capture_trigger', $value);
+        $this->setScopedConfig('tax/taxcloud_settings/capture_trigger', $value);
     }
 
     /**

@@ -29,6 +29,7 @@ use Taxcloud\Magento2\Model\Diagnostics\Bundle\BundleRequest;
 use Taxcloud\Magento2\Model\Diagnostics\TaxCollectorDiagnostics;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
+use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 /**
  * The diagnostics bundle against a real install: real DI wiring for every
@@ -43,6 +44,11 @@ class DiagnosticsBundleTest extends IntegrationTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // State the trigger this class depends on rather than inheriting
+        // whatever ran before it: the seeded store captures on payment, and
+        // the per-order bundle is built from capture log lines, which only exist once the order is captured.
+        $this->setCaptureTrigger(CaptureTrigger::ORDER_CREATION);
         $this->installSoapMock();
         $this->setScopedConfig(TaxcloudConfig::XML_PATH_LOGGING, (string) TaxcloudConfig::LOGGING_BASIC);
         $this->get(TypeListInterface::class)->cleanType('config');

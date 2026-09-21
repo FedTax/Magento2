@@ -18,6 +18,8 @@ export class TaxConfigPage {
   readonly testConnectionResult: Locator;
   readonly downloadDiagnosticsButton: Locator;
   readonly saveButton: Locator;
+  /** The TaxCloud Settings group header — present whatever the role may do. */
+  readonly groupHead: Locator;
   readonly exemptionsEnabled: Locator;
   readonly canadaTaxEnabled: Locator;
   readonly checkCanadaAccessButton: Locator;
@@ -37,6 +39,7 @@ export class TaxConfigPage {
     this.testConnectionResult = page.locator('#taxcloud_test_connection_result');
     this.downloadDiagnosticsButton = page.locator('#taxcloud_download_diagnostics_btn');
     this.saveButton = page.locator('#save');
+    this.groupHead = page.locator('#tax_taxcloud-head');
     this.exemptionsEnabled = page.locator('#tax_taxcloud_exemptions_enabled');
     this.canadaTaxEnabled = page.locator('#tax_taxcloud_canada_tax_enabled');
     this.checkCanadaAccessButton = page.locator('#taxcloud_check_canada_access_btn');
@@ -51,13 +54,20 @@ export class TaxConfigPage {
    */
   async open(scopePath = ''): Promise<void> {
     await this.page.goto('/admin/admin/system_config/edit/section/tax/' + scopePath);
-    await this.saveButton.waitFor({ timeout: 40_000 });
+
+    // Wait for the TaxCloud GROUP, not for #save. An admin role without the
+    // permission to save still sees the section — that is exactly what the
+    // restricted-role spec asserts — and waiting for a Save button it will
+    // never be given fails 40s later pointing at the wrong thing. Callers that
+    // save are served by save(), which waits for the button itself.
+    await this.groupHead.waitFor({ timeout: 40_000 });
+
     // The TaxCloud Settings group persists its open/closed state per session;
     // expand it if the fields aren't already interactable. The API Type select
     // is the sentinel: unlike the credential fields, it is visible whichever
     // API type is currently saved.
     if (!(await this.apiType.isVisible().catch(() => false))) {
-      await this.page.locator('#tax_taxcloud-head').click();
+      await this.groupHead.click();
       await expect(this.apiType).toBeVisible({ timeout: 10_000 });
     }
   }

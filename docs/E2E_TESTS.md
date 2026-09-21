@@ -157,6 +157,38 @@ the seeded default.
 > that is the failure you are looking at, ask TaxCloud support to enable
 > Canadian tax for the account in `TAXCLOUD_API_ID` / `TAXCLOUD_API_KEY`.
 
+## Writing specs that do not flake
+
+Most "flaky" failures here have had a specific, findable cause. Three patterns
+account for nearly all of them, and each has a rule:
+
+**Duplicate ids behind Knockout templates.** Luma renders an authentication
+popup carrying a second `#customer-email`, `#pass` and `#send2`, and its form
+also has `id="login-form"`. The server sends one of each; the duplicate appears
+only once KO hydrates the popup. A page-wide id therefore resolves one element
+or two *depending on timing*, and Playwright refuses to guess — "strict mode
+violation", on the slower runner, in a spec that changed months ago. Scope
+every storefront locator to a container the popup is not in:
+`.login-container form#login-form`, `#customer-email-fieldset`,
+`#co-shipping-form`.
+
+**Overlays that swallow clicks.** The admin puts masks and modal backdrops
+(`.loading-mask`, `.admin__data-grid-loading-mask`, `.modals-overlay`,
+`.vex-overlay`) in front of the page while it works. A click scheduled under one
+is intercepted and retried until the action times out, reported as a button that
+would not respond. Call `waitForOverlaysToClear(page)` from
+`pages/admin/overlays.ts` before clicking in the admin.
+
+**Waiting on a clock instead of on the page.** `waitForTimeout` is either
+wasted time or, on a loaded runner, too short. Wait for the thing itself — the
+searched grid row, the success message, the totals block. The exceptions are
+waits on TaxCloud's own asynchronous processing, which no page state reflects;
+those are commented where they appear.
+
+Also: if a spec needs a store setting, set it. Do not rely on what another
+spec left behind — a feature pass switches things on and its teardown switches
+them back, so anything inherited is a coincidence of ordering.
+
 ## Test data
 
 E2E reuses the **same programmatic seed** as integration
