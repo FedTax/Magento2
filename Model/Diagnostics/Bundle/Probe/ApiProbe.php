@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Model\Diagnostics\Bundle\Probe;
 
 use Magento\Store\Api\Data\StoreInterface;
+use Taxcloud\Magento2\Model\Canada\CanadaAccessChecker;
 use Taxcloud\Magento2\Model\Config\Source\ApiType;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
@@ -104,6 +105,11 @@ class ApiProbe
     private $endpointCheck;
 
     /**
+     * @var CanadaAccessChecker
+     */
+    private $canadaAccessChecker;
+
+    /**
      * @param TaxcloudConfig $config
      * @param RestClient     $restClient
      * @param AuthProvider   $authProvider
@@ -111,6 +117,7 @@ class ApiProbe
      * @param SoapGateway    $soapGateway
      * @param RequestBuilder $requestBuilder
      * @param EndpointCheck  $endpointCheck
+     * @param CanadaAccessChecker $canadaAccessChecker
      */
     public function __construct(
         TaxcloudConfig $config,
@@ -119,7 +126,8 @@ class ApiProbe
         TokenCache $tokenCache,
         SoapGateway $soapGateway,
         RequestBuilder $requestBuilder,
-        EndpointCheck $endpointCheck
+        EndpointCheck $endpointCheck,
+        CanadaAccessChecker $canadaAccessChecker
     ) {
         $this->config = $config;
         $this->restClient = $restClient;
@@ -128,6 +136,7 @@ class ApiProbe
         $this->soapGateway = $soapGateway;
         $this->requestBuilder = $requestBuilder;
         $this->endpointCheck = $endpointCheck;
+        $this->canadaAccessChecker = $canadaAccessChecker;
     }
 
     /**
@@ -172,7 +181,8 @@ class ApiProbe
 
         return [
             'test_address' => self::TEST_ADDRESS,
-            'note' => 'Read-only: a canned Lookup and an address verification. Nothing is captured or filed.',
+            'note' => 'Read-only: a canned Lookup and an address verification (plus a sample Canadian Lookup'
+                . ' for stores with Canadian tax on). Nothing is captured or filed.',
             'skipped_stores_taxcloud_disabled' => $skipped,
             'configurations' => $results,
         ];
@@ -241,7 +251,45 @@ class ApiProbe
                 return $this->restClient->request('POST', '/tax/verify-address', $address, $storeId, false);
             });
 
+        // Canadian tax needs Canada enabled on the account, which only a
+        // Canadian lookup reveals — worth the call only where it is turned on.
+        if ($this->config->isCanadaTaxEnabled($storeId)) {
+            $result['calls']['canada_access'] = $blocked !== null
+                ? $this->skipped($endpoint . '/tax/connections/' . $connectionId . '/carts', $blocked)
+                : $this->canadaAccessCall(
+                    $endpoint . '/tax/connections/' . rawurlencode($connectionId) . '/carts',
+                    $storeId
+                );
+        }
+
         return $result;
+    }
+
+    /**
+     * Run the Canada access check and record it in the probe's call shape.
+     *
+     * @param string $url
+     * @param int $storeId
+     * @return array
+     */
+    private function canadaAccessCall(string $url, int $storeId): array
+    {
+        $check = $this->canadaAccessChecker->check($storeId);
+        $outcome = [
+            'url' => $url,
+            'http_status' => $check->getHttpStatus(),
+            'duration_ms' => $check->getDurationMs(),
+            'success' => $check->isEnabled(),
+            'outcome' => $check->getOutcome(),
+        ];
+        if ($check->isEnabled()) {
+            $outcome['sample_rate'] = $check->getRate();
+        } else {
+            $outcome['error_message'] = (string) $check->getMessage();
+            $outcome['error_code'] = null;
+        }
+
+        return $outcome;
     }
 
     /**
@@ -568,6 +616,7 @@ class ApiProbe
             (string) $this->config->getApiId($storeId),
             (string) $this->config->getApiKey($storeId),
             (string) $this->config->getSoapTimeout($storeId),
+            $this->config->isCanadaTaxEnabled($storeId) ? 'canada' : '',
         ]));
     }
 

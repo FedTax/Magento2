@@ -46,6 +46,13 @@ use Throwable;
 class RestGateway implements GatewayInterface
 {
     /**
+     * Appended to a failed Canadian lookup's log line: Canada is an account
+     * add-on, and an account without it is the likeliest cause.
+     */
+    private const CANADA_ACCESS_HINT = ' (Canadian destination: confirm Canadian tax is enabled on the TaxCloud'
+        . ' account — contact TaxCloud support to enable it, then run Check Canada Access)';
+
+    /**
      * @var GatewayLogger
      */
     private $tclogger;
@@ -197,16 +204,31 @@ class RestGateway implements GatewayInterface
             $this->tclogger->info('No address, returning 0');
             return $result;
         }
-        $parsedZip = PostalCodeParser::parse($address->getPostcode());
-        if (!PostalCodeParser::isValid($parsedZip)) {
-            $this->tclogger->warning('Invalid ZIP code format: ' . $address->getPostcode());
-            return $result;
-        }
-
-        if ($address->getCountryId() !== 'US') {
+        $countryId = $address->getCountryId();
+        $isCanada = $countryId === RequestBuilder::COUNTRY_CANADA;
+        $postalCode = '';
+        $parsedZip = [];
+        if ($isCanada) {
+            if (!$this->config->isCanadaTaxEnabled($storeId)) {
+                $this->tclogger->info('Canadian tax is not enabled for this store, returning 0');
+                return $result;
+            }
+            $postalCode = PostalCodeParser::parseCanadian($address->getPostcode());
+            if ($postalCode === null) {
+                $this->tclogger->warning('Invalid Canadian postal code format: ' . $address->getPostcode());
+                return $result;
+            }
+        } elseif ($countryId === RequestBuilder::COUNTRY_US) {
+            $parsedZip = PostalCodeParser::parse($address->getPostcode());
+            if (!PostalCodeParser::isValid($parsedZip)) {
+                $this->tclogger->warning('Invalid ZIP code format: ' . $address->getPostcode());
+                return $result;
+            }
+        } else {
             $this->tclogger->info('Not US, returning 0');
             return $result;
         }
+
         if ($address->getRegionId() == 0) {
             $this->tclogger->info('No region, returning 0');
             return $result;
@@ -216,7 +238,9 @@ class RestGateway implements GatewayInterface
             return $result;
         }
 
-        $destination = $this->requestBuilder->buildLookupDestination($address, $parsedZip);
+        $destination = $isCanada
+            ? $this->requestBuilder->buildCanadianDestination($address, $postalCode)
+            : $this->requestBuilder->buildLookupDestination($address, $parsedZip);
 
         $keyedAddressItems = [];
         /** @var \Magento\Quote\Model\Quote\Item\AbstractItem $item */
@@ -244,7 +268,9 @@ class RestGateway implements GatewayInterface
         // over in two lookup paths. `taxcloud_cert` is the explicitly attached
         // certificate — untrusted like any other inbound identifier, and
         // honoured only if it turns out to be this customer's.
-        $resolvedCertificate = $this->certificateResolver->resolve(
+        // Certificates cover US states only: a Canadian destination is never
+        // exempted, and resolving would only spend a lookup to learn that.
+        $resolvedCertificate = $isCanada ? null : $this->certificateResolver->resolve(
             $customer,
             $destination['State'],
             $storeId
@@ -297,7 +323,10 @@ class RestGateway implements GatewayInterface
         $this->logResponse('lookupTaxes', $response, $storeId);
 
         if (!$response->isSuccess()) {
-            $this->tclogger->error('Error encountered during lookupTaxes: ' . $response->errorDetail());
+            $this->tclogger->error(
+                'Error encountered during lookupTaxes: ' . $response->errorDetail()
+                . ($isCanada ? self::CANADA_ACCESS_HINT : '')
+            );
             return $this->lookupFallback($itemsByType, $shippingAssignment, $quote, $storeId, $result);
         }
 

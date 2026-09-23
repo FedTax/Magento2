@@ -84,7 +84,9 @@ TaxCloud`, with the reason on the line before it. Refunds end the same way:
 follow one step from start to finish, search for its `correlation_id`.
 
 **Why was there no tax?** Look around the time of the order for a skipped
-address, a non-US destination, an invalid ZIP, or a failed lookup.
+address, a destination outside the US (or a Canadian one while
+[Canadian tax](canadian-tax.md) is off for that store), an invalid ZIP or postal
+code, or a failed lookup.
 
 **Which address was this order taxed against?** Every reported order records
 whether it was sourced to its shipping or its billing address. A download-only

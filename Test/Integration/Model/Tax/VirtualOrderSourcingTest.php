@@ -20,6 +20,7 @@ use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestRequestBuilder;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
 use Taxcloud\Magento2\Test\Integration\SeededCatalogTrait;
+use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 /**
  * Where an ORDER is sourced to, once its cart has become one.
@@ -67,6 +68,11 @@ class VirtualOrderSourcingTest extends IntegrationTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // State the trigger this class depends on rather than inheriting
+        // whatever ran before it: the seeded store captures on payment, and
+        // the download-only cases assert that placing the order captures it.
+        $this->setCaptureTrigger(CaptureTrigger::ORDER_CREATION);
         $this->installSoapMock($this->soapResponsesWith([
             'lookup' => $this->flatRateLookupResponder(self::RATE),
             'verifyAddress' => $this->echoingVerifyAddressResponder(),

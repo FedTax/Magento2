@@ -329,6 +329,7 @@ class AddressTest extends TestCase
                 'city' => 'Duluth',
                 'state' => 'GA',
                 'zip' => '30097-4217',
+                'countryCode' => 'US',
                 'line2' => 'Apt 2',
             ],
             $obj->getParams()['items'][0]['destination']
@@ -391,5 +392,43 @@ class AddressTest extends TestCase
         $observer->execute($this->buildObserverArg($obj));
 
         $this->assertSame($params, $obj->getParams());
+    }
+
+    /**
+     * TaxCloud verifies US addresses only (a Canadian one is refused with
+     * "unsupported country code"), so a Canadian cart is left exactly as the
+     * lookup built it, with no verification call, while a US cart in the same
+     * payload is still verified.
+     */
+    public function testRestVerificationSkipsNonUsDestinations()
+    {
+        $canadian = [
+            'line1' => '100 Queen St W',
+            'city' => 'Toronto',
+            'state' => 'ON',
+            'zip' => 'M5H 2N2',
+            'countryCode' => 'CA',
+        ];
+        $us = self::V3_DESTINATION + ['countryCode' => 'US'];
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('verifyAddress')
+            ->with($this->callback(function (array $address) {
+                return $address['State'] === 'GA';
+            }))
+            ->willReturn(false);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $params = ['items' => [
+            ['cartId' => '77', 'destination' => $canadian, 'lineItems' => []],
+            ['cartId' => '78', 'destination' => $us, 'lineItems' => []],
+        ]];
+        $obj = new \Magento\Framework\DataObject(['params' => $params]);
+
+        $observer = new Address($this->buildConfig('1', '1'), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+
+        $this->assertSame($canadian, $obj->getParams()['items'][0]['destination']);
     }
 }

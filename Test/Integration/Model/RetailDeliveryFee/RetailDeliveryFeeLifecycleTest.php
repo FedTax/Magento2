@@ -26,6 +26,7 @@ use Magento\Sales\Model\Order\CreditmemoFactory;
 use Magento\Sales\Model\Service\CreditmemoService;
 use Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
+use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 /**
  * The Colorado Retail Delivery Fee through a real Magento order lifecycle:
@@ -44,6 +45,11 @@ class RetailDeliveryFeeLifecycleTest extends IntegrationTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // State the trigger this class depends on rather than inheriting
+        // whatever ran before it: the seeded store captures on payment, and
+        // the fee assertions read the capture the placed order fires.
+        $this->setCaptureTrigger(CaptureTrigger::ORDER_CREATION);
         $this->installSoapMock();
 
         $this->setScopedConfig('tax/taxcloud_settings/co_rdf_enabled', '1');

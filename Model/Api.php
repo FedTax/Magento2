@@ -516,8 +516,6 @@ class Api implements GatewayInterface
             return false;
         }
 
-        $dup = 'This transaction has already been marked as authorized';
-
         $params = $this->requestBuilder->buildAuthorizeCaptureParams($order, null, $completedAt);
 
         // Call before event
@@ -555,7 +553,7 @@ class Api implements GatewayInterface
 
         if ($authorizedResult['ResponseType'] != 'OK') {
             $respMsg = $authorizedResult['Messages']['ResponseMessage']['Message'];
-            if (trim(substr($respMsg, 0, strlen($dup))) === $dup) {
+            if ($this->isDuplicateCaptureMessage($respMsg)) {
                 // Duplicate means the the previous call was good. Therefore, consider this to be good
                 $this->tclogger->warning('Warning encountered during authorizeCapture: Duplicate transaction');
                 return true;
@@ -566,6 +564,33 @@ class Api implements GatewayInterface
         }
 
         return true;
+    }
+
+    /**
+     * Whether a failed capture means TaxCloud already has this order.
+     *
+     * TaxCloud refuses a repeat capture with more than one wording — the sale
+     * may already be "marked as authorized" or already "captured", and which
+     * one comes back depends on how far the first attempt got. Both mean the
+     * same thing: the order is filed, so the capture succeeded, and reporting
+     * failure instead leaves `taxcloud_captured` unset — which later makes a
+     * cancellation skip its reversal, because the order looks as if it was
+     * never captured.
+     *
+     * Deliberately tolerant on wording and strict on meaning, matching the v3
+     * gateway ({@see \Taxcloud\Magento2\Model\Gateway\Rest\RestGateway::isDuplicateOrder()}):
+     * an unrecognized failure stays a failure, because a missed capture can be
+     * retried while a double-filed order cannot be silently undone.
+     *
+     * @param string $message TaxCloud's response message
+     * @return bool
+     */
+    private function isDuplicateCaptureMessage($message)
+    {
+        return (bool) preg_match(
+            '/already been (marked as authorized|captured)|duplicate/i',
+            (string) $message
+        );
     }
 
     /**

@@ -173,10 +173,13 @@ class RestRequestBuilder
             $this->logger->error('Invalid origin address configuration - cannot build v3 order');
             return null;
         }
-        $destination = $this->requestBuilder->buildDestinationFromOrder($order);
+        $destination = $this->requestBuilder->buildDestinationFromOrder(
+            $order,
+            $this->config->isCanadaTaxEnabled($store)
+        );
         if ($destination === null) {
             $this->logger->error(
-                'No valid US shipping address on order ' . $order->getIncrementId() . ' - cannot build v3 order'
+                'No usable destination address on order ' . $order->getIncrementId() . ' - cannot build v3 order'
             );
             return null;
         }
@@ -397,15 +400,25 @@ class RestRequestBuilder
      *
      * line2 is omitted when empty rather than sent as '' — the v3 API treats
      * the field as optional. Zip4 folds into the zip as ZIP+4 when present.
+     * Every address states its country: without it v3 assumes US and rejects a
+     * Canadian postal code. A US address carries no Country key (the v1 shape
+     * the SOAP transport also sends); a Canadian one carries Country and
+     * PostalCode (see RequestBuilder::buildCanadianDestination()).
      *
-     * @param array $address v1 keys: Address1/Address2/City/State/Zip5/Zip4
-     * @return array v3 keys: line1/line2/city/state/zip
+     * @param array $address v1 keys: Address1/Address2/City/State/Zip5/Zip4, optionally Country/PostalCode
+     * @return array v3 keys: line1/line2/city/state/zip/countryCode
      */
     public function toV3Address(array $address)
     {
-        $zip = (string) ($address['Zip5'] ?? '');
-        if (!empty($address['Zip4'])) {
-            $zip .= '-' . $address['Zip4'];
+        $country = (string) ($address['Country'] ?? RequestBuilder::COUNTRY_US);
+
+        if ($country === RequestBuilder::COUNTRY_CANADA) {
+            $zip = (string) ($address['PostalCode'] ?? '');
+        } else {
+            $zip = (string) ($address['Zip5'] ?? '');
+            if (!empty($address['Zip4'])) {
+                $zip .= '-' . $address['Zip4'];
+            }
         }
 
         $v3 = [
@@ -413,6 +426,7 @@ class RestRequestBuilder
             'city' => (string) ($address['City'] ?? ''),
             'state' => (string) ($address['State'] ?? ''),
             'zip' => $zip,
+            'countryCode' => $country,
         ];
         if (!empty($address['Address2'])) {
             $v3['line2'] = (string) $address['Address2'];

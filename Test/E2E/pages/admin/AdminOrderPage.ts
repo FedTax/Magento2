@@ -1,4 +1,5 @@
 import { type Page, type Locator, expect } from '@playwright/test';
+import { waitForOverlaysToClear } from './overlays';
 
 /**
  * Admin Sales > Orders: open an order by its increment id and drive the
@@ -26,20 +27,26 @@ export class AdminOrderPage {
     await search.waitFor({ timeout: 30_000 });
     await search.fill(increment);
     await search.press('Enter');
-    await this.page.waitForTimeout(2500);
-    await this.page
-      .locator('.admin__data-grid-loading-mask')
-      .waitFor({ state: 'hidden', timeout: 20_000 })
-      .catch(() => {});
-    await this.page
-      .locator(`tr:has-text("${increment}") a:has-text("View")`)
-      .first()
-      .click({ timeout: 20_000 });
+
+    // Wait for the searched row itself, rather than sleeping and hoping the
+    // grid has reloaded: the grid re-renders asynchronously, and a fixed pause
+    // is either wasted time or — on a loaded runner — too short, in which case
+    // the click lands on the pre-search row set.
+    const viewLink = this.page.locator(`tr:has-text("${increment}") a:has-text("View")`).first();
+    await viewLink.waitFor({ timeout: 40_000 });
+
+    // And nothing may be covering it. An overlay steals the click, and
+    // Playwright then retries for 20s before reporting a timeout that names
+    // the button rather than the modal on top of it.
+    await waitForOverlaysToClear(this.page);
+
+    await viewLink.click({ timeout: 20_000 });
     await this.page.locator('#order_status').waitFor({ timeout: 30_000 });
   }
 
   /** Create + submit an offline invoice for the whole order. */
   async createInvoice(): Promise<void> {
+    await waitForOverlaysToClear(this.page);
     await this.page.locator('button:has-text("Invoice")').first().click();
     const submit = this.page.locator('button:has-text("Submit Invoice")').first();
     await submit.waitFor({ timeout: 30_000 });
@@ -52,6 +59,7 @@ export class AdminOrderPage {
   async refundOffline(): Promise<void> {
     const creditMemo = this.page.locator('button:has-text("Credit Memo")').first();
     await creditMemo.waitFor({ timeout: 30_000 });
+    await waitForOverlaysToClear(this.page);
     await creditMemo.click();
     const refund = this.page.locator('button:has-text("Refund Offline")').first();
     await refund.waitFor({ timeout: 30_000 });

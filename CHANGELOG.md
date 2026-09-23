@@ -6,6 +6,23 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Added
 
+- **Canadian tax (opt-in, V3 REST only).** A new **Calculate Canadian Tax**
+  setting (default `No`, store-scoped) prices orders shipped to Canada — GST,
+  HST, PST and QST — and files, refunds and cancels them in TaxCloud like US
+  orders. Canada must also be enabled on the TaxCloud account by TaxCloud
+  support. A **Check Canada Access** button runs a sample Canadian lookup and
+  reports whether the account has Canada, does not, or could not be checked;
+  the same check runs when the tax configuration is saved with the setting on,
+  and in the diagnostics bundle's live probe. Canadian postal codes are
+  validated and normalized, address verification is skipped for Canadian
+  addresses, and exemption certificates never apply to them. A failed Canadian
+  lookup logs a hint to confirm Canada access with TaxCloud support.
+- **Test coverage for Canadian tax.** Unit tests throughout, integration tests
+  driving a Canadian cart, order, refund and cancellation over a recorded v3
+  transport (new `installRestMock()` harness) plus the config-save access
+  check, and an e2e `canada-on` pass that checks out a guest to Toronto and
+  confirms account access from the admin.
+
 - **Diagnostics bundle.** A **Download Diagnostics** button in *Stores →
   Configuration → Sales → Tax → TaxCloud Settings* and a **TaxCloud
   Diagnostics** button on the admin order view create a single ZIP to attach to
@@ -42,7 +59,21 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
   that wrote it, so lines from concurrent requests can be told apart. `pid` is
   omitted on hosts that disable `getmypid()`.
 
+### Changed
+
+- **V3 addresses state their country.** Every origin and destination sent over
+  V3 REST (carts, orders, address verification) now carries `countryCode`
+  (`US` or `CA`). Cached V3 lookups miss once after upgrading and repopulate.
+
 ### Fixed
+
+- **A repeat capture over V1 SOAP is recognized as the duplicate it is.** Only
+  one of TaxCloud's two refusals ("already been marked as authorized") counted
+  as benign; the other ("already been captured") was reported as a failed
+  capture. The order was then never flagged as captured, so a later
+  cancellation skipped its reversal — and the error surfaced in the log for a
+  sale TaxCloud already held. Both wordings now count, as they already did on
+  V3 REST.
 
 - V1 SOAP log records were multi-line (`print_r` dumps, raw headers and XML),
   so the correlation labels sat on each record's last line where a search for

@@ -140,6 +140,11 @@ class TaxcloudConfig
     public const XML_PATH_CO_RDF_DELIVERY_METHODS = 'tax/taxcloud_settings/co_rdf_delivery_methods';
     public const XML_PATH_CO_RDF_AMOUNT = 'tax/taxcloud_settings/co_rdf_amount';
     public const XML_PATH_CO_RDF_TIC = 'tax/taxcloud_settings/co_rdf_tic';
+
+    /**
+     * Canadian tax calculation. Off by default; REST only.
+     */
+    public const XML_PATH_CANADA_TAX_ENABLED = 'tax/taxcloud_settings/canada_tax_enabled';
     /**#@-*/
 
     /**
@@ -505,6 +510,27 @@ class TaxcloudConfig
             ScopeInterface::SCOPE_STORE,
             $store
         );
+    }
+
+    /**
+     * Whether Canadian destinations are taxed for this store.
+     *
+     * True only when the merchant turned the setting on AND the store uses
+     * the V3 REST API: Canada is priced over v3 only, so a store view that
+     * overrides the API type to SOAP never sends Canadian requests, whatever
+     * value it inherits. Canada must also be enabled on the TaxCloud account
+     * itself — this setting cannot know that; the Canada access check does.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function isCanadaTaxEnabled($store = null): bool
+    {
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_CANADA_TAX_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        ) && $this->getApiType($store) === ApiType::REST;
     }
 
     /**

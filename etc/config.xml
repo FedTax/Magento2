@@ -46,6 +46,11 @@
         <co_rdf_enabled>0</co_rdf_enabled>
         <co_rdf_amount>0.31</co_rdf_amount>
         <co_rdf_tic>11098</co_rdf_tic>
+        <!--
+          Canadian tax. Off until a merchant turns it on: Canada is an add-on
+          TaxCloud support enables per account (see system.xml).
+        -->
+        <canada_tax_enabled>0</canada_tax_enabled>
       </taxcloud_settings>
     </tax>
     <!--

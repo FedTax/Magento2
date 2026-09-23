@@ -222,6 +222,90 @@ class RequestBuilderTest extends TestCase
         $this->assertNull($this->builder->buildDestinationFromOrder($order));
     }
 
+    /**
+     * A Canadian order address is a usable destination only when the caller
+     * allows it (the v3 transport, for a store with Canadian tax in effect):
+     * the province, the canonical postal code and the country, with the ZIP
+     * fields left empty rather than holding a non-ZIP.
+     */
+    public function testBuildDestinationFromOrderBuildsCanadianAddressWhenAllowed()
+    {
+        $order = $this->orderWith($this->canadianOrderAddress('v5y1v4', 'BC'));
+
+        $this->assertNull(
+            $this->builder->buildDestinationFromOrder($order),
+            'Without $allowCanada a Canadian address stays unusable (the SOAP path).'
+        );
+        $this->assertSame(
+            [
+                'Address1' => '453 W 12th Ave',
+                'Address2' => '',
+                'City' => 'Vancouver',
+                'State' => 'BC',
+                'Zip5' => '',
+                'Zip4' => '',
+                'Country' => 'CA',
+                'PostalCode' => 'V5Y 1V4',
+            ],
+            $this->builder->buildDestinationFromOrder($order, true)
+        );
+    }
+
+    /**
+     * @dataProvider unusableCanadianAddressProvider
+     */
+    #[DataProvider('unusableCanadianAddressProvider')]
+    public function testBuildDestinationFromOrderRejectsAnUnusableCanadianAddress(
+        string $postcode,
+        ?string $regionCode,
+        string $countryId,
+        string $message
+    ) {
+        $this->stubRegionLookup(null);
+        $address = $this->canadianOrderAddress($postcode, $regionCode, $countryId);
+
+        $this->assertNull($this->builder->buildDestinationFromOrder($this->orderWith($address), true), $message);
+    }
+
+    public static function unusableCanadianAddressProvider(): array
+    {
+        return [
+            'invalid postal code' => ['12345', 'ON', 'CA', 'a US-style code is not a Canadian postal code'],
+            'no province' => ['M5H 2N2', null, 'CA', 'the rate follows the province, so one is required'],
+            'another country' => ['01000', 'CMX', 'MX', 'allowing Canada does not open other countries'],
+        ];
+    }
+
+    public function testBuildCanadianDestinationFromAQuoteAddress()
+    {
+        $address = $this->createMock(QuoteAddress::class);
+        $address->method('getStreet')->willReturn(['100 Queen St W', 'Floor 2']);
+        $address->method('getCity')->willReturn('Toronto');
+        $address->method('getRegionCode')->willReturn('ON');
+
+        $destination = $this->builder->buildCanadianDestination($address, 'M5H 2N2');
+
+        $this->assertSame('100 Queen St W', $destination['Address1']);
+        $this->assertSame('Floor 2', $destination['Address2']);
+        $this->assertSame('ON', $destination['State']);
+        $this->assertSame('CA', $destination['Country']);
+        $this->assertSame('M5H 2N2', $destination['PostalCode']);
+        $this->assertSame('', $destination['Zip5']);
+    }
+
+    private function canadianOrderAddress(string $postcode, ?string $regionCode, string $countryId = 'CA')
+    {
+        $address = $this->createMock(OrderAddress::class);
+        $address->method('getPostcode')->willReturn($postcode);
+        $address->method('getCountryId')->willReturn($countryId);
+        $address->method('getStreet')->willReturn(['453 W 12th Ave']);
+        $address->method('getCity')->willReturn('Vancouver');
+        $address->method('getRegionCode')->willReturn($regionCode);
+        $address->method('getRegionId')->willReturn(null);
+
+        return $address;
+    }
+
     public function testBuildDestinationFromOrderBuildsAddress()
     {
         $address = $this->createMock(OrderAddress::class);

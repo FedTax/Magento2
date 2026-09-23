@@ -44,8 +44,10 @@ decisions that come before them:
 
 ## What it does not cover
 
-- **US sales tax only.** Orders shipping outside the United States are left
-  alone, and Magento handles them however it did before.
+- **The United States, and Canada if you turn it on.** Orders shipping to Canada
+  are taxed only once Canada is enabled on your TaxCloud account and in the
+  extension — see [Canadian tax](canadian-tax.md). Orders shipping anywhere else
+  are left alone, and Magento handles them however it did before.
 - **Nothing is changed in your storefront's look.** Tax appears in the totals
   the way Magento already displays it.
 

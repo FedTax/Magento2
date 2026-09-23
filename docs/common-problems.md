@@ -22,6 +22,7 @@ lookup happening. It needs the full ZIP+4.
 credentials mean every lookup fails.
 
 **Is the destination in the US?** Orders shipping elsewhere are left to Magento.
+For orders to Canada, see [No tax on Canadian orders](#no-tax-on-canadian-orders).
 
 **Is the product's tax class `None`?** Those are never sent to TaxCloud. See
 [Assigning TICs](assigning-tics.md).
@@ -36,6 +37,17 @@ off, a failed lookup means no tax. [The log](logs.md) will say.
 If another one has taken over, TaxCloud still shows as enabled and its
 credentials still verify, but it is not calculating. See
 [Another extension is calculating tax](extension-conflicts.md).
+
+## No tax on Canadian orders
+
+**Is Calculate Canadian Tax set to `Yes` for that store view?** And is that store
+view on `V3 REST`? See [Canadian tax](canadian-tax.md).
+
+**Does your TaxCloud account have Canada?** Click **Check Canada Access**. If it
+says Canada is not enabled, contact TaxCloud support to enable it.
+
+**Is the address complete?** The customer must pick a province and enter a valid
+Canadian postal code, such as `M5H 2N2`.
 
 ## No tax on the cart page
 

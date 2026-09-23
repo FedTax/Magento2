@@ -144,6 +144,11 @@ class Address implements ObserverInterface
             if (!is_array($destination)) {
                 continue;
             }
+            // TaxCloud verifies US addresses only (a Canadian one is answered
+            // "unsupported country code"): leave anything else as entered.
+            if (($destination['countryCode'] ?? 'US') !== 'US') {
+                continue;
+            }
 
             try {
                 $result = $this->tcapi->verifyAddress($this->toV1Address($destination), $storeId);
@@ -189,8 +194,10 @@ class Address implements ObserverInterface
     }
 
     /**
+     * Only US destinations are verified, so the result is always a US address.
+     *
      * @param array $address v1 shape (Address1/Address2/City/State/Zip5/Zip4)
-     * @return array v3 shape (line1/line2/city/state/zip)
+     * @return array v3 shape (line1/line2/city/state/zip/countryCode)
      */
     private function toV3Address(array $address)
     {
@@ -204,6 +211,7 @@ class Address implements ObserverInterface
             'city' => (string) ($address['City'] ?? ''),
             'state' => (string) ($address['State'] ?? ''),
             'zip' => $zip,
+            'countryCode' => 'US',
         ];
         if (!empty($address['Address2'])) {
             $v3['line2'] = (string) $address['Address2'];

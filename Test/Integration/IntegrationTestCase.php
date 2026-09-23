@@ -42,6 +42,7 @@ use Magento\Sales\Model\Service\CreditmemoService;
 use Magento\Sales\Model\Service\InvoiceService;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Taxcloud\Magento2\Test\Integration\Doubles\RecordingRestClient;
 use Taxcloud\Magento2\Test\Integration\Doubles\RecordingSoapClient;
 
 /**
@@ -52,8 +53,10 @@ use Taxcloud\Magento2\Test\Integration\Doubles\RecordingSoapClient;
  *
  *  1. A SOAP mock harness ({@see installSoapMock()}) that swaps the real
  *     \SoapClient for a {@see RecordingSoapClient} while keeping the rest of
- *     Magento real. See docs/INTEGRATION_TESTS.md ("Mocking the TaxCloud SOAP
- *     client") for the rationale.
+ *     Magento real, and its v3 counterpart ({@see installRestMock()}), which
+ *     swaps the REST transport for a {@see RecordingRestClient}. See
+ *     docs/INTEGRATION_TESTS.md ("Mocking the TaxCloud SOAP client") for the
+ *     rationale.
  *
  *  2. Sales-flow helpers ({@see placeOrder()}, {@see payInvoice()},
  *     {@see createShipment()}, {@see cancelOrder()}, {@see refundOrder()}) that
@@ -101,6 +104,41 @@ abstract class IntegrationTestCase extends TestCase
 
     private ?RecordingSoapClient $soapClient = null;
 
+    private ?RecordingRestClient $restMock = null;
+
+    /**
+     * Module classes whose shared instances must be rebuilt after the REST
+     * transport is swapped — the v3 equivalent of SOAP_DEPENDENT_TYPES, walking
+     * outward from RestClient: the REST gateway and certificate gateway hold it,
+     * the router holds the gateway, and the collector, observers and
+     * cancellation plugin hold the router. The Canada access check and the
+     * diagnostics probe hold the client directly.
+     *
+     * @var string[]
+     */
+    private const REST_DEPENDENT_TYPES = [
+        \Taxcloud\Magento2\Model\Gateway\Rest\RestGateway::class,
+        // The router receives the gateway as a PROXY (di.xml), and the proxy is
+        // a shared instance of its own holding the subject it already built. Not
+        // evicting it is invisible: the mock is seeded, the gateway is rebuilt,
+        // and the proxy keeps handing out the gateway it made earlier — around
+        // the real transport, which then quietly talks to TaxCloud for real.
+        // Named as a string: the proxy is generated code, which exists in the
+        // install but not on a static analyser's class map.
+        'Taxcloud\\Magento2\\Model\\Gateway\\Rest\\RestGateway\\Proxy',
+        \Taxcloud\Magento2\Model\Certificate\RestCertificateGateway::class,
+        \Taxcloud\Magento2\Model\Gateway\Router::class,
+        \Taxcloud\Magento2\Model\Tax::class,
+        \Taxcloud\Magento2\Observer\Sales\Complete::class,
+        \Taxcloud\Magento2\Observer\Sales\Refund::class,
+        \Taxcloud\Magento2\Observer\Sales\Address::class,
+        \Taxcloud\Magento2\Model\Order\CancellationProcessor::class,
+        \Taxcloud\Magento2\Plugin\Sales\OrderCancellation::class,
+        \Taxcloud\Magento2\Model\Canada\CanadaAccessChecker::class,
+        \Taxcloud\Magento2\Observer\Adminhtml\CheckCanadaAccessOnSave::class,
+        \Taxcloud\Magento2\Model\Diagnostics\Bundle\Probe\ApiProbe::class,
+    ];
+
     /**
      * Prior core_config_data state for every row written via
      * {@see setScopedConfig()}, keyed "scope|scopeId|path". Restored (or
@@ -127,6 +165,7 @@ abstract class IntegrationTestCase extends TestCase
 
     protected function tearDown(): void
     {
+        $this->uninstallRestMock();
         $this->restoreScopedConfig();
         parent::tearDown();
     }
@@ -212,6 +251,163 @@ abstract class IntegrationTestCase extends TestCase
         $this->get(\Taxcloud\Magento2\Model\Cache\Type\Taxcloud::class)->clean();
 
         return $client;
+    }
+
+    // -- REST mock harness -----------------------------------------------------
+
+    /**
+     * Replace {@see \Taxcloud\Magento2\Model\Gateway\Rest\RestClient} in the
+     * DI container with a {@see RecordingRestClient}, then evict the singletons
+     * that would otherwise still hold the real transport.
+     *
+     * The v3 counterpart of {@see installSoapMock()}, and the same shape: call
+     * it from setUp before anything resolves the gateway, then assert on the
+     * recorder. Unlike SOAP there is no client factory to swap — RestClient IS
+     * the transport seam — so the double is seeded directly.
+     *
+     * Switching a store to v3 is the test's job ({@see setScopedConfig()} on
+     * `tax/taxcloud_settings/api_type`): the seeded install runs on SOAP, and a
+     * REST mock with no api_type change would record nothing.
+     *
+     * @param array<string, \Closure> $responders "<METHOD> <path-prefix>" =>
+     *        Closure(?array $body, mixed $store): RestResponse. Defaults to the
+     *        happy-path set from {@see defaultRestResponders()}.
+     */
+    protected function installRestMock(array $responders = []): RecordingRestClient
+    {
+        $client = new RecordingRestClient($responders ?: $this->defaultRestResponders());
+        $this->restMock = $client;
+
+        $this->mutateSharedInstances(
+            self::REST_DEPENDENT_TYPES,
+            [\Taxcloud\Magento2\Model\Gateway\Rest\RestClient::class => $client]
+        );
+
+        // Same three caches the SOAP harness has to reach past: the collector
+        // cached inside TotalsCollectorList, plugin instances cached inside
+        // PluginList, and TaxCloud's own result cache (an unsaved quote has no
+        // cart id, so lookup keys collide across tests).
+        $this->resetTotalsCollector();
+        $this->resetPluginInstances();
+        $this->get(\Taxcloud\Magento2\Model\Cache\Type\Taxcloud::class)->clean();
+
+        return $client;
+    }
+
+    /**
+     * The recorder installed by {@see installRestMock()}.
+     *
+     * Named restMock() rather than restClient(): RestLiveApiTest already has a
+     * private restClient() of its own (the real client, for the live contract
+     * checks), and a protected method of that name here would clash with it.
+     */
+    /**
+     * Take the REST double back out of the container.
+     *
+     * The SOAP harness can leave its factory in place — the only way to reach
+     * it is through types this harness evicts anyway. The REST double cannot:
+     * `RestClient` is resolved directly by the live-API tests, the diagnostics
+     * probe and the Canada access check, so a double left behind silently
+     * serves a later test class that meant to talk to TaxCloud for real.
+     */
+    private function uninstallRestMock(): void
+    {
+        if ($this->restMock === null) {
+            return;
+        }
+
+        $this->mutateSharedInstances(
+            array_merge(self::REST_DEPENDENT_TYPES, [\Taxcloud\Magento2\Model\Gateway\Rest\RestClient::class])
+        );
+        $this->resetTotalsCollector();
+        $this->resetPluginInstances();
+        $this->restMock = null;
+    }
+
+    protected function restMock(): RecordingRestClient
+    {
+        if ($this->restMock === null) {
+            throw new \LogicException('installRestMock() must be called before restMock().');
+        }
+        return $this->restMock;
+    }
+
+    /**
+     * The happy-path v3 responder set with individual entries swapped out.
+     *
+     * @param array<string, \Closure> $overrides
+     * @return array<string, \Closure>
+     */
+    protected function restRespondersWith(array $overrides): array
+    {
+        return array_merge($this->defaultRestResponders(), $overrides);
+    }
+
+    /**
+     * Zero tax on every line, accepted orders and refunds, echoing
+     * verify-address: enough for any test whose subject is not the amounts.
+     *
+     * @return array<string, \Closure>
+     */
+    protected function defaultRestResponders(): array
+    {
+        return [
+            'POST /carts' => $this->flatRateCartResponder(0.0),
+            'POST /orders' => $this->jsonRestResponder(200, ['orderId' => 'accepted']),
+            'POST /orders/refunds' => $this->jsonRestResponder(200, ['refundId' => 'accepted']),
+            'GET /orders' => $this->jsonRestResponder(200, ['completedDate' => '2026-01-01T00:00:00Z']),
+            'POST /tax/verify-address' => static function (?array $body): \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse {
+                return new \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse(
+                    200,
+                    (string) json_encode((array) $body)
+                );
+            },
+        ];
+    }
+
+    /**
+     * A v3 cart responder that taxes every line it is handed at a flat rate —
+     * the v3 shape of {@see SeededCatalogTrait::flatRateLookupResponder()}, and
+     * for the same reason: the assertions stay about our arithmetic rather than
+     * TaxCloud's rate table.
+     */
+    protected function flatRateCartResponder(float $rate): \Closure
+    {
+        return static function (?array $body) use ($rate): \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse {
+            $carts = [];
+            foreach ((array) ($body['items'] ?? []) as $cart) {
+                $lines = [];
+                foreach ((array) ($cart['lineItems'] ?? []) as $line) {
+                    $lines[] = $line + [
+                        'tax' => [
+                            'rate' => $rate,
+                            'amount' => round((float) $line['price'] * (float) $line['quantity'] * $rate, 2),
+                        ],
+                    ];
+                }
+                $carts[] = ['cartId' => $cart['cartId'] ?? null, 'lineItems' => $lines];
+            }
+
+            return new \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse(
+                200,
+                (string) json_encode(['items' => $carts])
+            );
+        };
+    }
+
+    /**
+     * A responder answering one fixed status and JSON body.
+     *
+     * @param array<string, mixed> $body
+     */
+    protected function jsonRestResponder(int $status, array $body = []): \Closure
+    {
+        return static function () use ($status, $body): \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse {
+            return new \Taxcloud\Magento2\Model\Gateway\Rest\RestResponse(
+                $status,
+                (string) json_encode($body)
+            );
+        };
     }
 
     /**
@@ -354,10 +550,16 @@ abstract class IntegrationTestCase extends TestCase
     /**
      * Set when TaxCloud capture happens: CaptureTrigger::ORDER_CREATION,
      * ::PAYMENT or ::SHIPMENT.
+     *
+     * Snapshotted, so tearDown puts the seeded trigger back. It used to write
+     * the value outright, which leaked: a class that left the trigger on
+     * PAYMENT made every later test that captures at placement see no capture
+     * at all — ten unrelated failures whose own code looked blameless, and only
+     * in whatever order the run happened to take.
      */
     protected function setCaptureTrigger(string $value): void
     {
-        $this->writeConfig('tax/taxcloud_settings/capture_trigger', $value);
+        $this->setScopedConfig('tax/taxcloud_settings/capture_trigger', $value);
     }
 
     /**
