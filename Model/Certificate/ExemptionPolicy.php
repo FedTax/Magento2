@@ -31,13 +31,12 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
  *
  *   - isEnabled()          does this store offer exemptions at all
  *   - isVisibleTo()        may this customer SEE the exemption interface
+ *   - mayManage()          may this customer CHANGE their exemptions
  *
- * Seeing and creating are separated on purpose. Nothing verifies a certificate
+ * Seeing and changing are separated on purpose. Nothing verifies a certificate
  * — one created with an invented tax id is accepted, confirmed against the live
- * API — so creating one is the act with consequences, and it is confined to
- * customers a merchant has already vouched for by putting them in an exempt
- * group. Selecting among certificates a merchant has already accepted is not
- * the same risk.
+ * API — so creating or attaching one is choosing to stop paying tax, and it is
+ * confined to customers a merchant has vouched for by nominating their group.
  */
 class ExemptionPolicy
 {
@@ -78,11 +77,33 @@ class ExemptionPolicy
      */
     public function isVisibleTo($customer, $store = null): bool
     {
-        return $this->isEnabled($store) && $customer !== null && $customer->getId();
+        return $this->isEnabled($store) && $customer !== null && (bool) $customer->getId();
     }
+
     /**
-     * @param \Magento\Customer\Api\Data\CustomerInterface $customer
+     * Whether this customer may create, attach and detach their own certificates.
+     *
+     * Needs exemptions on, self-service on, and the customer's group among the
+     * nominated ones — all for this store. The group is read off the customer
+     * object handed in, which the storefront loads from the repository on each
+     * request, so moving someone out of a nominated group takes effect on
+     * their next click rather than when their session ends.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return bool
      */
+    public function mayManage($customer, $store = null): bool
+    {
+        if (!$this->isVisibleTo($customer, $store) || !$this->config->areCustomerCertificatesEnabled($store)) {
+            return false;
+        }
+
+        $groupId = $customer->getGroupId();
+        if ($groupId === null || $groupId === '') {
+            return false;
+        }
+
+        return in_array((int) $groupId, $this->config->getCustomerCertificateGroups($store), true);
+    }
 }

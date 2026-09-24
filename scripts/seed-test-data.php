@@ -1019,6 +1019,13 @@ const CUSTOMER_PASSWORD = 'Test1234!';
 // order that should be taxed, one that should not.
 const EXEMPT_CUSTOMER_EMAIL = 'exempt-customer@example.com';
 
+// A THIRD customer, in the Wholesale group and holding no certificate (section
+// 4k): the one the self-service e2e pass nominates, so it can add, switch and
+// remove its own certificates without touching the exempt customer every other
+// exemption spec depends on.
+const TRUSTED_CUSTOMER_EMAIL = 'trusted-customer@example.com';
+const WHOLESALE_GROUP_ID = 2;
+
 $customerRepository = $om->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
 
 // Customer accounts are scoped PER WEBSITE (customer/account_share/scope
@@ -1030,7 +1037,8 @@ $ensureCustomer = function (
     \Magento\Store\Api\Data\StoreInterface $store,
     string $email = CUSTOMER_EMAIL,
     string $firstname = 'Test',
-    string $lastname = 'Customer'
+    string $lastname = 'Customer',
+    int $groupId = 1
 ) use (
     $om,
     $customerRepository,
@@ -1052,7 +1060,7 @@ $ensureCustomer = function (
         ->setEmail($email)
         ->setFirstname($firstname)
         ->setLastname($lastname)
-        ->setGroupId(1); // General
+        ->setGroupId($groupId); // 1 = General unless a caller says otherwise
 
     // save($customer, $passwordHash) sets the password directly, bypassing the
     // welcome email that AccountManagement::createAccount() would send.
@@ -1262,8 +1270,12 @@ if ($productsOnly) {
         // The identity decides WHERE the module looks; the attachment decides
         // WHICH certificate applies. Both are needed — setting only the second
         // leaves the module searching under the entity id and finding nothing.
-        $exemptCustomer->setCustomAttribute('taxcloud_certificate_id', $certificateId);
-        $customerRepository->save($exemptCustomer);
+        //
+        // The attachment goes through CertificateAttachment, the one writer the
+        // repository guard lets change it from a context without the
+        // certificate permission — which this script, logged in as nobody, is.
+        $om->get(\Taxcloud\Magento2\Model\Certificate\CertificateAttachment::class)
+            ->set($exemptCustomer, $certificateId, 'seed-test-data');
 
         // The identity is written through the customer MODEL, not the
         // repository. Setting a customer's TaxCloud identity grants them the
@@ -1291,6 +1303,29 @@ if ($productsOnly) {
         $step('WARNING: could not seed the exemption certificate - ' . $e->getMessage());
         $step('WARNING: exemption tests will fail until this succeeds.');
     }
+
+    // --- 4k. Trusted (Wholesale) customer, for certificate self-service ------
+    //
+    // No certificate: the self-service spec creates its own through My Account
+    // and removes them again. Filed under a run-unique identity of its own, for
+    // the same reason as the exempt customer's above — the Wholesale customer's
+    // entity id is the same on every install, and parallel CI jobs creating and
+    // deleting certificates under one identity in one sandbox would race.
+    $trustedCustomer = $ensureCustomer(
+        $storeManager->getDefaultStoreView(),
+        TRUSTED_CUSTOMER_EMAIL,
+        'Trusted',
+        'Buyer',
+        WHOLESALE_GROUP_ID
+    );
+    $trustedIdentity = $certificateIdentity . '-trusted';
+    // Through the model, as for the exempt customer: the repository refuses an
+    // identity change from a context without the certificate permission.
+    $trustedWriter = $om->create(\Magento\Customer\Model\Customer::class);
+    $trustedWriter->load((int) $trustedCustomer->getId());
+    $trustedWriter->setData('taxcloud_customer_id', $trustedIdentity);
+    $trustedWriter->getResource()->saveAttribute($trustedWriter, 'taxcloud_customer_id');
+    $step('customer "' . TRUSTED_CUSTOMER_EMAIL . '" (Wholesale) taxcloud_customer_id = ' . $trustedIdentity);
 }
 
 

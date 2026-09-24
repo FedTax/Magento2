@@ -64,8 +64,10 @@ applies.
     the certificate the customer actually signed and that you are holding. If
     you do not have that document, get it before you create the record.
 
-Creating a certificate files it with TaxCloud and lists it here. Attach it to
-make it take effect.
+Creating a certificate files it with TaxCloud and lists it here. If the
+customer has no certificate in use, the new one is put in use straight away;
+otherwise the one in use stays, and you attach the new one when you want it to
+take over.
 
 ## Refreshing from TaxCloud
 
@@ -78,11 +80,24 @@ something on the TaxCloud side and do not want to wait.
 
 ## Deleting a certificate
 
+Click **Delete** in the certificate's row. Deleting the certificate in use also
+stops it applying, so the customer is taxed from their next order until another
+certificate is in use — the confirmation says so before anything happens.
+
 !!! warning "Deletion is permanent"
     TaxCloud cannot restore a deleted certificate. If it was used on past
     orders, those orders keep their own record of what it said at the time —
-    but the certificate itself is gone. Detach rather than delete if you only
-    want to stop it being applied.
+    but the certificate itself is gone. Choose **Stop using** rather than delete
+    if you only want to stop it being applied.
+
+## Changes made by customers
+
+If you have let a customer's group
+[manage certificates](exemptions-setup.md#letting-trusted-customers-manage-certificates),
+the customer may have added certificates or changed which one is in use from My
+Account. They show here like any other. To see who made a change, look in the
+[TaxCloud log](logs.md): administrators' changes carry their admin username, and
+customers' changes read "customer *ID* (My Account)".
 
 ## The TaxCloud Customer ID
 
@@ -93,6 +108,12 @@ attention.
 Change it in one situation: several people buying under one organisation's
 exemption. Point them all at the same TaxCloud Customer ID and they share that
 organisation's certificates.
+
+!!! note "Shared certificates can be removed by anyone sharing them"
+    Every customer on a shared TaxCloud Customer ID can remove the shared
+    certificates from My Account, which stops them applying for all of them.
+    Each customer still has their own certificate in use, so one customer
+    switching theirs does not affect the others.
 
 !!! warning "Changing it changes which certificates a customer can use"
     Point a customer at a different identity and their existing certificates

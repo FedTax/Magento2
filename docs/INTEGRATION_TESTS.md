@@ -301,7 +301,14 @@ no client factory to rebind, because `RestClient` *is* the transport seam. So
 [`RecordingRestClient`](https://github.com/FedTax/Magento2/blob/main/Test/Integration/Doubles/RecordingRestClient.php)
 directly and evicts the REST-dependent singletons (the REST gateway and
 certificate gateway, the router, the `Tax` collector, the observers, the
-cancellation plugin, the Canada access checker and the diagnostics probe).
+cancellation plugin, the Canada access checker, the diagnostics probe, and the
+certificate repository, resolver and attachment writer).
+
+The router is reached through **two** generated proxies — the gateway's and the
+certificate repository's — and each is a shared instance caching the subject it
+first built. Both are on the eviction list; a proxy left in place keeps serving
+the previous test's double (or the real transport) with nothing to show for it
+but assertions that see the wrong calls.
 
 ```php
 protected function setUp(): void

@@ -140,8 +140,16 @@ teardown project that switches it back:
 | ---- | ----------- | ----- |
 | `rest-setup` → `checkout-rest` → `rest-teardown` | V3 REST | the US checkout journeys, re-run over v3 |
 | `exemptions-on-*` | Exemption certificates | `specs/exemptions-on/` |
+| `self-service-on-*` | Exemption certificates, and customer self-service for the Wholesale group | `specs/self-service-on/` |
 | `colorado-on-*` | Colorado Retail Delivery Fee | `specs/colorado-on/` |
 | `canada-on-*` | Canadian tax (and V3 REST, which it requires) | `specs/canada-on/` |
+
+The self-service pass signs in as `trusted-customer@example.com`, a seeded
+Wholesale-group customer with no certificate of its own, so it can add, switch
+and remove certificates without disturbing the exempt customer the other
+exemption specs rely on. Its certificates are filed under the run's identity
+with a `-trusted` suffix, and `make e2e-cleanup-certificates` removes them with
+the rest.
 
 A teardown **project** runs even when the specs it guards fail, which an
 `afterEach` does not when a run is killed — and a feature left switched on

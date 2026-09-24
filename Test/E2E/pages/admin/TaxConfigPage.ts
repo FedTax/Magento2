@@ -21,6 +21,8 @@ export class TaxConfigPage {
   /** The TaxCloud Settings group header — present whatever the role may do. */
   readonly groupHead: Locator;
   readonly exemptionsEnabled: Locator;
+  readonly customerCertificatesEnabled: Locator;
+  readonly customerCertificateGroups: Locator;
   readonly canadaTaxEnabled: Locator;
   readonly checkCanadaAccessButton: Locator;
   readonly checkCanadaAccessResult: Locator;
@@ -41,6 +43,8 @@ export class TaxConfigPage {
     this.saveButton = page.locator('#save');
     this.groupHead = page.locator('#tax_taxcloud-head');
     this.exemptionsEnabled = page.locator('#tax_taxcloud_exemptions_enabled');
+    this.customerCertificatesEnabled = page.locator('#tax_taxcloud_customer_certificates_enabled');
+    this.customerCertificateGroups = page.locator('#tax_taxcloud_customer_certificate_groups');
     this.canadaTaxEnabled = page.locator('#tax_taxcloud_canada_tax_enabled');
     this.checkCanadaAccessButton = page.locator('#taxcloud_check_canada_access_btn');
     this.checkCanadaAccessResult = page.locator('#taxcloud_check_canada_access_result');
@@ -123,6 +127,62 @@ export class TaxConfigPage {
    */
   async isExemptionsEnabled(): Promise<boolean> {
     return (await this.exemptionsEnabled.inputValue()) === '1';
+  }
+
+  /**
+   * Let customers in the given groups manage their own certificates, or turn
+   * self-service off (and nominate nobody) with enabled = false.
+   *
+   * Needs exemptions on in the form: both fields depend on it.
+   *
+   * @param enabled whether customers may manage certificates
+   * @param groupLabels customer group names to nominate, e.g. ['Wholesale']
+   */
+  async setCustomerCertificates(enabled: boolean, groupLabels: string[] = []): Promise<void> {
+    await this.customerCertificatesEnabled.selectOption(enabled ? '1' : '0');
+
+    if (!enabled) {
+      return;
+    }
+
+    // Hidden with the switch off; shown by depends once it is on.
+    await expect(this.customerCertificateGroups).toBeVisible({ timeout: 10_000 });
+    await this.customerCertificateGroups.selectOption(groupLabels.map((label) => ({ label })));
+  }
+
+  /**
+   * Nominate nobody, switch self-service off, then switch exemptions off —
+   * each in its own save.
+   *
+   * Magento does not submit a field hidden by its dependency, so the order is
+   * the whole point: clearing the groups after the switch is off, or turning
+   * the switch off after exemptions are, saves nothing and leaves the old value
+   * underneath for the next run to inherit.
+   */
+  async resetCustomerCertificatesAndExemptions(): Promise<void> {
+    await this.open();
+    await this.setExemptions(true);
+    await this.setCustomerCertificates(true, []);
+    await this.save();
+
+    await this.open();
+    await this.setCustomerCertificates(false);
+    await this.save();
+
+    await this.open();
+    await this.setExemptions(false);
+    await this.save();
+  }
+
+  /**
+   * The self-service switch and nominated group names, as the form shows them.
+   */
+  async readCustomerCertificates(): Promise<{ enabled: boolean; groups: string[] }> {
+    const enabled = (await this.customerCertificatesEnabled.inputValue()) === '1';
+    const groups = await this.customerCertificateGroups.evaluate((select: HTMLSelectElement) =>
+      Array.from(select.selectedOptions).map((option) => option.text.trim()));
+
+    return { enabled, groups };
   }
 
   /**

@@ -8,6 +8,8 @@
  *   customer@example.com          - plain customer, taxed normally
  *   exempt-customer@example.com   - holds a TaxCloud exemption certificate
  *                                   covering TX, so its orders come out exempt
+ *   trusted-customer@example.com  - Wholesale group, no certificate; the
+ *                                   self-service pass nominates Wholesale
  *
  * The pair is what makes an exemption assertion meaningful: the same cart to the
  * same address differs only in who is signed in, so a zero tax line can be read
@@ -21,6 +23,8 @@ import { type Page, expect } from '@playwright/test';
 export const CUSTOMER_PASSWORD = 'Test1234!';
 export const PLAIN_CUSTOMER_EMAIL = 'customer@example.com';
 export const EXEMPT_CUSTOMER_EMAIL = 'exempt-customer@example.com';
+/** Wholesale-group customer with no certificate, nominated by the self-service pass. */
+export const TRUSTED_CUSTOMER_EMAIL = 'trusted-customer@example.com';
 
 /**
  * Log a seeded customer in through the storefront login form and wait until the
@@ -95,4 +99,9 @@ export async function loginAsPlainCustomer(page: Page): Promise<void> {
 /** Log the seeded customer holding the TX exemption certificate in. */
 export async function loginAsExemptCustomer(page: Page): Promise<void> {
   await loginAsCustomer(page, EXEMPT_CUSTOMER_EMAIL);
+}
+
+/** Log the seeded Wholesale customer (no certificate of its own) in. */
+export async function loginAsTrustedCustomer(page: Page): Promise<void> {
+  await loginAsCustomer(page, TRUSTED_CUSTOMER_EMAIL);
 }

@@ -19,6 +19,9 @@ test('enable exemptions for the screenshot run', async ({ page }) => {
   const config = new TaxConfigPage(page);
   await config.open();
   await config.setExemptions(true);
+  // Wholesale nominated, so the trusted customer's My Account shows the
+  // self-service controls the docs describe.
+  await config.setCustomerCertificates(true, ['Wholesale']);
   await config.save();
 
   await config.open();

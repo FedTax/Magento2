@@ -63,6 +63,36 @@ class Delete extends AbstractCustomerAction implements HttpPostActionInterface
             ]);
         }
 
+        // Deleted first, detached second: if TaxCloud refuses the deletion the
+        // customer keeps their exemption. Clearing is not a self-service
+        // privilege — any customer may delete, and leaving the attachment
+        // pointing at nothing would only block the next certificate from
+        // taking its place.
+        $this->detachIfAttached($customer, $certificateId, $storeId);
+
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * Clear the customer's attachment if it names the deleted certificate.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface $customer
+     * @param string $certificateId
+     * @param int $storeId
+     * @return bool Whether the attachment was cleared
+     */
+    private function detachIfAttached($customer, string $certificateId, int $storeId): bool
+    {
+        if ($this->resolver->attachedCertificateId($customer) !== $certificateId) {
+            return false;
+        }
+
+        try {
+            return $this->attachment->set($customer, '', $this->actor($customer), $storeId);
+        } catch (\Throwable $e) {
+            // The certificate is gone either way. A stale attachment exempts
+            // nothing and is ignored when the next certificate is created.
+            return false;
+        }
     }
 }

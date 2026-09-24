@@ -120,8 +120,35 @@ class AttachmentPersistenceTest extends IntegrationTestCase
         );
     }
 
+    /**
+     * Answer certificate listings over a REST double holding these ids.
+     *
+     * Whether auto-attach may displace an attachment depends on whether the
+     * attached certificate still exists, so these tests say what TaxCloud
+     * holds rather than asking the sandbox about invented identifiers.
+     *
+     * @param string[] $held
+     */
+    private function holding(array $held): void
+    {
+        $items = [];
+        foreach ($held as $id) {
+            $items[] = [
+                'certificateId' => $id,
+                'customerId' => (string) $this->customerId,
+                'states' => [['abbreviation' => 'TX']],
+            ];
+        }
+
+        $this->installRestMock($this->restRespondersWith([
+            'GET /tax/exemption-certificates' => $this->jsonRestResponder(200, ['items' => $items]),
+        ]));
+        $this->setScopedConfig('tax/taxcloud_settings/api_type', 'rest');
+    }
+
     public function testAutoAttachDoesNotDisplaceAnExistingAttachment(): void
     {
+        $this->holding(['cert-first', 'cert-second']);
         $this->attachment()->set($this->reload(), 'cert-first', 'phpunit');
 
         $displaced = $this->attachment()->setIfUnattached($this->reload(), 'cert-second', 'phpunit');
@@ -132,6 +159,17 @@ class AttachmentPersistenceTest extends IntegrationTestCase
             $this->resolver()->attachedCertificateId($this->reload()),
             'adding a second certificate must never silently re-file the customer against it'
         );
+    }
+
+    public function testAutoAttachReplacesAnAttachmentToACertificateNoLongerHeld(): void
+    {
+        // cert-gone was deleted in the TaxCloud portal: it exempts nothing, and
+        // must not keep the new certificate from applying.
+        $this->holding(['cert-new']);
+        $this->attachment()->set($this->reload(), 'cert-gone', 'phpunit');
+
+        $this->assertTrue($this->attachment()->setIfUnattached($this->reload(), 'cert-new', 'phpunit'));
+        $this->assertSame('cert-new', $this->resolver()->attachedCertificateId($this->reload()));
     }
 
     public function testAutoAttachFillsAnEmptySlot(): void

@@ -34,15 +34,11 @@ use Taxcloud\Magento2\Model\Certificate\TaxCloudCustomerIdentity;
 /**
  * Deleting a certificate from the customer's admin page.
  *
- * The rule worth pinning is that the certificate currently IN USE cannot be
- * deleted. Deletion is irreversible at TaxCloud, and doing it to the one the
- * customer's orders are filed against leaves the attachment pointing at
- * something that no longer exists: the customer quietly stops being exempt,
- * with nothing on the screen having said so. Clearing the attachment first
- * makes that an explicit act.
- *
- * The panel also disables the button, but the endpoint is what enforces it — a
- * disabled button is a courtesy, not a control.
+ * The rule worth pinning is what happens to the attachment. Deleting the
+ * certificate in use also clears it, after TaxCloud has accepted the deletion:
+ * an attachment left naming a certificate that no longer exists exempts
+ * nothing, and would stop the next certificate created for the customer from
+ * being attached. A deletion TaxCloud refuses leaves the exemption as it was.
  */
 class AdminCertificateDeleteTest extends TestCase
 {
@@ -124,7 +120,13 @@ class AdminCertificateDeleteTest extends TestCase
         $resultFactory = $this->createStub(ResultFactory::class);
         $resultFactory->method('create')->willReturn($json);
 
+        $user = $this->createStub(\Magento\User\Model\User::class);
+        $user->method('getUserName')->willReturn('alice');
+        $auth = $this->createStub(\Magento\Backend\Model\Auth::class);
+        $auth->method('getUser')->willReturn($user);
+
         $context = $this->createStub(Context::class);
+        $context->method('getAuth')->willReturn($auth);
         $context->method('getRequest')->willReturn($request);
         $context->method('getResultFactory')->willReturn($resultFactory);
 
@@ -133,8 +135,9 @@ class AdminCertificateDeleteTest extends TestCase
 
     /**
      * @param CertificateRepository|null $certificates
+     * @param CertificateAttachment|null $attachment
      */
-    private function controller($certificates = null): Delete
+    private function controller($certificates = null, $attachment = null): Delete
     {
         $customerRepository = $this->createStub(CustomerRepositoryInterface::class);
         $customerRepository->method('getById')->willReturnCallback(function () {
@@ -147,11 +150,11 @@ class AdminCertificateDeleteTest extends TestCase
             $certificates ?? $this->repository(),
             $this->resolver(),
             new TaxCloudCustomerIdentity(),
-            $this->createStub(CertificateAttachment::class)
+            $attachment ?? $this->createStub(CertificateAttachment::class)
         );
     }
 
-    public function testTheCertificateInUseCannotBeDeleted(): void
+    public function testDeletingTheCertificateInUseAlsoClearsTheAttachment(): void
     {
         $this->attached = 'cert-tx';
         $this->params['certificate_id'] = 'cert-tx';
@@ -160,15 +163,42 @@ class AdminCertificateDeleteTest extends TestCase
         $deleting->method('forCustomer')->willReturnCallback(function () {
             return $this->held;
         });
-        $deleting->expects($this->never())->method('delete');
+        $deleting->expects($this->once())->method('delete');
 
-        $this->controller($deleting)->execute();
+        $attachment = $this->createMock(CertificateAttachment::class);
+        $attachment->expects($this->once())
+            ->method('set')
+            ->with($this->anything(), '', 'alice', 1)
+            ->willReturn(true);
 
-        $this->assertFalse($this->answer['success']);
-        $this->assertStringContainsString(
-            'Stop using',
-            $this->answer['message'],
-            'the refusal must name the control that unblocks it, or it is a dead end'
+        $this->controller($deleting, $attachment)->execute();
+
+        $this->assertTrue($this->answer['success']);
+        $this->assertTrue(
+            $this->answer['detached'],
+            'an attachment left naming a deleted certificate exempts nothing and blocks the next one'
+        );
+    }
+
+    public function testARefusedDeletionLeavesTheAttachmentAlone(): void
+    {
+        $this->attached = 'cert-tx';
+        $this->params['certificate_id'] = 'cert-tx';
+
+        $deleting = $this->createStub(CertificateRepository::class);
+        $deleting->method('forCustomer')->willReturnCallback(function () {
+            return $this->held;
+        });
+        $deleting->method('delete')->willThrowException(new \RuntimeException('TaxCloud said no'));
+
+        $attachment = $this->createMock(CertificateAttachment::class);
+        $attachment->expects($this->never())->method('set');
+
+        $this->controller($deleting, $attachment)->execute();
+
+        $this->assertFalse(
+            $this->answer['success'],
+            'a certificate that still exists must stay in force'
         );
     }
 
@@ -183,15 +213,16 @@ class AdminCertificateDeleteTest extends TestCase
         });
         $deleting->expects($this->once())->method('delete');
 
-        $this->controller($deleting)->execute();
+        $attachment = $this->createMock(CertificateAttachment::class);
+        $attachment->expects($this->never())->method('set');
+
+        $this->controller($deleting, $attachment)->execute();
 
         $this->assertTrue($this->answer['success']);
     }
 
-    public function testAnotherCertificateIsStillDeletableWhileOneIsInUse(): void
+    public function testDeletingAnotherCertificateKeepsTheOneInUse(): void
     {
-        // Only the certificate in force is protected — the rule is about the
-        // consequence of deleting THAT one, not about locking the whole set.
         $this->held[] = new Certificate('cert-tx-2', '7', ['TX'], false, false);
         $this->attached = 'cert-tx';
         $this->params['certificate_id'] = 'cert-tx-2';
@@ -202,7 +233,10 @@ class AdminCertificateDeleteTest extends TestCase
         });
         $deleting->expects($this->once())->method('delete');
 
-        $this->controller($deleting)->execute();
+        $attachment = $this->createMock(CertificateAttachment::class);
+        $attachment->expects($this->never())->method('set');
+
+        $this->controller($deleting, $attachment)->execute();
 
         $this->assertTrue($this->answer['success']);
     }
@@ -215,10 +249,5 @@ class AdminCertificateDeleteTest extends TestCase
         $this->controller()->execute();
 
         $this->assertFalse($this->answer['success']);
-        $this->assertStringNotContainsString(
-            'Stop using',
-            $this->answer['message'],
-            'ownership and in-use are different refusals and must not be conflated'
-        );
     }
 }
