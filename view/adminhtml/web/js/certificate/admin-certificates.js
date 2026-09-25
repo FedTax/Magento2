@@ -182,26 +182,17 @@ define([
         }
 
         /**
-         * Delete, unless this is the certificate in use.
-         *
-         * Offered-then-refused is a worse experience than not offered: the
-         * endpoint rejects it either way, so the button says why up front. The
-         * order matters — deleting is irreversible at TaxCloud, and doing it to
-         * the certificate in force would silently stop the customer being exempt.
+         * Delete, including the certificate in use: deleting that one also
+         * stops it applying, which the confirmation says before it happens.
          *
          * @param {Object} certificate
          * @param {Boolean} isAttached
          * @return {String}
          */
         function deleteCell(certificate, isAttached) {
-            if (isAttached) {
-                return '<button type="button" class="action-secondary" disabled ' +
-                    'title="' + escapeHtml($t('In use — choose "Stop using" before deleting.')) + '">' +
-                    escapeHtml($t('Delete')) + '</button>';
-            }
-
             return '<button type="button" class="action-secondary" data-delete="' +
-                escapeHtml(certificate.certificateId) + '">' + escapeHtml($t('Delete')) + '</button>';
+                escapeHtml(certificate.certificateId) + '"' +
+                (isAttached ? ' data-in-use="1"' : '') + '>' + escapeHtml($t('Delete')) + '</button>';
         }
 
         /**
@@ -492,11 +483,14 @@ define([
         });
 
         root.on('click', '[data-delete]', function () {
-            var certificateId = $(this).data('delete');
+            var certificateId = $(this).data('delete'),
+                question = $(this).data('in-use')
+                    ? $t('This certificate is in use for this customer. Deleting it also stops it applying, so their orders will be taxed. Delete it? It cannot be undone.')
+                    : $t('Delete this certificate? It cannot be undone.');
 
             // Deleting is not reversible: TaxCloud offers no way to restore a
             // certificate, and the customer stops being exempt immediately.
-            if (!window.confirm($t('Delete this certificate? It cannot be undone.'))) {
+            if (!window.confirm(question)) {
                 return;
             }
 

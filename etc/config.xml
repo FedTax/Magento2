@@ -27,6 +27,9 @@
         <guest_customer_id>-1</guest_customer_id>
         <!-- Off until a merchant deliberately enables it: see system.xml. -->
         <exemptions_enabled>0</exemptions_enabled>
+        <!-- Customer self-service: off, and no group nominated. See system.xml. -->
+        <customer_certificates_enabled>0</customer_certificates_enabled>
+        <customer_certificate_groups></customer_certificate_groups>
         <default_tic>00000</default_tic>
         <shipping_tic>11010</shipping_tic>
         <cache_lifetime>86400</cache_lifetime>

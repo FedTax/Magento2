@@ -89,6 +89,8 @@ marked *conditional* only appear once a related setting is turned on.
 | [Calculate Canadian Tax](#calculate-canadian-tax) | Select | `No` | Yes, No (conditional) |
 | [Check Canada Access](#check-canada-access) | Button | — | — (conditional) |
 | [Enable Exemption Certificates](#enable-exemption-certificates) | Select | `No` | Yes, No |
+| [Let Customers Manage Certificates](#let-customers-manage-certificates) | Select | `No` | Yes, No (conditional) |
+| [Customer Groups That Can Manage Certificates](#customer-groups-that-can-manage-certificates) | Multiselect | — | Your signed-in customer groups (conditional) |
 | [Company Name](#company-name) | Text | — | Your business name (conditional) |
 | [Collect Retail Delivery Fee](#colorado-retail-delivery-fee) | Select | `Disable` | Enable, Disable (Colorado Retail Delivery Fee group) |
 | [Motor-Vehicle Delivery Methods](#colorado-retail-delivery-fee) | Multiselect | — | Your shipping methods (conditional) |
@@ -506,11 +508,39 @@ Turning it on adds:
 - A **TaxCloud Exemption Certificates** tab on the customer edit page in the
   admin.
 - A **Tax Exemption Certificates** section in the customer's My Account.
+- The two settings below, for letting trusted customers manage their own
+  certificates.
 
 !!! warning "You remain responsible for the certificate being valid"
     TaxCloud does not verify exemption claims. Turning this on means some
     customers stop being charged tax, and in an audit it is on you to produce a
     valid signed certificate for each of them.
+
+---
+
+### Let Customers Manage Certificates
+
+**Type:** Select · **Default:** `No` · **Values:** `Yes`, `No` · **Shown when:**
+*Enable Exemption Certificates* is `Yes`
+
+Lets customers in the groups chosen below add their own exemption certificates
+in My Account and choose which one is in use. Leaving it `No` keeps certificates
+in administrators' hands: customers can review and remove theirs, nothing more.
+
+!!! warning "Their orders stop being taxed as soon as they add a certificate"
+    Nobody reviews a customer's certificate before it applies. See
+    [Letting trusted customers manage certificates](exemptions-setup.md#letting-trusted-customers-manage-certificates).
+
+---
+
+### Customer Groups That Can Manage Certificates
+
+**Type:** Multiselect · **Default:** none · **Shown when:** *Let Customers
+Manage Certificates* is `Yes`
+
+The customer groups whose members may manage their own certificates. Only
+signed-in groups are listed. With none selected, nobody can — even with the
+setting above at `Yes`.
 
 ---
 

@@ -86,6 +86,10 @@ class Listing extends AbstractCustomerAction implements HttpGetActionInterface
         return $this->json([
             'success' => true,
             'certificates' => $offered,
+            // Shown to every customer, so they can tell holding a certificate
+            // from having it apply. Only the nominated may change it.
+            'attached' => $this->resolver->attachedCertificateId($customer),
+            'canManage' => $this->mayManage($customer),
         ]);
     }
 }

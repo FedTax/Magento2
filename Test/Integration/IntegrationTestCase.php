@@ -137,6 +137,15 @@ abstract class IntegrationTestCase extends TestCase
         \Taxcloud\Magento2\Model\Canada\CanadaAccessChecker::class,
         \Taxcloud\Magento2\Observer\Adminhtml\CheckCanadaAccessOnSave::class,
         \Taxcloud\Magento2\Model\Diagnostics\Bundle\Probe\ApiProbe::class,
+        // The certificate stack reaches the router through a PROXY of its own
+        // (di.xml, on CertificateRepository), with the same trap as the
+        // gateway proxy above: left in place, it keeps serving the router — and
+        // the REST double — of whichever test built it first. Everything that
+        // holds the repository goes with it.
+        'Taxcloud\\Magento2\\Model\\Gateway\\Router\\Proxy',
+        \Taxcloud\Magento2\Model\Certificate\CertificateRepository::class,
+        \Taxcloud\Magento2\Model\Certificate\CertificateResolver::class,
+        \Taxcloud\Magento2\Model\Certificate\CertificateAttachment::class,
     ];
 
     /**

@@ -18,6 +18,9 @@ With exemptions enabled:
   [How an order becomes exempt](how-an-order-becomes-exempt.md).
 - Customers see their own certificates in My Account — see
   [What the customer sees](customer-account.md).
+- Optionally, customers in groups you trust can add their own certificates and
+  choose which one is in use — see
+  [Letting trusted customers manage certificates](#letting-trusted-customers-manage-certificates).
 
 Leaving it off changes nothing about how your store works today.
 
@@ -31,7 +34,7 @@ Leaving it off changes nothing about how your store works today.
    claimed from, so it should match what is on your TaxCloud account.
 3. Save.
 
-![Enable Exemption Certificates set to Yes, revealing the Company Name field beneath it](images/exemptions-settings.png)
+![Enable Exemption Certificates set to Yes, revealing Let Customers Manage Certificates and the Company Name field beneath it](images/exemptions-settings.png)
 
 ## Decide who can manage certificates
 
@@ -48,6 +51,43 @@ customer editing.
     someone attach a certificate that exempts a customer's orders entirely.
     Give it to the people who are accountable for your tax position, not to
     everyone who edits customer records.
+
+## Letting trusted customers manage certificates
+
+By default only an administrator can create a certificate or choose which one
+is in use. If you have buyers you trust to keep their own paperwork — a
+wholesale or reseller customer group, say — you can let them do it themselves
+from My Account.
+
+*Stores → Configuration → Sales → Tax →* **TaxCloud Settings**
+
+1. Set **Let Customers Manage Certificates** to `Yes`.
+2. In **Customer Groups That Can Manage Certificates**, select the groups you
+   trust. With none selected, nobody can.
+3. Save.
+
+![Let Customers Manage Certificates set to Yes, with the Wholesale group selected beneath it](images/exemptions-self-service-settings.png)
+
+Customers in those groups can then add certificates, choose which certificate
+is in use, and refresh their list — see
+[What the customer sees](customer-account.md). Everyone else keeps the
+read-only view.
+
+!!! warning "A trusted customer can stop paying tax whenever they choose"
+    A customer who adds a certificate for a state stops being charged tax there
+    on their next order, with no one reviewing it first. They must confirm the
+    claim is accurate before submitting, and every change is in the
+    [TaxCloud log](logs.md), but you are still the one who must produce a valid
+    signed certificate in an audit. Nominate only groups whose members you
+    would trust to file their own paperwork, and collect the signed certificates.
+
+Both settings are per store view. A customer in a nominated group can manage
+certificates only on the stores where you nominated that group.
+
+Taking a customer out of a nominated group, or turning the setting off, removes
+the controls on their next page view. It does not undo anything: a certificate
+they put in use stays in use until you change it on the
+[admin panel](managing-certificates.md).
 
 ## What you are taking on
 

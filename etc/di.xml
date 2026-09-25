@@ -200,6 +200,9 @@
     </arguments>
   </type>
 
+  <!-- One flag shared by the attachment writer and the repository guard. -->
+  <type name="Taxcloud\Magento2\Model\Certificate\AttachmentWriteScope" shared="true"/>
+
   <type name="Taxcloud\Magento2\Model\Certificate\CertificateResolver">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
@@ -215,6 +218,14 @@
     <plugin name="taxcloud_guard_customer_identity"
             type="Taxcloud\Magento2\Plugin\Customer\GuardTaxCloudIdentity"
             sortOrder="10"/>
+    <!--
+      The attached certificate likewise: only CertificateAttachment, whose
+      callers check who is asking, may change it from a customer-facing
+      request or from an admin without the certificate permission.
+    -->
+    <plugin name="taxcloud_guard_certificate_attachment"
+            type="Taxcloud\Magento2\Plugin\Customer\GuardCertificateAttachment"
+            sortOrder="20"/>
   </type>
 
   <!--

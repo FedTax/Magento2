@@ -2,18 +2,30 @@
 /**
  * Taxcloud_Magento2 - exemption certificates in My Account.
  *
+ * Luma's own fieldset / field / control markup, so the form reads as part of
+ * the account area. The add form and the Refresh button render only for
+ * customers the store has nominated; the endpoints refuse everyone else
+ * regardless.
+ *
  * @var \Taxcloud\Magento2\Block\Certificate\Manage $block
  * @var \Magento\Framework\Escaper $escaper
  */
+$canManage = $block->canManage();
 ?>
 <div class="block taxcloud-certificates" data-taxcloud-certificates>
     <div class="block-title"><strong><?= $escaper->escapeHtml(__('Tax Exemption Certificates')) ?></strong></div>
 
     <div class="block-content">
         <p>
-            <?= $escaper->escapeHtml(__(
-                'These are the exemption certificates held for you. They apply automatically when you ship to a state they cover.'
-            )) ?>
+            <?php if ($canManage): ?>
+                <?= $escaper->escapeHtml(__(
+                    'These are your exemption certificates. The one marked "In use" applies automatically when you ship to a state it covers. Exemptions apply to US destinations only.'
+                )) ?>
+            <?php else: ?>
+                <?= $escaper->escapeHtml(__(
+                    'These are the exemption certificates held for you. The one marked "In use" applies automatically when you ship to a state it covers.'
+                )) ?>
+            <?php endif; ?>
         </p>
 
         <div data-role="status"></div>
@@ -25,12 +37,179 @@
                 <th scope="col" class="col"><?= $escaper->escapeHtml(__('Applies in')) ?></th>
                 <th scope="col" class="col"><?= $escaper->escapeHtml(__('Issued to')) ?></th>
                 <th scope="col" class="col"><?= $escaper->escapeHtml(__('Reason')) ?></th>
+                <th scope="col" class="col"><?= $escaper->escapeHtml(__('In use')) ?></th>
                 <th scope="col" class="col"><?= $escaper->escapeHtml(__('Actions')) ?></th>
             </tr>
             </thead>
             <tbody data-role="certificate-rows"></tbody>
         </table>
 
+        <?php if ($canManage):
+            $states = $block->getUsStates();
+            $options = $block->getFormOptions();
+            $prefill = $block->getPrefill();
+            ?>
+            <div class="actions-toolbar">
+                <div class="primary">
+                    <button type="button" class="action primary" data-role="show-add">
+                        <span><?= $escaper->escapeHtml(__('Add Certificate')) ?></span>
+                    </button>
+                </div>
+                <div class="secondary">
+                    <button type="button" class="action" data-role="refresh">
+                        <span><?= $escaper->escapeHtml(__('Refresh from TaxCloud')) ?></span>
+                    </button>
+                </div>
+            </div>
+
+            <!--
+              A real form, so Magento's validation applies. The required fields
+              mirror CertificateFormReader exactly, and the attestation is
+              checked again by the server.
+            -->
+            <form class="form" data-role="add-form" action="#" method="post" style="display:none;" novalidate>
+                <fieldset class="fieldset">
+                    <legend class="legend"><span><?= $escaper->escapeHtml(__('New exemption certificate')) ?></span></legend>
+                    <p class="note">
+                        <?= $escaper->escapeHtml(__(
+                            'The certificate applies to all of your future orders shipped to the states you choose. Enter the details exactly as they appear on the signed exemption certificate you hold.'
+                        )) ?>
+                    </p>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_states"><span><?= $escaper->escapeHtml(__('Applies in')) ?></span></label>
+                        <div class="control">
+                            <select id="tc_cert_states" name="tc_states" multiple size="8" data-field="states"
+                                    data-validate="{required:true}">
+                                <?php foreach ($states as $code => $name): ?>
+                                    <option value="<?= $escaper->escapeHtmlAttr($code) ?>"><?= $escaper->escapeHtml($name) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="note">
+                                <a href="#" data-role="states-all"><?= $escaper->escapeHtml(__('Select all states')) ?></a>
+                                &middot;
+                                <a href="#" data-role="states-none"><?= $escaper->escapeHtml(__('Clear')) ?></a>
+                            </div>
+                            <div class="note"><?= $escaper->escapeHtml(__('Choose every state your certificate covers.')) ?></div>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_firstname"><span><?= $escaper->escapeHtml(__('Purchaser first name')) ?></span></label>
+                        <div class="control">
+                            <input id="tc_cert_firstname" type="text" class="input-text" name="tc_firstname" data-field="firstName"
+                                   value="<?= $escaper->escapeHtmlAttr($prefill['firstName']) ?>" data-validate="{required:true}"/>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_lastname"><span><?= $escaper->escapeHtml(__('Purchaser last name')) ?></span></label>
+                        <div class="control">
+                            <input id="tc_cert_lastname" type="text" class="input-text" name="tc_lastname" data-field="lastName"
+                                   value="<?= $escaper->escapeHtmlAttr($prefill['lastName']) ?>" data-validate="{required:true}"/>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_address1"><span><?= $escaper->escapeHtml(__('Street address')) ?></span></label>
+                        <div class="control">
+                            <input id="tc_cert_address1" type="text" class="input-text" name="tc_address1" data-field="address1"
+                                   value="<?= $escaper->escapeHtmlAttr($prefill['address1']) ?>" data-validate="{required:true}"/>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_city"><span><?= $escaper->escapeHtml(__('City')) ?></span></label>
+                        <div class="control">
+                            <input id="tc_cert_city" type="text" class="input-text" name="tc_city" data-field="city"
+                                   value="<?= $escaper->escapeHtmlAttr($prefill['city']) ?>" data-validate="{required:true}"/>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_state"><span><?= $escaper->escapeHtml(__('State')) ?></span></label>
+                        <div class="control">
+                            <select id="tc_cert_state" name="tc_state" data-field="state" data-validate="{required:true}">
+                                <option value=""><?= $escaper->escapeHtml(__('Please select')) ?></option>
+                                <?php foreach ($states as $code => $name): ?>
+                                    <option value="<?= $escaper->escapeHtmlAttr($code) ?>"<?= $code === $prefill['state'] ? ' selected' : '' ?>><?= $escaper->escapeHtml($name) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_zip"><span><?= $escaper->escapeHtml(__('ZIP')) ?></span></label>
+                        <div class="control">
+                            <input id="tc_cert_zip" type="text" class="input-text" name="tc_zip" data-field="zip"
+                                   value="<?= $escaper->escapeHtmlAttr($prefill['zip']) ?>" data-validate="{required:true}"/>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_businesstype"><span><?= $escaper->escapeHtml(__('Type of business')) ?></span></label>
+                        <div class="control">
+                            <select id="tc_cert_businesstype" name="tc_businesstype" data-field="businessType">
+                                <?php foreach ($options['businessTypes'] as $value => $label): ?>
+                                    <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml(__($label)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="field required">
+                        <label class="label" for="tc_cert_reason"><span><?= $escaper->escapeHtml(__('Reason for exemption')) ?></span></label>
+                        <div class="control">
+                            <select id="tc_cert_reason" name="tc_reason" data-field="reason">
+                                <?php foreach ($options['reasons'] as $value => $label): ?>
+                                    <option value="<?= $escaper->escapeHtmlAttr($value) ?>"><?= $escaper->escapeHtml(__($label)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="note">
+                                <?= $escaper->escapeHtml(__('Not sure which applies?')) ?>
+                                <a href="<?= $escaper->escapeUrl($block->getGuidanceUrl()) ?>" target="_blank" rel="noopener noreferrer">
+                                    <?= $escaper->escapeHtml(__('TaxCloud\'s guidance on exemption certificates')) ?>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label class="label" for="tc_cert_reasondesc"><span><?= $escaper->escapeHtml(__('Description (optional)')) ?></span></label>
+                        <div class="control">
+                            <input id="tc_cert_reasondesc" type="text" class="input-text" name="tc_reasondesc" data-field="reasonDescription"
+                                   maxlength="<?= (int) $block->getReasonDescriptionLimit() ?>"/>
+                            <div class="note">
+                                <?= $escaper->escapeHtml(__('Up to %1 characters.', $block->getReasonDescriptionLimit())) ?>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field choice required">
+                        <input id="tc_cert_attestation" type="checkbox" class="checkbox" name="tc_attestation" value="1"
+                               data-role="attestation" data-validate="{required:true}"/>
+                        <label class="label" for="tc_cert_attestation">
+                            <span><?= $escaper->escapeHtml(__(
+                                'I certify that this exemption claim is accurate, and that I will provide the signed exemption certificate on request. I understand that I may be liable for any tax not charged because of it.'
+                            )) ?></span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <div class="actions-toolbar">
+                    <div class="primary">
+                        <button type="button" class="action submit primary" data-role="save">
+                            <span><?= $escaper->escapeHtml(__('Create Certificate')) ?></span>
+                        </button>
+                    </div>
+                    <div class="secondary">
+                        <button type="button" class="action back" data-role="cancel">
+                            <span><?= $escaper->escapeHtml(__('Cancel')) ?></span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        <?php endif; ?>
     </div>
 </div>
 

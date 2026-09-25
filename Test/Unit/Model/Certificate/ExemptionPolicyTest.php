@@ -40,14 +40,17 @@ class ExemptionPolicyTest extends TestCase
         $config = $this->createStub(TaxcloudConfig::class);
         $config->method('isEnabled')->willReturn($settings['module'] ?? true);
         $config->method('areExemptionsEnabled')->willReturn($settings['exemptions'] ?? false);
+        $config->method('areCustomerCertificatesEnabled')->willReturn($settings['selfService'] ?? false);
+        $config->method('getCustomerCertificateGroups')->willReturn($settings['groups'] ?? []);
 
         return new ExemptionPolicy($config);
     }
 
-    private function customer($entityId = 1)
+    private function customer($entityId = 1, $groupId = 1)
     {
         $customer = $this->createStub(\Magento\Customer\Api\Data\CustomerInterface::class);
         $customer->method('getId')->willReturn($entityId);
+        $customer->method('getGroupId')->willReturn($groupId);
 
         return $customer;
     }
@@ -80,5 +83,73 @@ class ExemptionPolicyTest extends TestCase
 
         $this->assertFalse($policy->isVisibleTo(null));
         $this->assertFalse($policy->isVisibleTo($this->customer(null)));
+    }
+
+    // ─── who may manage their own certificates ───────────────────────────
+
+    public function testNobodyManagesByDefault()
+    {
+        $this->assertFalse(
+            $this->policy(['exemptions' => true])->mayManage($this->customer()),
+            'turning exemptions on must not, by itself, let anyone stop paying tax'
+        );
+    }
+
+    public function testANominatedGroupMayManage()
+    {
+        $policy = $this->policy(['exemptions' => true, 'selfService' => true, 'groups' => [1, 3]]);
+
+        $this->assertTrue($policy->mayManage($this->customer(1, 3)));
+    }
+
+    public function testAGroupThatIsNotNominatedMayNot()
+    {
+        $policy = $this->policy(['exemptions' => true, 'selfService' => true, 'groups' => [3]]);
+
+        $this->assertFalse($policy->mayManage($this->customer(1, 1)));
+    }
+
+    public function testSwitchedOnWithNoGroupMeansNobody()
+    {
+        $policy = $this->policy(['exemptions' => true, 'selfService' => true, 'groups' => []]);
+
+        $this->assertFalse($policy->mayManage($this->customer()));
+    }
+
+    public function testTheSwitchOverridesTheGroupList()
+    {
+        $policy = $this->policy(['exemptions' => true, 'selfService' => false, 'groups' => [1]]);
+
+        $this->assertFalse($policy->mayManage($this->customer()));
+    }
+
+    public function testExemptionsOffMeansNobodyManages()
+    {
+        $policy = $this->policy(['exemptions' => false, 'selfService' => true, 'groups' => [1]]);
+
+        $this->assertFalse($policy->mayManage($this->customer()));
+    }
+
+    public function testGuestsNeverManage()
+    {
+        // Group 0 is NOT LOGGED IN; even nominated by a crafted config, a
+        // visitor without an account has nothing to manage.
+        $policy = $this->policy(['exemptions' => true, 'selfService' => true, 'groups' => [0, 1]]);
+
+        $this->assertFalse($policy->mayManage(null));
+        $this->assertFalse($policy->mayManage($this->customer(null, 0)));
+    }
+
+    public function testTheNominationIsResolvedForTheStoreAsked()
+    {
+        $config = $this->createStub(TaxcloudConfig::class);
+        $config->method('isEnabled')->willReturn(true);
+        $config->method('areExemptionsEnabled')->willReturn(true);
+        $config->method('areCustomerCertificatesEnabled')->willReturnMap([[1, true], [2, false]]);
+        $config->method('getCustomerCertificateGroups')->willReturnMap([[1, [1]], [2, [1]]]);
+        $policy = new ExemptionPolicy($config);
+
+        $this->assertTrue($policy->mayManage($this->customer(), 1));
+        $this->assertFalse($policy->mayManage($this->customer(), 2));
     }
 }

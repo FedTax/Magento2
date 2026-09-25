@@ -6,6 +6,21 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Added
 
+- **Customers in trusted groups can manage their own exemption certificates.**
+  Two new store-scoped settings, **Let Customers Manage Certificates** (default
+  `No`) and **Customer Groups That Can Manage Certificates** (default none),
+  let nominated customer groups add certificates from My Account, choose which
+  one is in use, and refresh them from TaxCloud. Adding requires the customer
+  to attest the claim; a new certificate is put in use when none is. Every
+  customer change is logged as the customer's. The TaxCloud Customer ID stays
+  admin-only. All customers now see which certificate is in use.
+- **Test coverage for certificate self-service.** Unit tests throughout;
+  integration tests driving the storefront controllers over a recorded v3
+  transport (per-store nomination, create / switch / delete, stale
+  attachments, the repository guard); and an e2e `self-service-on` pass in
+  which a seeded Wholesale customer adds a certificate, checks out exempt,
+  switches it off and on, removes it and is taxed again.
+
 - **Canadian tax (opt-in, V3 REST only).** A new **Calculate Canadian Tax**
   setting (default `No`, store-scoped) prices orders shipped to Canada — GST,
   HST, PST and QST — and files, refunds and cancels them in TaxCloud like US
@@ -61,11 +76,25 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Changed
 
+- **Deleting the certificate in use from the admin also stops it applying**,
+  instead of being refused until it was detached.
+
 - **V3 addresses state their country.** Every origin and destination sent over
   V3 REST (carts, orders, address verification) now carries `countryCode`
   (`US` or `CA`). Cached V3 lookups miss once after upgrading and repopulate.
 
 ### Fixed
+
+- **The attached certificate could be set around certificate management.** It
+  is a customer attribute, so the customer REST/GraphQL APIs accepted it in
+  `custom_attributes`, and the admin customer form carried it for
+  administrators without the certificate permission. A repository guard now
+  keeps the stored value unless the change comes through certificate
+  management, and logs the refusal.
+- **Removing the certificate in use from My Account left it attached.** The
+  customer was correctly taxed, but the next certificate created for them was
+  not put in use. Deletion now clears the attachment, and an attachment to a
+  certificate that no longer exists no longer blocks a new one.
 
 - **A repeat capture over V1 SOAP is recognized as the duplicate it is.** Only
   one of TaxCloud's two refusals ("already been marked as authorized") counted

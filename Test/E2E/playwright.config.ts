@@ -80,6 +80,7 @@ export default defineConfig({
       // run.
       testIgnore: [
         /specs\/exemptions-on\//,
+        /specs\/self-service-on\//,
         /specs\/colorado-on\//,
         /specs\/canada-on\//,
         /specs\/docs\//,
@@ -140,6 +141,27 @@ export default defineConfig({
       testMatch: /exemptions-on\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
+    // Customer certificate self-service ON for the Wholesale group. After the
+    // exemptions pass and before Colorado, so no two state-flipping passes
+    // interleave; restored by its own teardown.
+    {
+      name: 'self-service-on-setup',
+      testMatch: /self-service-on\.setup\.ts/,
+      dependencies: ['exemptions-on'],
+      teardown: 'self-service-on-teardown',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'self-service-on',
+      testMatch: /specs\/self-service-on\/.*\.spec\.ts/,
+      dependencies: ['self-service-on-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'self-service-on-teardown',
+      testMatch: /self-service-on\.teardown\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
     // Colorado Retail Delivery Fee switched ON (with flat rate mapped as a
     // motor-vehicle method). Off is the seeded/production default the other
     // checkout specs rely on — an extra $0.31 row would shift their golden
@@ -147,9 +169,9 @@ export default defineConfig({
     {
       name: 'colorado-on-setup',
       testMatch: /colorado-on\.setup\.ts/,
-      // After the exemptions pass, so the two state-flipping passes never
+      // After the self-service pass, so the state-flipping passes never
       // interleave (same reasoning as exemptions-on-setup's dependency).
-      dependencies: ['exemptions-on'],
+      dependencies: ['self-service-on'],
       teardown: 'colorado-on-teardown',
       use: { ...devices['Desktop Chrome'] },
     },

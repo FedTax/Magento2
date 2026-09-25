@@ -152,19 +152,8 @@ export class CustomerCertificatesPage {
         return;
       }
 
-      // The certificate in use cannot be deleted — the endpoint refuses it, so
-      // that the customer never silently stops being exempt. Cleanup has to
-      // stop using it first, which matters here because creating a certificate
-      // for a customer who has none ATTACHES it: the thing this suite makes is
-      // routinely the thing in force.
-      const attached = await this.attachedId();
-      const ids = await row.first().locator('code').allInnerTexts();
-
-      if (attached !== '' && ids.some((id) => id.trim() === attached)) {
-        await this.clearAttachment();
-        continue;
-      }
-
+      // Deleting the certificate in use also clears the attachment, so no
+      // detach step is needed; callers that care restore the one they found.
       await row.first().locator('[data-delete]').click();
       await this.settle();
     }
