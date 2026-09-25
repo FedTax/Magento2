@@ -20,6 +20,7 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\ProductTicService;
@@ -291,6 +292,42 @@ class RequestBuilderTest extends TestCase
         $this->assertSame('CA', $destination['Country']);
         $this->assertSame('M5H 2N2', $destination['PostalCode']);
         $this->assertSame('', $destination['Zip5']);
+    }
+
+    /**
+     * The estimate placeholder belongs to quote lookups only. An order is
+     * filed against its real address: a missing street or city stays empty
+     * rather than being papered over, on both the US and Canadian paths.
+     *
+     * @dataProvider orderAddressWithoutStreetOrCityProvider
+     */
+    #[DataProvider('orderAddressWithoutStreetOrCityProvider')]
+    public function testOrderDestinationNeverCarriesTheEstimatePlaceholder(
+        string $countryId,
+        string $postcode,
+        string $regionCode
+    ) {
+        $address = $this->createMock(OrderAddress::class);
+        $address->method('getPostcode')->willReturn($postcode);
+        $address->method('getCountryId')->willReturn($countryId);
+        $address->method('getStreet')->willReturn(null);
+        $address->method('getCity')->willReturn(null);
+        $address->method('getRegionCode')->willReturn($regionCode);
+
+        $destination = $this->builder->buildDestinationFromOrder($this->orderWith($address), true);
+
+        $this->assertIsArray($destination);
+        $this->assertFalse(EstimateAddress::isEstimate($destination));
+        $this->assertSame('', $destination['Address1']);
+        $this->assertSame('', $destination['City']);
+    }
+
+    public static function orderAddressWithoutStreetOrCityProvider(): array
+    {
+        return [
+            'US' => ['US', '30097', 'GA'],
+            'Canada' => ['CA', 'M5H 2N2', 'ON'],
+        ];
     }
 
     private function canadianOrderAddress(string $postcode, ?string $regionCode, string $countryId = 'CA')

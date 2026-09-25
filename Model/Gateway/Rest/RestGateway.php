@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Model\Gateway\Rest;
 
 use Taxcloud\Magento2\Api\GatewayInterface;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Model\Cache\ResultCache;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
@@ -233,14 +234,17 @@ class RestGateway implements GatewayInterface
             $this->tclogger->info('No region, returning 0');
             return $result;
         }
-        if (!$address->getCity()) {
-            $this->tclogger->info('No city, returning 0');
-            return $result;
-        }
 
         $destination = $isCanada
             ? $this->requestBuilder->buildCanadianDestination($address, $postalCode)
             : $this->requestBuilder->buildLookupDestination($address, $parsedZip);
+
+        // The cart-page estimator saves no street or city. TaxCloud prices by
+        // state and ZIP, so a placeholder yields a ZIP-level estimate.
+        if (EstimateAddress::isPartial($address)) {
+            $this->tclogger->info(EstimateAddress::LOG_MESSAGE);
+            $destination = EstimateAddress::fill($destination);
+        }
 
         $keyedAddressItems = [];
         /** @var \Magento\Quote\Model\Quote\Item\AbstractItem $item */

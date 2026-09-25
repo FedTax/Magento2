@@ -6,6 +6,21 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 ### Added
 
+- **Estimated tax on the cart page.** Filling in the cart page's *Estimate
+  Shipping and Tax* box (country, state, ZIP — no street or city) now shows a
+  ZIP-level tax estimate instead of no tax, on both SOAP and V3 REST and for
+  Canadian addresses on Canada-enabled stores. The lookup is sent with the
+  placeholder `ESTIMATE` in the missing street and/or city (TaxCloud prices by
+  state and ZIP), skips address verification, and is marked in the log. Always
+  on. Orders are still filed only against the real checkout address. In ZIPs
+  crossing a jurisdiction boundary the estimate can differ from the checkout
+  tax.
+- **Test coverage for cart-page estimates.** Unit tests for the estimate
+  gate, placeholder and verification skip on both transports; integration tests
+  pricing an estimator address through the real collector on SOAP, REST and a
+  Canada-enabled store (and replacing it with the full address); and an e2e
+  spec filling the cart's *Estimate Shipping and Tax* box, run in both the SOAP
+  and REST passes.
 - **Customers in trusted groups can manage their own exemption certificates.**
   Two new store-scoped settings, **Let Customers Manage Certificates** (default
   `No`) and **Customer Groups That Can Manage Certificates** (default none),

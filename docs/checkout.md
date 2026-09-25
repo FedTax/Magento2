@@ -7,22 +7,43 @@ does.
 
 Tax is calculated once there is an address to calculate it against. In practice:
 
-- **Cart page, before checkout** — no tax. There is no destination yet, so there
-  is nothing to work out.
+- **Cart page, before any address is entered** — no tax. There is no
+  destination yet, so there is nothing to work out.
+- **Cart page, once the shopper fills in *Estimate Shipping and Tax*** — an
+  estimated tax shows in the cart totals. See *Estimated tax on the cart page*,
+  below.
 - **Checkout, once a shipping address and shipping method are entered** — tax is
-  calculated and shown in the totals.
+  calculated from the full address and shown in the totals.
 - **Checkout of a download-only order, once a billing address is entered** — tax
   is calculated against the billing address. Such an order has no shipping step,
   so there is no shipping address to use.
-- **Back on the cart page afterwards** — tax now shows, because the address from
-  checkout is known.
-
-!!! note "\"Tax is missing from my cart page\""
-    This is the expected behaviour, not a fault. A shopper who lands on the cart
-    page without ever having entered an address sees no tax line.
+- **Back on the cart page afterwards** — tax shows, calculated from the address
+  given at checkout.
 
 Tax is recalculated whenever something that could change it changes: the
 address, the shipping method, quantities, a coupon.
+
+## Estimated tax on the cart page
+
+The cart page's *Estimate Shipping and Tax* box asks only for a country, a
+state (or province) and a ZIP (or postal code). That is enough for TaxCloud to
+return the rate for that ZIP, so the cart shows an estimated tax as soon as the
+shopper fills it in. You do not switch anything on for this.
+
+The estimate is based on the ZIP alone. Most ZIPs sit inside one set of tax
+jurisdictions, and there the estimate matches the tax charged at checkout. Some
+ZIPs cross a city or district boundary, and there the rate depends on which side
+of the line the street address falls. In ZIP 80020 in Colorado, for example,
+the estimate is 8.15%, while an address in Broomfield, in the same ZIP, is
+charged 7.15% at checkout. So the estimate can be a little higher or lower than
+the final figure.
+
+The tax the customer actually pays is always calculated at checkout, from the
+full shipping address they enter there. An estimate is never sent to TaxCloud
+as an order.
+
+Canadian estimates work the same way once [Canadian tax](canadian-tax.md) is
+turned on.
 
 ## What is sent to TaxCloud
 
@@ -80,6 +101,8 @@ If [Verify Address](settings.md#verify-address) is enabled, a US shipping addres
 is standardised by TaxCloud first — most usefully to get the ZIP+4 from a
 five-digit ZIP. A more precise address means a more precise rate, since
 jurisdiction boundaries do not follow five-digit ZIPs.
+
+Cart-page estimates are not verified: they have no street address to verify.
 
 Turn it off if another extension already validates addresses.
 

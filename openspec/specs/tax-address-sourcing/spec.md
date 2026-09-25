@@ -1,9 +1,7 @@
 ## Purpose
 
 Defines which address a sale is sourced to — the destination the module sends TaxCloud when it prices a cart and when it files an order — so that a sale is always quoted and filed against one address that actually exists, whatever the cart is made of.
-
 ## Requirements
-
 ### Requirement: A sale is sourced to its delivery address when one is known
 
 The destination reported to TaxCloud for a cart SHALL be the address Magento assigned the cart's items to. A cart containing any shippable line SHALL be sourced to the shipping address, and every line in it SHALL be sourced there — a non-shippable line in such a cart SHALL NOT be split out, given a destination of its own, or reported as a separate sale.
@@ -42,7 +40,7 @@ Every order-side operation that reports a destination to TaxCloud — filing the
 
 A Magento order made only of non-shippable items has no shipping address at all. Such an order SHALL therefore be filed, refunded and reversed exactly as any other order is; the absence of a shipping address SHALL NOT be treated as an absence of a destination.
 
-Resolution SHALL fail, and the operation SHALL report failure rather than substitute an invented address, only when neither address yields a usable United States destination — no address at all, a non-US country, or an unparseable postal code.
+A usable destination is a United States address with a valid ZIP code, or — only when the order's store has Canadian tax in effect (see the `canada-tax` capability) — a Canadian address with a province and a valid Canadian postal code. Resolution SHALL fail, and the operation SHALL report failure rather than substitute an invented address, only when the resolved address is not a usable destination — no address at all, a country that is not usable for the order's store, a missing Canadian province, or an unparseable postal code.
 
 #### Scenario: A digital-only order is filed with TaxCloud
 - **WHEN** an order made only of virtual or downloadable items is captured
@@ -60,8 +58,12 @@ Resolution SHALL fail, and the operation SHALL report failure rather than substi
 - **WHEN** an exempt customer places an order made only of non-shippable items
 - **THEN** the certificate is matched against the state of the billing address
 
+#### Scenario: A Canadian order resolves when its store enables Canadian tax
+- **WHEN** an order shipped to a Quebec address is captured in a store with Canadian tax in effect
+- **THEN** the destination is the Quebec shipping address with its province, postal code and country
+
 #### Scenario: No usable address fails loudly
-- **WHEN** an order has neither a shipping nor a billing address that yields a valid US destination
+- **WHEN** an order has neither a shipping nor a billing address that yields a usable destination for its store
 - **THEN** no destination is produced, the operation reports failure, and the reason is logged
 
 ### Requirement: An order is filed against the address it was quoted against
@@ -91,3 +93,4 @@ Without this, a digital order correctly sourced to a billing address and a physi
 #### Scenario: An unusable address is visible in the log
 - **WHEN** neither of an order's addresses yields a valid US destination
 - **THEN** the log records that no destination could be resolved, and identifies the order
+

@@ -51,9 +51,27 @@ Canadian postal code, such as `M5H 2N2`.
 
 ## No tax on the cart page
 
-Expected. Until a shopper has entered a shipping address there is nothing to
-calculate against. Tax appears once they reach checkout and give an address.
-See [At checkout](checkout.md).
+Expected until the shopper gives a destination. Once they fill in *Estimate
+Shipping and Tax* on the cart page with a country, state and ZIP, an estimated
+tax appears. If it still does not:
+
+- **Is the destination somewhere you collect?** A state you do not collect in
+  shows no tax, exactly as it would at checkout.
+- **Is the ZIP valid for the state?** A ZIP that does not belong to the chosen
+  state cannot be priced. The reason is recorded in [the log](logs.md).
+- **Is it a Canadian address?** Canadian estimates need [Canadian
+  tax](canadian-tax.md) turned on.
+
+See [Estimated tax on the cart
+page](checkout.md#estimated-tax-on-the-cart-page).
+
+## The cart estimate differs from the tax at checkout
+
+Expected in some ZIPs. The cart estimate is based on the ZIP alone; checkout
+uses the full street address. Where a ZIP crosses a city or district boundary,
+the two can differ. The amount charged at checkout is the correct one. See
+[Estimated tax on the cart
+page](checkout.md#estimated-tax-on-the-cart-page).
 
 ## A download-only order was taxed in the wrong state
 
