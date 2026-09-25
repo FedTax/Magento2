@@ -38,6 +38,15 @@ Stores on V3 REST fire a parallel set, carrying v3 JSON shapes:
 Context objects are the same as on the SOAP events. V3 payloads never contain
 credentials — authentication is in HTTP headers.
 
+!!! note "Cart-page estimates carry a placeholder address"
+    A lookup for a quote address with no street and/or city (the cart page's
+    *Estimate Shipping and Tax* box) is sent with the literal `ESTIMATE` in
+    whichever of the street and city is missing — `Address1`/`City` on the SOAP
+    events, `line1`/`city` on the REST events. TaxCloud prices by state and ZIP,
+    so the rate is unaffected. The `$address` context object is the real quote
+    address. Such a destination is not address-verified, and never appears in a
+    capture or refund payload.
+
 !!! warning "Observers are API-specific"
     An observer on the SOAP events stops applying to a store switched to V3
     REST. Subscribe to the REST events and handle the v3 shapes. See

@@ -19,6 +19,7 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 
@@ -109,6 +110,12 @@ class Address implements ObserverInterface
             return;
         }
 
+        // A placeholder street/city can never verify: don't spend a call on it.
+        if (EstimateAddress::isEstimate($params['destination'] ?? [])) {
+            $this->tclogger->debug('Estimate destination, skipping address verification');
+            return;
+        }
+
         try {
             $result = $this->tcapi->verifyAddress($params['destination'], $storeId);
         } catch (\Throwable $e) {
@@ -147,6 +154,11 @@ class Address implements ObserverInterface
             // TaxCloud verifies US addresses only (a Canadian one is answered
             // "unsupported country code"): leave anything else as entered.
             if (($destination['countryCode'] ?? 'US') !== 'US') {
+                continue;
+            }
+            // A placeholder street/city can never verify: don't spend a call on it.
+            if (EstimateAddress::isEstimate($destination)) {
+                $this->tclogger->debug('Estimate destination, skipping address verification');
                 continue;
             }
 
