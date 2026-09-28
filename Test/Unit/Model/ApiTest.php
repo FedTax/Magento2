@@ -20,6 +20,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model;
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Test\Unit\Double as Dbl;
 use Magento\Framework\App\Config\ScopeConfigInterface;
@@ -2282,10 +2283,138 @@ class ApiTest extends TestCase
         $this->assertLookupTaxesShortCircuitsForAddressOverride(['regionId' => 0]);
     }
 
-    /** C1.4: missing city triggers an early return. */
-    public function testLookupTaxesReturnsZeroWhenNoCity()
+    /**
+     * C1.4: missing street and city (the cart-page estimator's address) is
+     * priced as an estimate: the lookup goes out with the placeholder in both.
+     */
+    public function testLookupTaxesSendsEstimateWhenNoStreetOrCity()
     {
-        $this->assertLookupTaxesShortCircuitsForAddressOverride(['city' => '']);
+        $logged = [];
+        $params = $this->soapLookupParamsForAddress(['street' => null, 'city' => null], $logged);
+
+        $this->assertNotNull($params, 'an estimate address must still reach TaxCloud');
+        $this->assertSame(EstimateAddress::PLACEHOLDER, $params['destination']['Address1']);
+        $this->assertSame(EstimateAddress::PLACEHOLDER, $params['destination']['City']);
+        $this->assertSame('NY', $params['destination']['State']);
+        $this->assertSame('10001', $params['destination']['Zip5']);
+        $this->assertContains(EstimateAddress::LOG_MESSAGE, $logged);
+    }
+
+    /** C1.4b: a missing city alone keeps the street as entered. */
+    public function testLookupTaxesEstimateFillsOnlyTheMissingCity()
+    {
+        $logged = [];
+        $params = $this->soapLookupParamsForAddress(['city' => ''], $logged);
+
+        $this->assertSame('1 Main St', $params['destination']['Address1']);
+        $this->assertSame(EstimateAddress::PLACEHOLDER, $params['destination']['City']);
+    }
+
+    /** C1.4c: a missing street alone keeps the city as entered. */
+    public function testLookupTaxesEstimateFillsOnlyTheMissingStreet()
+    {
+        $logged = [];
+        $params = $this->soapLookupParamsForAddress(['street' => ['']], $logged);
+
+        $this->assertSame(EstimateAddress::PLACEHOLDER, $params['destination']['Address1']);
+        $this->assertSame('New York', $params['destination']['City']);
+    }
+
+    /** C1.4d: a complete address carries no placeholder and is not logged as an estimate. */
+    public function testLookupTaxesCompleteAddressIsNotAnEstimate()
+    {
+        $logged = [];
+        $params = $this->soapLookupParamsForAddress([], $logged);
+
+        $this->assertSame('1 Main St', $params['destination']['Address1']);
+        $this->assertSame('New York', $params['destination']['City']);
+        $this->assertNotContains(EstimateAddress::LOG_MESSAGE, $logged);
+    }
+
+    /** C1.4e: an estimate address still fails the other gates. */
+    public function testLookupTaxesEstimateStillShortCircuitsWithoutRegion()
+    {
+        $logged = [];
+        $partial = ['street' => null, 'city' => null];
+
+        $this->assertNull($this->soapLookupParamsForAddress($partial + ['regionId' => 0], $logged));
+    }
+
+    /** C1.4f: ...and an invalid ZIP. */
+    public function testLookupTaxesEstimateStillShortCircuitsOnInvalidZip()
+    {
+        $logged = [];
+        $partial = ['street' => null, 'city' => null];
+
+        $this->assertNull($this->soapLookupParamsForAddress($partial + ['postcode' => 'XXX'], $logged));
+    }
+
+    /**
+     * Run a SOAP lookup (one shipping line, so the no-items gate is passed)
+     * for the default address with $addressOverrides applied, and return the
+     * params sent to TaxCloud — null when no call was made. Log messages are
+     * collected into $logged.
+     */
+    private function soapLookupParamsForAddress(array $addressOverrides, array &$logged): ?array
+    {
+        $this->configureBaseLookupScopeConfig('0', [
+            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+        ]);
+        $this->setUpPassThroughDataObject();
+        $this->cacheType->method('load')->willReturn(false);
+        $this->productTicService->method('getShippingTic')->willReturn('11010');
+        $this->logger->method('log')->willReturnCallback(function ($level, $message) use (&$logged) {
+            $logged[] = $message;
+        });
+
+        $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['load', 'getCode'])
+            ->getMock();
+        $region->method('load')->willReturnSelf();
+        $region->method('getCode')->willReturn('NY');
+        $this->regionFactory->method('create')->willReturn($region);
+
+        $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
+        $customer->method('getId')->willReturn(1);
+        $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+
+        $address = $this->buildAddressMockWithOverrides($addressOverrides + ['shippingAmount' => 5.0]);
+        $shipping = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\QuoteAddressDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getAddress'])
+            ->getMock();
+        $shipping->method('getAddress')->willReturn($address);
+        $shippingAssignment = $this->createMock(\Magento\Quote\Api\Data\ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getShipping')->willReturn($shipping);
+        $shippingAssignment->method('getItems')->willReturn([]);
+
+        $shippingDetail = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\ItemDetailsDouble::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getRowTotal'])
+            ->getMock();
+        $shippingDetail->method('getRowTotal')->willReturn(0);
+        $itemsByType = [Api::ITEM_TYPE_SHIPPING => ['shipping' => [Api::KEY_ITEM => $shippingDetail]]];
+
+        $lookupParams = null;
+        $response = new \stdClass();
+        $response->LookupResult = new \stdClass();
+        $response->LookupResult->ResponseType = 'OK';
+        $response->LookupResult->CartItemsResponse = new \stdClass();
+        $response->LookupResult->CartItemsResponse->CartItemResponse = [
+            (object) ['CartItemIndex' => 0, 'TaxAmount' => 0],
+        ];
+        $this->mockSoapClient->method('lookup')->willReturnCallback(
+            function ($params) use (&$lookupParams, $response) {
+                $lookupParams = $params;
+                return $response;
+            }
+        );
+
+        $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        return $lookupParams;
     }
 
     /** C1.5: invalid postcode format triggers PostalCodeParser::isValid() = false. */

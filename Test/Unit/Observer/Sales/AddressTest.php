@@ -11,6 +11,7 @@ namespace Taxcloud\Magento2\Test\Unit\Observer\Sales;
 
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Observer\Sales\Address;
 
@@ -430,5 +431,70 @@ class AddressTest extends TestCase
         $observer->execute($this->buildObserverArg($obj));
 
         $this->assertSame($canadian, $obj->getParams()['items'][0]['destination']);
+    }
+
+    /**
+     * A SOAP estimate destination (placeholder street/city) can never verify,
+     * so no call is made and the params are left exactly as built.
+     */
+    public function testEstimateDestinationIsNotVerified()
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('verifyAddress');
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $params = [
+            'destination' => [
+                'Address1' => EstimateAddress::PLACEHOLDER,
+                'Address2' => '',
+                'City' => EstimateAddress::PLACEHOLDER,
+                'State' => 'GA',
+                'Zip5' => '30097',
+                'Zip4' => '',
+            ],
+            'origin' => [],
+        ];
+        $obj = new \Magento\Framework\DataObject(['params' => $params]);
+
+        $observer = new Address($this->buildConfig('1', '1'), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+
+        $this->assertSame($params, $obj->getParams());
+    }
+
+    /**
+     * On the REST shape an estimate cart is skipped while a real cart in the
+     * same payload is still verified.
+     */
+    public function testRestEstimateDestinationIsNotVerified()
+    {
+        $estimate = [
+            'line1' => EstimateAddress::PLACEHOLDER,
+            'city' => EstimateAddress::PLACEHOLDER,
+            'state' => 'GA',
+            'zip' => '30097',
+            'countryCode' => 'US',
+        ];
+        $real = self::V3_DESTINATION + ['countryCode' => 'US'];
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())
+            ->method('verifyAddress')
+            ->with($this->callback(function (array $address) {
+                return $address['Address1'] === '405 victorian ln';
+            }))
+            ->willReturn(false);
+
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $params = ['items' => [
+            ['cartId' => '77', 'destination' => $estimate, 'lineItems' => []],
+            ['cartId' => '78', 'destination' => $real, 'lineItems' => []],
+        ]];
+        $obj = new \Magento\Framework\DataObject(['params' => $params]);
+
+        $observer = new Address($this->buildConfig('1', '1'), $tcapi, $logger);
+        $observer->execute($this->buildObserverArg($obj));
+
+        $this->assertSame($params, $obj->getParams());
     }
 }

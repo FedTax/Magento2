@@ -1,9 +1,7 @@
 ## Purpose
 
 Lets a merchant with only admin access hand support everything needed to diagnose a TaxCloud issue in one file — settings with their provenance, Magento's tax setup, extensions, environment, the collector verdict, a live API probe, the relevant logs and, for one order, that order's tax data — without ever exposing credentials, and with customer details masked when the merchant asks.
-
 ## Requirements
-
 ### Requirement: A diagnostics bundle can be generated from the admin and the CLI
 The extension SHALL generate a single ZIP named `taxcloud-diagnostics-{scope-code}-{YYYYMMDD-HHMMSS}.zip` containing `summary.md`, `manifest.json`, `settings.json`, `magento-tax.json`, `modules.json`, `environment.json`, `collector-diagnostics.json`, `probe.json` and `logs/`, from a **Download Diagnostics** button in the TaxCloud settings group, a **TaxCloud Diagnostics** button on the admin order view, and `bin/magento taxcloud:diagnostics:export`. Every surface SHALL produce the same format from the same collector service.
 
@@ -59,11 +57,15 @@ The TaxCloud log SHALL be located from the DI-configured log handler, read by se
 - **THEN** `settings.json` marks it locked with that source and `summary.md` flags it
 
 ### Requirement: A live probe reports connectivity separately from credentials
-When enabled (the default), generation SHALL run a read-only canned Lookup and VerifyAddress against a fixed test address for each distinct TaxCloud configuration in scope, recording per call the URL, HTTP status, duration, outcome and error, with DNS resolution and TLS handshake recorded separately and REST authentication mode and token acquisition recorded. The store's API timeout SHALL apply and a probe failure SHALL NOT fail generation.
+When enabled (the default), generation SHALL run a read-only canned Lookup and VerifyAddress against a fixed test address for each distinct TaxCloud configuration in scope, recording per call the URL, HTTP status, duration, outcome and error, with DNS resolution and TLS handshake recorded separately and REST authentication mode and token acquisition recorded. For a configuration whose stores have Canadian tax in effect, the probe SHALL also run the Canada access check and record its outcome and message as a separate call, so a missing Canadian account entitlement is visible in the bundle. The store's API timeout SHALL apply and a probe failure SHALL NOT fail generation.
 
 #### Scenario: Blocked outbound connection
 - **WHEN** the TLS handshake to the TaxCloud endpoint fails
 - **THEN** the API calls are recorded as skipped for that reason and the bundle is still generated
+
+#### Scenario: Canadian tax on for an account without Canada
+- **WHEN** a store with Canadian tax in effect is probed and its account refuses Canadian lookups
+- **THEN** the probe records the Canada access check as failed with a message to contact TaxCloud support, and the summary lists it as a blocker
 
 ### Requirement: Access is separately granted and audited
 Generation SHALL require the `Taxcloud_Magento2::diagnostics` ACL resource and a POST with the admin form key, and every generation SHALL be recorded with the user, time, scope and masking mode.
