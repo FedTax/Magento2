@@ -95,12 +95,13 @@ bin/magento setup:upgrade
 bin/magento setup:di:compile
 ```
 
-!!! note "Upgrading never changes how your store behaves"
-    New features arrive switched off. Exemption certificates stay off until you
+!!! note "Upgrading keeps your settings"
+    Features that need a setting arrive switched off: exemption certificates,
+    Canadian tax and customer certificate self-service stay off until you
     enable them, and a store already using the V1 SOAP API stays on it — you
     move to V3 REST when you decide to, not because you upgraded. Read the
     [changelog](https://github.com/FedTax/Magento2/blob/main/CHANGELOG.md)
-    before a major upgrade.
+    before upgrading to see what shoppers and administrators will notice.
 
 ## Confirming it installed
 

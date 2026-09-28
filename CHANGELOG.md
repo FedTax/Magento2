@@ -2,7 +2,20 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
-## Unreleased
+## 1.5.0
+
+This release adds Canadian tax calculation over V3 REST, lets nominated
+customer groups manage their own exemption certificates from My Account, adds
+a one-click diagnostics bundle for support tickets, and shows an estimated tax
+on the cart page as soon as the shopper fills in *Estimate Shipping and Tax*.
+Every TaxCloud log line now carries a correlation id, so one order's lines can
+be found with a single search.
+
+Run `bin/magento setup:upgrade` after updating. In production mode also run
+`bin/magento setup:di:compile` — this release adds a console command, plugins
+and dependency-injection configuration. Canadian tax and customer certificate
+self-service are off until you enable them. The cart-page estimate is always
+on, and cached V3 lookups miss once after upgrading and repopulate.
 
 ### Added
 
@@ -35,7 +48,6 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
   attachments, the repository guard); and an e2e `self-service-on` pass in
   which a seeded Wholesale customer adds a certificate, checks out exempt,
   switches it off and on, removes it and is taxed again.
-
 - **Canadian tax (opt-in, V3 REST only).** A new **Calculate Canadian Tax**
   setting (default `No`, store-scoped) prices orders shipped to Canada — GST,
   HST, PST and QST — and files, refunds and cancels them in TaxCloud like US
@@ -52,7 +64,6 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
   transport (new `installRestMock()` harness) plus the config-save access
   check, and an e2e `canada-on` pass that checks out a guest to Toronto and
   confirms account access from the admin.
-
 - **Diagnostics bundle.** A **Download Diagnostics** button in *Stores →
   Configuration → Sales → Tax → TaxCloud Settings* and a **TaxCloud
   Diagnostics** button on the admin order view create a single ZIP to attach to
@@ -93,7 +104,6 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
 
 - **Deleting the certificate in use from the admin also stops it applying**,
   instead of being refused until it was detached.
-
 - **V3 addresses state their country.** Every origin and destination sent over
   V3 REST (carts, orders, address verification) now carries `countryCode`
   (`US` or `CA`). Cached V3 lookups miss once after upgrading and repopulate.
@@ -110,7 +120,6 @@ All notable changes to the TaxCloud Magento 2 extension are documented here.
   customer was correctly taxed, but the next certificate created for them was
   not put in use. Deletion now clears the attachment, and an attachment to a
   certificate that no longer exists no longer blocks a new one.
-
 - **A repeat capture over V1 SOAP is recognized as the duplicate it is.** Only
   one of TaxCloud's two refusals ("already been marked as authorized") counted
   as benign; the other ("already been captured") was reported as a failed
