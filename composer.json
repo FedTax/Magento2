@@ -2,7 +2,7 @@
   "name": "taxcloud/magento2",
   "description": "TaxCloud Module for Magento 2",
   "type": "magento2-module",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "license": "OSL-3.0",
   "autoload": {
     "files": [
@@ -19,14 +19,20 @@
   "archive": {
     "exclude": [
       ".gitignore",
+      ".gitattributes",
       ".github/",
       ".cursorrules",
+      ".cursor/",
+      ".claude/",
       ".env",
       ".env.example",
       "Test/",
       "Makefile",
       "scripts/",
-      "docs/images/",
+      "docs/",
+      "mkdocs.yml",
+      "CLAUDE.md",
+      "openspec/",
       "docker-compose.yml",
       "docker-compose.e2e.yml",
       "phpunit.xml.dist",

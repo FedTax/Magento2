@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Model\Gateway\Rest;
 
 use Taxcloud\Magento2\Api\GatewayInterface;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Model\Cache\ResultCache;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
@@ -45,6 +46,13 @@ use Throwable;
  */
 class RestGateway implements GatewayInterface
 {
+    /**
+     * Appended to a failed Canadian lookup's log line: Canada is an account
+     * add-on, and an account without it is the likeliest cause.
+     */
+    private const CANADA_ACCESS_HINT = ' (Canadian destination: confirm Canadian tax is enabled on the TaxCloud'
+        . ' account — contact TaxCloud support to enable it, then run Check Canada Access)';
+
     /**
      * @var GatewayLogger
      */
@@ -179,6 +187,7 @@ class RestGateway implements GatewayInterface
         // against the quote's store, not the ambient request store.
         $storeId = $quote->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('lookup', $quote->getId(), $quote->getReservedOrderId());
 
         $this->tclogger->info('Calling lookupTaxes (v3 REST)');
         $this->tclogger->debug(
@@ -196,26 +205,46 @@ class RestGateway implements GatewayInterface
             $this->tclogger->info('No address, returning 0');
             return $result;
         }
-        $parsedZip = PostalCodeParser::parse($address->getPostcode());
-        if (!PostalCodeParser::isValid($parsedZip)) {
-            $this->tclogger->warning('Invalid ZIP code format: ' . $address->getPostcode());
-            return $result;
-        }
-
-        if ($address->getCountryId() !== 'US') {
+        $countryId = $address->getCountryId();
+        $isCanada = $countryId === RequestBuilder::COUNTRY_CANADA;
+        $postalCode = '';
+        $parsedZip = [];
+        if ($isCanada) {
+            if (!$this->config->isCanadaTaxEnabled($storeId)) {
+                $this->tclogger->info('Canadian tax is not enabled for this store, returning 0');
+                return $result;
+            }
+            $postalCode = PostalCodeParser::parseCanadian($address->getPostcode());
+            if ($postalCode === null) {
+                $this->tclogger->warning('Invalid Canadian postal code format: ' . $address->getPostcode());
+                return $result;
+            }
+        } elseif ($countryId === RequestBuilder::COUNTRY_US) {
+            $parsedZip = PostalCodeParser::parse($address->getPostcode());
+            if (!PostalCodeParser::isValid($parsedZip)) {
+                $this->tclogger->warning('Invalid ZIP code format: ' . $address->getPostcode());
+                return $result;
+            }
+        } else {
             $this->tclogger->info('Not US, returning 0');
             return $result;
         }
+
         if ($address->getRegionId() == 0) {
             $this->tclogger->info('No region, returning 0');
             return $result;
         }
-        if (!$address->getCity()) {
-            $this->tclogger->info('No city, returning 0');
-            return $result;
-        }
 
-        $destination = $this->requestBuilder->buildLookupDestination($address, $parsedZip);
+        $destination = $isCanada
+            ? $this->requestBuilder->buildCanadianDestination($address, $postalCode)
+            : $this->requestBuilder->buildLookupDestination($address, $parsedZip);
+
+        // The cart-page estimator saves no street or city. TaxCloud prices by
+        // state and ZIP, so a placeholder yields a ZIP-level estimate.
+        if (EstimateAddress::isPartial($address)) {
+            $this->tclogger->info(EstimateAddress::LOG_MESSAGE);
+            $destination = EstimateAddress::fill($destination);
+        }
 
         $keyedAddressItems = [];
         /** @var \Magento\Quote\Model\Quote\Item\AbstractItem $item */
@@ -243,7 +272,9 @@ class RestGateway implements GatewayInterface
         // over in two lookup paths. `taxcloud_cert` is the explicitly attached
         // certificate — untrusted like any other inbound identifier, and
         // honoured only if it turns out to be this customer's.
-        $resolvedCertificate = $this->certificateResolver->resolve(
+        // Certificates cover US states only: a Canadian destination is never
+        // exempted, and resolving would only spend a lookup to learn that.
+        $resolvedCertificate = $isCanada ? null : $this->certificateResolver->resolve(
             $customer,
             $destination['State'],
             $storeId
@@ -281,9 +312,8 @@ class RestGateway implements GatewayInterface
             return $cacheResult;
         }
 
-        $this->tclogger->info('Calling lookupTaxes LIVE API (v3 carts)');
-        $this->tclogger->debug('lookupTaxes PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->info('Calling lookupTaxes LIVE API (v3 REST)');
+        $this->tclogger->debug('lookupTaxes PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             $response = $this->retryPolicy->executeForResponse(function () use ($payload, $storeId) {
@@ -297,7 +327,10 @@ class RestGateway implements GatewayInterface
         $this->logResponse('lookupTaxes', $response, $storeId);
 
         if (!$response->isSuccess()) {
-            $this->tclogger->error('Error encountered during lookupTaxes: ' . $response->errorDetail());
+            $this->tclogger->error(
+                'Error encountered during lookupTaxes: ' . $response->errorDetail()
+                . ($isCanada ? self::CANADA_ACCESS_HINT : '')
+            );
             return $this->lookupFallback($itemsByType, $shippingAssignment, $quote, $storeId, $result);
         }
 
@@ -335,6 +368,7 @@ class RestGateway implements GatewayInterface
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('capture', $order->getQuoteId(), $order->getIncrementId());
 
         $this->tclogger->info('Calling authorizeCapture (v3 REST) for order ' . $order->getIncrementId());
 
@@ -354,8 +388,14 @@ class RestGateway implements GatewayInterface
         $order = $creditmemo->getOrder();
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('refund', $order->getQuoteId(), $order->getIncrementId());
 
-        $this->tclogger->info('Calling returnOrder (v3 REST) for creditmemo ' . $creditmemo->getIncrementId());
+        // The refund observer runs before the credit memo is saved, so it
+        // usually has no number yet; the order number always identifies it.
+        $this->tclogger->info(
+            'Calling returnOrder (v3 REST) for order ' . $order->getIncrementId()
+            . ($creditmemo->getIncrementId() ? ' (credit memo ' . $creditmemo->getIncrementId() . ')' : '')
+        );
 
         $built = $this->restRequestBuilder->buildRefundItems($creditmemo);
         if ($built['skip']) {
@@ -399,6 +439,7 @@ class RestGateway implements GatewayInterface
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('cancel', $order->getQuoteId(), $order->getIncrementId());
 
         $this->tclogger->info(
             'Calling returnOrderCancellation (v3 REST) for order ' . $order->getIncrementId()
@@ -425,6 +466,7 @@ class RestGateway implements GatewayInterface
     {
         $storeId = $order->getStoreId();
         $this->tclogger->setStore($storeId);
+        $this->tclogger->beginOperation('order_details', $order->getQuoteId(), $order->getIncrementId());
 
         $this->tclogger->info('Calling getOrderDetails (v3 REST) for order ' . $order->getIncrementId());
 
@@ -472,6 +514,8 @@ class RestGateway implements GatewayInterface
     public function verifyAddress($address, $store = null)
     {
         $this->tclogger->setStore($store);
+        // Runs nested inside a lookup (the address observer): keep its context.
+        $this->tclogger->continueOperation('verify_address');
 
         $this->tclogger->info('Calling verifyAddress (v3 REST)');
 
@@ -487,9 +531,8 @@ class RestGateway implements GatewayInterface
         // Call before event
         $payload = $this->eventDispatcher->dispatchBefore('taxcloud_rest_verify_address_before', $payload);
 
-        $this->tclogger->info('Calling verifyAddress LIVE API (v3)');
-        $this->tclogger->debug('verifyAddress PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->info('Calling verifyAddress LIVE API (v3 REST)');
+        $this->tclogger->debug('verifyAddress PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             $response = $this->retryPolicy->executeForResponse(function () use ($payload, $store) {
@@ -562,8 +605,7 @@ class RestGateway implements GatewayInterface
             'order' => $order,
         ]);
 
-        $this->tclogger->debug($operation . ' PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->debug($operation . ' PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             // Order creation is not idempotent in a way we can prove — only a
@@ -628,8 +670,7 @@ class RestGateway implements GatewayInterface
             $payload['items'] = [];
         }
 
-        $this->tclogger->debug($operation . ' PAYLOAD:');
-        $this->tclogger->debug((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $this->tclogger->debug($operation . ' PAYLOAD: ' . json_encode($payload, JSON_UNESCAPED_SLASHES));
 
         try {
             // Refunds are not idempotent — only retry a failure that never

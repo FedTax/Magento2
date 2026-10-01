@@ -533,4 +533,125 @@ class TaxcloudConfigTest extends TestCase
             'the encryptor argument must be the framework EncryptorInterface'
         );
     }
+
+    /**
+     * Canadian tax takes effect only where the merchant turned it on AND the
+     * store is on V3 REST, resolved against the given store: the store view
+     * enables it on REST, the default scope does not, and a second store view
+     * that inherits "on" but overrides the API type to SOAP stays off.
+     */
+    public function testCanadaTaxIsResolvedPerStoreAndRequiresRest()
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnMap([
+            [TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, ScopeInterface::SCOPE_STORE, null, '0'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, null, 'rest'],
+            [TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, ScopeInterface::SCOPE_STORE, 7, '1'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 7, 'rest'],
+            [TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, ScopeInterface::SCOPE_STORE, 8, '1'],
+            [TaxcloudConfig::XML_PATH_API_TYPE, ScopeInterface::SCOPE_STORE, 8, 'soap'],
+        ]);
+        $config = new TaxcloudConfig($scopeConfig);
+
+        $this->assertFalse($config->isCanadaTaxEnabled(), 'off at default scope');
+        $this->assertTrue($config->isCanadaTaxEnabled(7), 'on for the REST store view');
+        $this->assertFalse($config->isCanadaTaxEnabled(8), 'a SOAP store view never taxes Canada');
+    }
+
+    public function testCanadaTaxIsOffWhenUnset()
+    {
+        $this->assertFalse($this->config([])->isCanadaTaxEnabled());
+    }
+
+    /**
+     * Off by default in config.xml, and the admin field is bound to the path
+     * the reader queries, at every scope, shown only for REST.
+     */
+    public function testCanadaTaxDefaultAndAdminFieldWiring()
+    {
+        $configXml = simplexml_load_file(__DIR__ . '/../../../../etc/config.xml');
+        $this->assertNotFalse($configXml, 'etc/config.xml must be parseable');
+        $default = $configXml->xpath('//default/tax/taxcloud_settings/canada_tax_enabled');
+        $this->assertCount(1, $default);
+        $this->assertSame('0', trim((string) $default[0]), 'Canadian tax must be off by default');
+
+        $systemXml = simplexml_load_file(__DIR__ . '/../../../../etc/adminhtml/system.xml');
+        $this->assertNotFalse($systemXml, 'etc/adminhtml/system.xml must be parseable');
+        $field = $systemXml->xpath('//section[@id="tax"]/group[@id="taxcloud"]/field[@id="canada_tax_enabled"]');
+        $this->assertCount(1, $field);
+        $this->assertSame(TaxcloudConfig::XML_PATH_CANADA_TAX_ENABLED, (string) $field[0]->config_path);
+        foreach (['showInDefault', 'showInWebsite', 'showInStore'] as $scope) {
+            $this->assertSame('1', (string) $field[0][$scope], $scope . ' must be enabled');
+        }
+        $this->assertSame('rest', (string) $field[0]->depends->field[1], 'shown only for V3 REST');
+        $this->assertStringContainsString('TaxCloud support', (string) $field[0]->comment);
+    }
+
+    /**
+     * Customer self-service resolves per store, and an empty or malformed
+     * group list means nobody rather than everybody.
+     */
+    public function testCustomerCertificateSettingsAreResolvedPerStore()
+    {
+        $config = $this->config([
+            [TaxcloudConfig::XML_PATH_CUSTOMER_CERTIFICATES_ENABLED, ScopeInterface::SCOPE_STORE, null, '0'],
+            [TaxcloudConfig::XML_PATH_CUSTOMER_CERTIFICATE_GROUPS, ScopeInterface::SCOPE_STORE, null, ''],
+            [TaxcloudConfig::XML_PATH_CUSTOMER_CERTIFICATES_ENABLED, ScopeInterface::SCOPE_STORE, 7, '1'],
+            [TaxcloudConfig::XML_PATH_CUSTOMER_CERTIFICATE_GROUPS, ScopeInterface::SCOPE_STORE, 7, '2, 4,,x,2'],
+        ]);
+
+        $this->assertFalse($config->areCustomerCertificatesEnabled());
+        $this->assertSame([], $config->getCustomerCertificateGroups(), 'no group nominated means nobody');
+        $this->assertTrue($config->areCustomerCertificatesEnabled(7));
+        $this->assertSame([2, 4], $config->getCustomerCertificateGroups(7));
+    }
+
+    public function testCustomerCertificateSettingsAreOffWhenUnset()
+    {
+        $config = $this->config([]);
+
+        $this->assertFalse($config->areCustomerCertificatesEnabled());
+        $this->assertSame([], $config->getCustomerCertificateGroups());
+    }
+
+    /**
+     * Off, with no group, in config.xml; both admin fields bound to the paths
+     * the reader queries, at every scope, shown only with exemptions on, and
+     * the group list clearable.
+     */
+    public function testCustomerCertificateDefaultsAndAdminFieldWiring()
+    {
+        $configXml = simplexml_load_file(__DIR__ . '/../../../../etc/config.xml');
+        $this->assertNotFalse($configXml, 'etc/config.xml must be parseable');
+        $enabled = $configXml->xpath('//default/tax/taxcloud_settings/customer_certificates_enabled');
+        $this->assertCount(1, $enabled);
+        $this->assertSame('0', trim((string) $enabled[0]), 'self-service must be off by default');
+        $groups = $configXml->xpath('//default/tax/taxcloud_settings/customer_certificate_groups');
+        $this->assertCount(1, $groups);
+        $this->assertSame('', trim((string) $groups[0]), 'no group may be nominated by default');
+
+        $systemXml = simplexml_load_file(__DIR__ . '/../../../../etc/adminhtml/system.xml');
+        $this->assertNotFalse($systemXml, 'etc/adminhtml/system.xml must be parseable');
+
+        $paths = [
+            'customer_certificates_enabled' => TaxcloudConfig::XML_PATH_CUSTOMER_CERTIFICATES_ENABLED,
+            'customer_certificate_groups' => TaxcloudConfig::XML_PATH_CUSTOMER_CERTIFICATE_GROUPS,
+        ];
+        foreach ($paths as $id => $path) {
+            $field = $systemXml->xpath('//section[@id="tax"]/group[@id="taxcloud"]/field[@id="' . $id . '"]');
+            $this->assertCount(1, $field, $id);
+            $this->assertSame($path, (string) $field[0]->config_path);
+            foreach (['showInDefault', 'showInWebsite', 'showInStore'] as $scope) {
+                $this->assertSame('1', (string) $field[0][$scope], $id . ' ' . $scope . ' must be enabled');
+            }
+            $depends = [];
+            foreach ($field[0]->depends->field as $dependency) {
+                $depends[(string) $dependency['id']] = (string) $dependency;
+            }
+            $this->assertSame('1', $depends['exemptions_enabled'] ?? null, $id . ' is shown only with exemptions on');
+        }
+
+        $groupsField = $systemXml->xpath('//field[@id="customer_certificate_groups"]');
+        $this->assertSame('1', (string) $groupsField[0]->can_be_empty, 'an admin must be able to nominate nobody');
+    }
 }

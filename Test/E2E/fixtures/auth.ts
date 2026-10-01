@@ -8,6 +8,8 @@
  *   customer@example.com          - plain customer, taxed normally
  *   exempt-customer@example.com   - holds a TaxCloud exemption certificate
  *                                   covering TX, so its orders come out exempt
+ *   trusted-customer@example.com  - Wholesale group, no certificate; the
+ *                                   self-service pass nominates Wholesale
  *
  * The pair is what makes an exemption assertion meaningful: the same cart to the
  * same address differs only in who is signed in, so a zero tax line can be read
@@ -21,6 +23,8 @@ import { type Page, expect } from '@playwright/test';
 export const CUSTOMER_PASSWORD = 'Test1234!';
 export const PLAIN_CUSTOMER_EMAIL = 'customer@example.com';
 export const EXEMPT_CUSTOMER_EMAIL = 'exempt-customer@example.com';
+/** Wholesale-group customer with no certificate, nominated by the self-service pass. */
+export const TRUSTED_CUSTOMER_EMAIL = 'trusted-customer@example.com';
 
 /**
  * Log a seeded customer in through the storefront login form and wait until the
@@ -59,12 +63,22 @@ export async function loginAsCustomer(
 async function attemptLogin(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/customer/account/login/');
 
-  // Scoped to the login FORM, not the page. Luma also renders a hidden
-  // "authentication popup" carrying an #email/#password/#send2 of its own, so
-  // page-wide locators match two elements and Playwright refuses to guess.
-  // It only stays hidden on a fresh session, which is why an unscoped selector
-  // works right up until a spec visits another page first.
-  const form = page.locator('#login-form');
+  // Scoped to the login BLOCK, not to #login-form, and not to the page.
+  //
+  // Luma's authentication popup carries its own #email/#password/#send2 — and
+  // its own id="login-form", so duplicate ids defeat both a page-wide selector
+  // and a #login-form-scoped one. Worse, that markup is a Knockout template:
+  // the server sends one #send2 and a second appears once KO hydrates the
+  // popup. So whether a click is ambiguous depends on whether hydration won
+  // the race, which is why this passed for months and then failed on the
+  // slower (enterprise) runners.
+  //
+  // .login-container is server-rendered, appears once, and never contains the
+  // popup — so this cannot become ambiguous however the page hydrates.
+  const form = page.locator('.login-container form#login-form');
+  await expect(form, 'the customer login form should be on this page').toBeVisible({
+    timeout: 40_000,
+  });
 
   await form.locator('#email').fill(email);
   await form.locator('#password').fill(password);
@@ -85,4 +99,9 @@ export async function loginAsPlainCustomer(page: Page): Promise<void> {
 /** Log the seeded customer holding the TX exemption certificate in. */
 export async function loginAsExemptCustomer(page: Page): Promise<void> {
   await loginAsCustomer(page, EXEMPT_CUSTOMER_EMAIL);
+}
+
+/** Log the seeded Wholesale customer (no certificate of its own) in. */
+export async function loginAsTrustedCustomer(page: Page): Promise<void> {
+  await loginAsCustomer(page, TRUSTED_CUSTOMER_EMAIL);
 }

@@ -13,6 +13,7 @@ use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Creditmemo;
 use Magento\Sales\Model\Order\Item as OrderItem;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
@@ -129,9 +130,16 @@ class RestRequestBuilderTest extends TestCase
         $this->assertSame($lineItems, $cart['lineItems']);
         $this->assertArrayNotHasKey('exemption', $cart);
 
-        // v1 → v3 address conversion: line2 omitted when empty, ZIP+4 folded.
+        // v1 → v3 address conversion: line2 omitted when empty, ZIP+4 folded,
+        // country stated (US when the v1 address carries none).
         $this->assertSame(
-            ['line1' => '162 East Ave', 'city' => 'Norwalk', 'state' => 'CT', 'zip' => '06851'],
+            [
+                'line1' => '162 East Ave',
+                'city' => 'Norwalk',
+                'state' => 'CT',
+                'zip' => '06851',
+                'countryCode' => 'US',
+            ],
             $cart['origin']
         );
         $this->assertSame(
@@ -140,6 +148,7 @@ class RestRequestBuilderTest extends TestCase
                 'city' => 'Bronx',
                 'state' => 'NY',
                 'zip' => '10451-1234',
+                'countryCode' => 'US',
                 'line2' => 'Suite 5',
             ],
             $cart['destination']
@@ -397,6 +406,88 @@ class RestRequestBuilderTest extends TestCase
         $this->assertSame(['amount' => 0.0, 'rate' => 0.0], $payload['lineItems'][0]['tax']);
     }
 
+    private const V1_CANADIAN_DESTINATION = [
+        'Address1' => '453 W 12th Ave',
+        'Address2' => '',
+        'City' => 'Vancouver',
+        'State' => 'BC',
+        'Zip5' => '',
+        'Zip4' => '',
+        'Country' => 'CA',
+        'PostalCode' => 'V5Y 1V4',
+    ];
+
+    /**
+     * Canadian orders file only where the ORDER's store has Canadian tax in
+     * effect: the gate is read with the order's store and handed to the
+     * destination builder, which alone decides whether a Canadian address is
+     * usable. The filed destination carries the postal code and country; the
+     * origin stays US.
+     *
+     * @dataProvider canadaGateProvider
+     */
+    #[DataProvider('canadaGateProvider')]
+    public function testOrderPayloadPassesTheOrderStoreCanadaGateToTheDestination(bool $canadaEnabled)
+    {
+        $builder = $this->builder();
+        $this->config->method('isCanadaTaxEnabled')->willReturnMap([[3, $canadaEnabled], [null, !$canadaEnabled]]);
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->expects($this->once())
+            ->method('buildDestinationFromOrder')
+            ->with($this->isInstanceOf(Order::class), $canadaEnabled)
+            ->willReturn($canadaEnabled ? self::V1_CANADIAN_DESTINATION : null);
+        $this->ticService->method('getProductTic')->willReturn('0');
+
+        $payload = $builder->buildOrderPayload($this->order([$this->orderItem('sku-1', 1.0, 100.0, 0.0, 12.0, 12.0)]));
+
+        if (!$canadaEnabled) {
+            $this->assertNull($payload);
+            return;
+        }
+        $this->assertSame(
+            [
+                'line1' => '453 W 12th Ave',
+                'city' => 'Vancouver',
+                'state' => 'BC',
+                'zip' => 'V5Y 1V4',
+                'countryCode' => 'CA',
+            ],
+            $payload['destination']
+        );
+        $this->assertSame('US', $payload['origin']['countryCode']);
+    }
+
+    public static function canadaGateProvider(): array
+    {
+        return [
+            'Canadian tax on for the order store' => [true],
+            'Canadian tax off for the order store' => [false],
+        ];
+    }
+
+    /**
+     * The exempt re-create after a tax-only refund keeps the Canadian
+     * destination — TaxCloud accepts isExempt on a Canadian order.
+     */
+    public function testExemptRecreateOfACanadianOrderKeepsItsDestination()
+    {
+        $builder = $this->builder();
+        $this->config->method('isCanadaTaxEnabled')->willReturn(true);
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_CANADIAN_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('0');
+
+        $payload = $builder->buildOrderPayload(
+            $this->order([$this->orderItem('sku-1', 1.0, 100.0, 0.0, 12.0, 12.0)]),
+            '100000042-exempt',
+            true
+        );
+
+        $this->assertSame(['isExempt' => true], $payload['exemption']);
+        $this->assertSame('CA', $payload['destination']['countryCode']);
+        $this->assertSame('V5Y 1V4', $payload['destination']['zip']);
+    }
+
     public function testOrderPayloadRequiresValidAddressesAndLines()
     {
         $builder = $this->builder();
@@ -599,6 +690,7 @@ class RestRequestBuilderTest extends TestCase
                 'city' => 'Bronx',
                 'state' => 'NY',
                 'zip' => '10451-1234',
+                'countryCode' => 'US',
                 'line2' => 'Suite 5',
             ],
             $builder->buildVerifyAddressPayload(self::V1_DESTINATION)

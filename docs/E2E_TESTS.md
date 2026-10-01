@@ -129,6 +129,74 @@ surface when it lands.
 
 ---
 
+## Feature passes (setup/teardown projects)
+
+Several features are **off** in the seeded store, because that is how a real
+installation ships and what the default-state specs assert. Each one gets a
+Playwright *project* that switches it on, a project holding its specs, and a
+teardown project that switches it back:
+
+| Pass | Switches on | Specs |
+| ---- | ----------- | ----- |
+| `rest-setup` → `checkout-rest` → `rest-teardown` | V3 REST | the US checkout journeys, re-run over v3 |
+| `exemptions-on-*` | Exemption certificates | `specs/exemptions-on/` |
+| `self-service-on-*` | Exemption certificates, and customer self-service for the Wholesale group | `specs/self-service-on/` |
+| `colorado-on-*` | Colorado Retail Delivery Fee | `specs/colorado-on/` |
+| `canada-on-*` | Canadian tax (and V3 REST, which it requires) | `specs/canada-on/` |
+
+The self-service pass signs in as `trusted-customer@example.com`, a seeded
+Wholesale-group customer with no certificate of its own, so it can add, switch
+and remove certificates without disturbing the exempt customer the other
+exemption specs rely on. Its certificates are filed under the run's identity
+with a `-trusted` suffix, and `make e2e-cleanup-certificates` removes them with
+the rest.
+
+A teardown **project** runs even when the specs it guards fail, which an
+`afterEach` does not when a run is killed — and a feature left switched on
+fails a neighbouring spec for reasons invisible in its own code. The passes are
+chained (`dependencies`) so they never interleave, and each directory is listed
+in the `chromium` project's `testIgnore` so its specs do not also run against
+the seeded default.
+
+> **Canadian tax needs the account, not just the setting.** Canada is an add-on
+> TaxCloud enables per account. `canada-on.setup.ts` asserts it with the Check
+> Canada Access button before any journey runs, so an account without Canada
+> fails once, clearly, instead of as a golden-value mismatch at checkout. If
+> that is the failure you are looking at, ask TaxCloud support to enable
+> Canadian tax for the account in `TAXCLOUD_API_ID` / `TAXCLOUD_API_KEY`.
+
+## Writing specs that do not flake
+
+Most "flaky" failures here have had a specific, findable cause. Three patterns
+account for nearly all of them, and each has a rule:
+
+**Duplicate ids behind Knockout templates.** Luma renders an authentication
+popup carrying a second `#customer-email`, `#pass` and `#send2`, and its form
+also has `id="login-form"`. The server sends one of each; the duplicate appears
+only once KO hydrates the popup. A page-wide id therefore resolves one element
+or two *depending on timing*, and Playwright refuses to guess — "strict mode
+violation", on the slower runner, in a spec that changed months ago. Scope
+every storefront locator to a container the popup is not in:
+`.login-container form#login-form`, `#customer-email-fieldset`,
+`#co-shipping-form`.
+
+**Overlays that swallow clicks.** The admin puts masks and modal backdrops
+(`.loading-mask`, `.admin__data-grid-loading-mask`, `.modals-overlay`,
+`.vex-overlay`) in front of the page while it works. A click scheduled under one
+is intercepted and retried until the action times out, reported as a button that
+would not respond. Call `waitForOverlaysToClear(page)` from
+`pages/admin/overlays.ts` before clicking in the admin.
+
+**Waiting on a clock instead of on the page.** `waitForTimeout` is either
+wasted time or, on a loaded runner, too short. Wait for the thing itself — the
+searched grid row, the success message, the totals block. The exceptions are
+waits on TaxCloud's own asynchronous processing, which no page state reflects;
+those are commented where they appear.
+
+Also: if a spec needs a store setting, set it. Do not rely on what another
+spec left behind — a feature pass switches things on and its teardown switches
+them back, so anything inherited is a coincidence of ordering.
+
 ## Test data
 
 E2E reuses the **same programmatic seed** as integration
@@ -140,6 +208,7 @@ seed already provides everything a browser checkout needs:
 - an active **payment** method (Check / Money Order) and **shipping** method
   (Flat Rate),
 - the admin user (`admin` / `1234567a`),
+- a restricted admin user (`tax-no-diagnostics` / `1234567a`) whose role can edit tax settings and view orders but not export diagnostics,
 - TaxCloud config + ship-from origin,
 - a second website/group/store view (code `second`) with the same catalog and
   TaxCloud **disabled** at store scope; store codes are in URLs
@@ -236,9 +305,15 @@ Test/E2E/
     auth.ts               # scaffold — logged-in customer/admin helpers (deferred)
     soap-mock.ts          # documents the deferred server-side SOAP strategy
   pages/
-    storefront/HomePage.ts
+    admin/                  # AdminLoginPage, TaxConfigPage, AdminOrderPage, …
+    storefront/             # HomePage, ProductPage, CheckoutPage
   specs/
-    smoke/storefront-loads.spec.ts   # the pipeline smoke test
+    smoke/                  # the pipeline smoke test
+    checkout/               # guest and signed-in journeys
+    admin/                  # admin-side journeys
+    <feature>-on.setup.ts   # feature passes, with their .teardown.ts
+    <feature>-on/           # the specs that pass guards
+    docs/                   # screenshot generators (make docs-screenshots)
 ```
 
 Page objects keep selectors out of specs: locators in the constructor,

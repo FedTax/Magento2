@@ -18,6 +18,7 @@ use Magento\Sales\Model\Order\CreditmemoFactory;
 use Magento\Sales\Model\Service\CreditmemoService;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
 use Taxcloud\Magento2\Test\Integration\SeededCatalogTrait;
+use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 
 /**
  * An order of each catalog type from checkout to refund.
@@ -45,6 +46,11 @@ class CatalogTypeLifecycleTest extends IntegrationTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // State the trigger this class depends on rather than inheriting
+        // whatever ran before it: the seeded store captures on payment, and
+        // capture fires at placement here: the assertions are about what the capture booked.
+        $this->setCaptureTrigger(CaptureTrigger::ORDER_CREATION);
         $this->installSoapMock($this->soapResponsesWith([
             'lookup' => $this->flatRateLookupResponder(self::RATE),
         ]));

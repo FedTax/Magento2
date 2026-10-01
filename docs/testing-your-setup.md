@@ -27,8 +27,11 @@ it.
 Try a few destinations: your own state, a state with different rules, and a
 state you do not collect in (which should produce no tax).
 
-!!! note "No tax on the cart page before checkout is normal"
-    There is no address to calculate against yet.
+Then check the cart page estimate: open the cart, fill in *Estimate Shipping
+and Tax* with a state you collect in and a ZIP in it, and check that an
+estimated tax appears. It is based on the ZIP alone, so in a few ZIPs it can
+differ slightly from the amount charged at checkout — see [Estimated tax on the
+cart page](checkout.md#estimated-tax-on-the-cart-page).
 
 ## 2. A completed order
 

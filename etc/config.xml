@@ -27,6 +27,9 @@
         <guest_customer_id>-1</guest_customer_id>
         <!-- Off until a merchant deliberately enables it: see system.xml. -->
         <exemptions_enabled>0</exemptions_enabled>
+        <!-- Customer self-service: off, and no group nominated. See system.xml. -->
+        <customer_certificates_enabled>0</customer_certificates_enabled>
+        <customer_certificate_groups></customer_certificate_groups>
         <default_tic>00000</default_tic>
         <shipping_tic>11010</shipping_tic>
         <cache_lifetime>86400</cache_lifetime>
@@ -46,6 +49,11 @@
         <co_rdf_enabled>0</co_rdf_enabled>
         <co_rdf_amount>0.31</co_rdf_amount>
         <co_rdf_tic>11098</co_rdf_tic>
+        <!--
+          Canadian tax. Off until a merchant turns it on: Canada is an add-on
+          TaxCloud support enables per account (see system.xml).
+        -->
+        <canada_tax_enabled>0</canada_tax_enabled>
       </taxcloud_settings>
     </tax>
     <!--

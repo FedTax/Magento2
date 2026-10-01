@@ -1038,4 +1038,46 @@ class CompleteTest extends TestCase
 
         return $this->buildObserver($eventName, ['order' => $this->buildOrder()]);
     }
+
+    /**
+     * The capture outcome is logged at info/warning, so Basic logging shows
+     * whether the order reached TaxCloud without Advanced response bodies.
+     *
+     * @dataProvider captureOutcomes
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('captureOutcomes')]
+    public function testExecuteLogsTheCaptureOutcome(bool $captured, string $level, string $message)
+    {
+        $order = $this->buildOrder();
+        $order->method('getIncrementId')->willReturn('100000077');
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('authorizeCapture')->willReturn($captured);
+
+        $logged = [];
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        foreach (['info', 'warning'] as $method) {
+            $logger->method($method)->willReturnCallback(function ($text) use (&$logged, $method) {
+                $logged[] = [$method, $text];
+            });
+        }
+
+        (new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION),
+            $tcapi,
+            $logger,
+            $this->makeOrderResource()
+        ))->execute($observer);
+
+        $this->assertContains([$level, $message], $logged);
+    }
+
+    public static function captureOutcomes(): array
+    {
+        return [
+            'captured' => [true, 'info', 'Order 100000077 captured in TaxCloud'],
+            'not captured' => [false, 'warning', 'Order 100000077 was NOT captured in TaxCloud (see the error above)'],
+        ];
+    }
 }

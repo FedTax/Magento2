@@ -22,6 +22,7 @@ use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Store\Model\StoreManagerInterface;
+use Taxcloud\Magento2\Model\Certificate\CertificateAttachment;
 use Taxcloud\Magento2\Model\Certificate\CertificateRepository;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
 use Taxcloud\Magento2\Model\Certificate\ExemptionPolicy;
@@ -73,6 +74,11 @@ abstract class AbstractCustomerAction extends Action
     protected $storeManager;
 
     /**
+     * @var CertificateAttachment
+     */
+    protected $attachment;
+
+    /**
      * @param Context $context
      * @param Session $customerSession
      * @param CertificateRepository $certificates
@@ -80,6 +86,7 @@ abstract class AbstractCustomerAction extends Action
      * @param TaxCloudCustomerIdentity $identity
      * @param ExemptionPolicy $policy
      * @param StoreManagerInterface $storeManager
+     * @param CertificateAttachment $attachment
      */
     public function __construct(
         Context $context,
@@ -88,7 +95,8 @@ abstract class AbstractCustomerAction extends Action
         CertificateResolver $resolver,
         TaxCloudCustomerIdentity $identity,
         ExemptionPolicy $policy,
-        StoreManagerInterface $storeManager
+        StoreManagerInterface $storeManager,
+        CertificateAttachment $attachment
     ) {
         parent::__construct($context);
         $this->customerSession = $customerSession;
@@ -97,6 +105,7 @@ abstract class AbstractCustomerAction extends Action
         $this->identity = $identity;
         $this->policy = $policy;
         $this->storeManager = $storeManager;
+        $this->attachment = $attachment;
     }
 
     /**
@@ -138,6 +147,32 @@ abstract class AbstractCustomerAction extends Action
     protected function mayUseExemptions($customer): bool
     {
         return $this->policy->isVisibleTo($customer, $this->currentStoreId());
+    }
+
+    /**
+     * Whether this customer may create, attach and detach their own
+     * certificates here. Asked again by every write, whatever the page showed.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer
+     * @return bool
+     */
+    protected function mayManage($customer): bool
+    {
+        return $this->policy->mayManage($customer, $this->currentStoreId());
+    }
+
+    /**
+     * Who is responsible for a change, as the TaxCloud log records it.
+     *
+     * Worded so a customer's own change can never be mistaken for an
+     * administrator's, whose entries carry their admin username.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface $customer
+     * @return string
+     */
+    protected function actor($customer): string
+    {
+        return 'customer ' . (string) $customer->getId() . ' (My Account)';
     }
 
     /**

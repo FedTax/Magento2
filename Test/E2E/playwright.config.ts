@@ -78,7 +78,13 @@ export default defineConfig({
       // specs/docs/ generates the documentation screenshots and asserts nothing;
       // it is run on demand by `make docs-screenshots`, never as part of a test
       // run.
-      testIgnore: [/specs\/exemptions-on\//, /specs\/colorado-on\//, /specs\/docs\//],
+      testIgnore: [
+        /specs\/exemptions-on\//,
+        /specs\/self-service-on\//,
+        /specs\/colorado-on\//,
+        /specs\/canada-on\//,
+        /specs\/docs\//,
+      ],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -135,6 +141,27 @@ export default defineConfig({
       testMatch: /exemptions-on\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
+    // Customer certificate self-service ON for the Wholesale group. After the
+    // exemptions pass and before Colorado, so no two state-flipping passes
+    // interleave; restored by its own teardown.
+    {
+      name: 'self-service-on-setup',
+      testMatch: /self-service-on\.setup\.ts/,
+      dependencies: ['exemptions-on'],
+      teardown: 'self-service-on-teardown',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'self-service-on',
+      testMatch: /specs\/self-service-on\/.*\.spec\.ts/,
+      dependencies: ['self-service-on-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'self-service-on-teardown',
+      testMatch: /self-service-on\.teardown\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
     // Colorado Retail Delivery Fee switched ON (with flat rate mapped as a
     // motor-vehicle method). Off is the seeded/production default the other
     // checkout specs rely on — an extra $0.31 row would shift their golden
@@ -142,9 +169,9 @@ export default defineConfig({
     {
       name: 'colorado-on-setup',
       testMatch: /colorado-on\.setup\.ts/,
-      // After the exemptions pass, so the two state-flipping passes never
+      // After the self-service pass, so the state-flipping passes never
       // interleave (same reasoning as exemptions-on-setup's dependency).
-      dependencies: ['exemptions-on'],
+      dependencies: ['self-service-on'],
       teardown: 'colorado-on-teardown',
       use: { ...devices['Desktop Chrome'] },
     },
@@ -157,6 +184,30 @@ export default defineConfig({
     {
       name: 'colorado-on-teardown',
       testMatch: /colorado-on\.teardown\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Canadian tax switched ON, over the V3 REST transport it requires. Off is
+    // the seeded/production default, and the US checkout specs never ship to
+    // Canada — but a store left on REST with Canada on is not the state the
+    // other passes assume, so this one is guarded by its own teardown too.
+    {
+      name: 'canada-on-setup',
+      testMatch: /canada-on\.setup\.ts/,
+      // Last of the state-flipping passes, chained so none of them interleave
+      // (same reasoning as colorado-on-setup's dependency).
+      dependencies: ['colorado-on'],
+      teardown: 'canada-on-teardown',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'canada-on',
+      testMatch: /specs\/canada-on\/.*\.spec\.ts/,
+      dependencies: ['canada-on-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'canada-on-teardown',
+      testMatch: /canada-on\.teardown\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     // Documentation screenshots. Not part of a test run: `make docs-screenshots`

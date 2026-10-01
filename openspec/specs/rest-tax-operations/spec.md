@@ -1,12 +1,12 @@
 ## Purpose
 
 Executes the module's seven gateway operations (tax lookup, order capture, refunds, cancellation reversal, order details, address verification, exemption validation) over the TaxCloud v3 REST API, with behavior equivalent to the SOAP implementations wherever the two APIs allow, so a store switched to `api_type = rest` transacts entirely over v3.
-
 ## Requirements
-
 ### Requirement: Tax lookup executes over the v3 carts endpoint
 
-For a REST-selected store, a tax lookup for a quote SHALL be performed by creating/updating a v3 cart on the store's connection, keyed by a cart identifier stable for the quote, and the per-line tax amounts returned SHALL be applied to the quote's product and shipping tax exactly as the SOAP lookup applies its per-item responses. The request SHALL carry the quote's line items (including shipping as a line item) with their store-resolved TICs, effective prices, quantities, origin and destination addresses, and — when the customer holds a validated exemption certificate for the destination state — the certificate reference.
+For a REST-selected store, a tax lookup for a quote SHALL be performed by creating/updating a v3 cart on the store's connection, keyed by a cart identifier stable for the quote, and the per-line tax amounts returned SHALL be applied to the quote's product and shipping tax exactly as the SOAP lookup applies its per-item responses. The request SHALL carry the quote's line items (including shipping as a line item) with their store-resolved TICs, effective prices, quantities, origin and destination addresses — each address carrying its two-letter country code — and, when the destination is in the United States and the customer holds a validated exemption certificate for the destination state, the certificate reference.
+
+A destination lacking a street line or city SHALL NOT short-circuit the lookup; it is priced as an estimate as specified by the `cart-tax-estimate` capability.
 
 #### Scenario: Successful lookup applies per-line tax
 - **WHEN** a lookup is performed for a quote on a REST-selected store and the v3 API returns tax for each line item
@@ -16,9 +16,17 @@ For a REST-selected store, a tax lookup for a quote SHALL be performed by creati
 - **WHEN** two lookups are performed for the same quote (e.g. the customer changes quantities)
 - **THEN** both requests use the same cart identifier so TaxCloud treats them as updates to one cart rather than accumulating abandoned carts
 
+#### Scenario: Addresses state their country
+- **WHEN** a lookup is performed for a US destination
+- **THEN** both the origin and the destination in the request carry country code `US`
+
 #### Scenario: Pre-flight gates short-circuit without an API call
-- **WHEN** the destination is missing a postcode, is outside the US, lacks a region or city, has an invalid ZIP format, or the quote has no taxable items
+- **WHEN** the destination is missing a postcode, lacks a region, has a postal code invalid for its country, is outside the US and not an enabled Canadian destination (see the `canada-tax` capability), or the quote has no taxable items
 - **THEN** the lookup returns a zero-tax result without calling the v3 API, matching SOAP behavior
+
+#### Scenario: Missing city or street does not short-circuit
+- **WHEN** the destination has a valid postcode and region but lacks a city or street line
+- **THEN** the lookup calls the v3 API as an estimate rather than returning a zero-tax result
 
 #### Scenario: Lookup results are cached
 - **WHEN** a lookup identical to a previously successful one (same post-observer request, same store) occurs within the cache lifetime
@@ -110,7 +118,7 @@ For a REST-selected store, fetching order details SHALL read the v3 order (inclu
 
 ### Requirement: Address verification executes over the v3 verify-address endpoint
 
-For a REST-selected store, address verification SHALL submit the address parts to the v3 verify-address endpoint and return the normalized address in the same shape the SOAP implementation returns (Address1, Address2, City, State, Zip5, Zip4), so transport-unaware callers behave identically. Verification failures SHALL return false, leaving the caller's address unchanged. Successful verifications SHALL be cached per store.
+For a REST-selected store, address verification SHALL submit the address parts to the v3 verify-address endpoint and return the normalized address in the same shape the SOAP implementation returns (Address1, Address2, City, State, Zip5, Zip4), so transport-unaware callers behave identically. Verification failures SHALL return false, leaving the caller's address unchanged. Successful verifications SHALL be cached per store. In-lookup verification SHALL only be attempted for US destinations; a destination in any other country SHALL be left unchanged without a verification request.
 
 #### Scenario: Verified address is normalized and cached
 - **WHEN** an address is verified successfully on a REST-selected store
@@ -119,6 +127,10 @@ For a REST-selected store, address verification SHALL submit the address parts t
 #### Scenario: Unverifiable address returns false
 - **WHEN** the v3 API cannot verify the address
 - **THEN** the operation returns false and the original address remains in use
+
+#### Scenario: Non-US destination is not verified
+- **WHEN** a lookup with address verification enabled carries a Canadian destination
+- **THEN** no verify-address request is made and the destination is sent as built
 
 ### Requirement: Exemption certificates are validated via the v3 exemption-certificates endpoint
 
@@ -185,3 +197,4 @@ Every REST operation SHALL resolve its connection identifier, credentials, auth 
 #### Scenario: Entity store wins over ambient store
 - **WHEN** an order belonging to store B is captured while the ambient store is A, and stores A and B have different TaxCloud connections
 - **THEN** the v3 order is created on store B's connection with store B's credentials
+

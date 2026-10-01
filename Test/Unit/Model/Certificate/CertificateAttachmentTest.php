@@ -21,6 +21,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model\Certificate;
 use Magento\Customer\Api\CustomerRepositoryInterface;
 use Magento\Customer\Api\Data\CustomerInterface;
 use PHPUnit\Framework\TestCase;
+use Taxcloud\Magento2\Model\Certificate\AttachmentWriteScope;
 use Taxcloud\Magento2\Model\Certificate\CertificateAttachment;
 use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
@@ -57,8 +58,21 @@ class CertificateAttachmentTest extends TestCase
      */
     private $current = '';
 
+    /**
+     * @var bool Whether the resolver reports the current attachment as stale
+     */
+    private $stale = false;
+
+    /**
+     * @var AttachmentWriteScope
+     */
+    private $writeScope;
+
     protected function setUp(): void
     {
+        $this->current = '';
+        $this->stale = false;
+        $this->writeScope = new AttachmentWriteScope();
         $this->customerRepository = $this->createStub(CustomerRepositoryInterface::class);
         $this->logger = $this->createStub(GatewayLogger::class);
         $this->customer = $this->createStub(CustomerInterface::class);
@@ -100,8 +114,9 @@ class CertificateAttachmentTest extends TestCase
     {
         $resolver = $this->createStub(CertificateResolver::class);
         $resolver->method('attachedCertificateId')->willReturn($this->current);
+        $resolver->method('attachmentIsStale')->willReturn($this->stale);
 
-        return new CertificateAttachment($this->customerRepository, $resolver, $this->logger);
+        return new CertificateAttachment($this->customerRepository, $resolver, $this->logger, $this->writeScope);
     }
 
     public function testAttachesWhenNothingIsAttached()
@@ -123,6 +138,39 @@ class CertificateAttachmentTest extends TestCase
         $this->expectRepository()->expects($this->never())->method('save');
 
         $this->assertFalse($this->attachment()->setIfUnattached($this->customer, 'cert-2'));
+    }
+
+    public function testReplacesAnAttachmentToACertificateNoLongerHeld()
+    {
+        $this->current = 'cert-deleted';
+        $this->stale = true;
+        $this->expectCustomer()->expects($this->once())
+            ->method('setCustomAttribute')
+            ->with(CertificateResolver::ATTACHED_ATTRIBUTE, 'cert-2');
+
+        $this->assertTrue(
+            $this->attachment()->setIfUnattached($this->customer, 'cert-2'),
+            'a stale attachment exempts nothing, so it must not keep the new certificate from applying'
+        );
+    }
+
+    public function testTheSaveRunsInsideTheWriteScope()
+    {
+        // The repository guard lets the attachment change only while this
+        // scope is open; a save outside it would be reverted.
+        $openDuringSave = null;
+        $this->expectRepository()->expects($this->once())
+            ->method('save')
+            ->willReturnCallback(function ($customer) use (&$openDuringSave) {
+                $openDuringSave = $this->writeScope->isOpen();
+
+                return $customer;
+            });
+
+        $this->attachment()->set($this->customer, 'cert-1');
+
+        $this->assertTrue($openDuringSave);
+        $this->assertFalse($this->writeScope->isOpen(), 'the scope must close after the save');
     }
 
     public function testExplicitSetReplacesAnExistingAttachment()

@@ -55,18 +55,26 @@ class CertificateAttachment
     private $logger;
 
     /**
+     * @var AttachmentWriteScope
+     */
+    private $writeScope;
+
+    /**
      * @param CustomerRepositoryInterface $customerRepository
      * @param CertificateResolver $resolver
      * @param GatewayLogger $logger
+     * @param AttachmentWriteScope $writeScope
      */
     public function __construct(
         CustomerRepositoryInterface $customerRepository,
         CertificateResolver $resolver,
-        GatewayLogger $logger
+        GatewayLogger $logger,
+        AttachmentWriteScope $writeScope
     ) {
         $this->customerRepository = $customerRepository;
         $this->resolver = $resolver;
         $this->logger = $logger;
+        $this->writeScope = $writeScope;
     }
 
     /**
@@ -74,7 +82,9 @@ class CertificateAttachment
      *
      * @param CustomerInterface $customer
      * @param string $certificateId
-     * @param string $administrator Who is responsible, for the log
+     * @param string $administrator Who is responsible, for the log: an admin
+     *                              username, or a customer as described by the
+     *                              storefront controllers
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return bool Whether anything changed
      */
@@ -88,7 +98,13 @@ class CertificateAttachment
         }
 
         $customer->setCustomAttribute(CertificateResolver::ATTACHED_ATTRIBUTE, $certificateId);
-        $this->customerRepository->save($customer);
+
+        // Every caller has already established who is asking and that the
+        // certificate is the customer's; the scope tells the repository guard
+        // this save is that caller's, and not a customer API carrying a value.
+        $this->writeScope->run(function () use ($customer) {
+            return $this->customerRepository->save($customer);
+        });
 
         // Logged against the customer's own store, not the ambient one: which
         // TaxCloud account this matters to depends on where the customer sits.
@@ -110,14 +126,17 @@ class CertificateAttachment
     /**
      * Attach only when nothing is attached yet.
      *
-     * Used when an administrator creates a certificate for a customer: they
-     * have already expressed the intent, and requiring a second click on a
-     * control they have not yet noticed is precisely the gap this closes.
+     * Used when a certificate is created for a customer, by an administrator
+     * or by the customer: whoever added it has already expressed the intent,
+     * and requiring a second click on a control they have not yet noticed is
+     * precisely the gap this closes.
      *
      * Confined to the empty case on purpose — displacing an existing
      * attachment would silently re-file a customer against a different
      * certificate, which is the opposite of what adding a second one usually
-     * means.
+     * means. An attachment naming a certificate the customer no longer holds
+     * counts as empty: it exempts nothing, and honouring it would leave the
+     * new certificate unapplied for no reason anyone could see.
      *
      * @param CustomerInterface $customer
      * @param string $certificateId
@@ -127,7 +146,9 @@ class CertificateAttachment
      */
     public function setIfUnattached(CustomerInterface $customer, $certificateId, $administrator = '', $store = null)
     {
-        if ($this->resolver->attachedCertificateId($customer) !== '') {
+        if ($this->resolver->attachedCertificateId($customer) !== ''
+            && !$this->resolver->attachmentIsStale($customer, $store)
+        ) {
             return false;
         }
 

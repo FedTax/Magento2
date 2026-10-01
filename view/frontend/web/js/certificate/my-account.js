@@ -12,6 +12,10 @@
  * and mean opposite things — and a customer told the first when the second is
  * true will go and create a duplicate of a certificate they already hold.
  *
+ * Every customer sees which certificate is in use. Customers the store has
+ * nominated (the listing's canManage) also get attach / stop using, refresh
+ * and the add form; the endpoints refuse everyone else whatever this renders.
+ *
  * @license http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
  */
 define([
@@ -19,6 +23,7 @@ define([
     'mage/translate',
     'Magento_Ui/js/modal/alert',
     'mage/loader',
+    'mage/validation'
 ], function ($, $t, uiAlert) {
     'use strict';
 
@@ -27,6 +32,9 @@ define([
             status = root.find('[data-role="status"]'),
             table = root.find('[data-role="certificate-table"]'),
             rows = root.find('[data-role="certificate-rows"]'),
+            addForm = root.find('[data-role="add-form"]'),
+            attached = '',
+            canManage = false,
             pending = 0;
 
         function say(message, tone) {
@@ -119,6 +127,29 @@ define([
             return $('<div>').text(value === null || value === undefined ? '' : value).html();
         }
 
+        /**
+         * Whether this certificate is the one in use, and — for customers who
+         * may change it — the control to do so.
+         *
+         * @param {Object} certificate
+         * @param {Boolean} isAttached
+         * @return {String}
+         */
+        function inUseCell(certificate, isAttached) {
+            if (isAttached) {
+                return '<strong>' + escapeHtml($t('In use')) + '</strong>' + (canManage
+                    ? ' <a href="#" data-attach="">' + escapeHtml($t('Stop using')) + '</a>'
+                    : '');
+            }
+
+            if (!canManage) {
+                return '&mdash;';
+            }
+
+            return '<a href="#" data-attach="' + escapeHtml(certificate.certificateId) + '">' +
+                escapeHtml($t('Use this certificate')) + '</a>';
+        }
+
         function render(certificates) {
             rows.empty();
 
@@ -129,12 +160,16 @@ define([
             }
 
             certificates.forEach(function (certificate) {
+                var isAttached = attached !== '' && attached === certificate.certificateId;
+
                 rows.append(
                     '<tr>' +
                     '<td class="col">' + escapeHtml((certificate.states || []).join(', ')) + '</td>' +
                     '<td class="col">' + escapeHtml(certificate.purchaserName || '—') + '</td>' +
                     '<td class="col">' + escapeHtml(certificate.reason || '—') + '</td>' +
-                    '<td class="col"><a href="#" data-delete="' + escapeHtml(certificate.certificateId) + '">' +
+                    '<td class="col">' + inUseCell(certificate, isAttached) + '</td>' +
+                    '<td class="col"><a href="#" data-delete="' + escapeHtml(certificate.certificateId) + '"' +
+                    (isAttached ? ' data-in-use="1"' : '') + '>' +
                     escapeHtml($t('Remove')) + '</a></td>' +
                     '</tr>'
                 );
@@ -144,7 +179,7 @@ define([
         }
 
         function load() {
-            $.get(config.endpoints.list).done(function (response) {
+            return $.get(config.endpoints.list).done(function (response) {
                 if (!response.success) {
                     table.hide();
                     // Not an empty list — see the module docblock.
@@ -153,12 +188,14 @@ define([
                     return;
                 }
 
+                attached = response.attached || '';
+                canManage = !!response.canManage;
                 render(response.certificates || []);
 
                 if (!response.certificates || !response.certificates.length) {
-                    say($t(
-                        'You have no exemption certificates. Contact us if you believe you should be tax exempt.'
-                    ));
+                    say(canManage
+                        ? $t('You have no exemption certificates. Use Add Certificate to file one.')
+                        : $t('You have no exemption certificates. Contact us if you believe you should be tax exempt.'));
                 } else {
                     say('');
                 }
@@ -168,17 +205,133 @@ define([
             });
         }
 
+        function collectForm() {
+            var payload = {};
+
+            addForm.find('[data-field]').each(function () {
+                payload[$(this).data('field')] = $(this).val() || '';
+            });
+
+            return payload;
+        }
+
         // See the admin panel's note: validation is bound once, and valid() is
         // only called while the form is visible.
+        if (addForm.length) {
+            addForm.validation();
+        }
+
+        root.on('click', '[data-role="show-add"]', function () {
+            addForm.show();
+        });
+
+        root.on('click', '[data-role="cancel"]', function () {
+            addForm.hide();
+        });
+
+        root.on('click', '[data-role="states-all"], [data-role="states-none"]', function (event) {
+            var select = addForm.find('[data-field="states"]');
+
+            event.preventDefault();
+            select.find('option').prop('selected', $(this).data('role') === 'states-all');
+            select.trigger('change');
+        });
+
+        root.on('click', '[data-role="refresh"]', function () {
+            busy(true);
+
+            $.post(config.endpoints.refresh, {
+                form_key: $.mage.cookies.get('form_key')
+            }).always(function () {
+                load().always(function () {
+                    busy(false);
+                });
+            });
+        });
+
+        root.on('click', '[data-role="save"]', function () {
+            if (!addForm.valid()) {
+                return;
+            }
+
+            busy(true);
+
+            $.post(config.endpoints.add, {
+                form_key: $.mage.cookies.get('form_key'),
+                attestation: addForm.find('[data-role="attestation"]').is(':checked') ? '1' : '',
+                certificate: collectForm()
+            }).done(function (response) {
+                if (!response.success) {
+                    failed(response.message, $t('Could not add your certificate'));
+
+                    return;
+                }
+
+                addForm.hide();
+                addForm[0].reset();
+                load().done(function () {
+                    say(response.attached
+                        ? $t('Your certificate has been added and is now in use.')
+                        : $t('Your certificate has been added. The certificate marked "In use" still applies — choose "Use this certificate" to switch.'));
+                });
+
+                if (root[0] && root[0].scrollIntoView) {
+                    root[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }).fail(function () {
+                failed(
+                    $t('We could not add your certificate just now.'),
+                    $t('Could not add your certificate')
+                );
+            }).always(function () {
+                busy(false);
+            });
+        });
+
+        root.on('click', '[data-attach]', function (event) {
+            var certificateId = $(this).attr('data-attach');
+
+            event.preventDefault();
+
+            if (certificateId === '' &&
+                !window.confirm($t('Stop using this certificate? You will be charged tax on future orders until you choose one.'))) {
+                return;
+            }
+
+            busy(true);
+
+            $.post(config.endpoints.attach, {
+                form_key: $.mage.cookies.get('form_key'),
+                certificate_id: certificateId
+            }).done(function (response) {
+                if (!response.success) {
+                    failed(response.message, $t('Could not update your certificate'));
+
+                    return;
+                }
+
+                load();
+            }).fail(function () {
+                failed(
+                    $t('We could not update your certificate just now.'),
+                    $t('Could not update your certificate')
+                );
+            }).always(function () {
+                busy(false);
+            });
+        });
 
         root.on('click', '[data-delete]', function (event) {
-            var certificateId = $(this).data('delete');
+            var certificateId = $(this).data('delete'),
+                question = $(this).data('in-use')
+                    ? $t('This is the certificate in use. Remove it? You will be charged tax on future orders until another certificate is in use.')
+                    : $t('Remove this certificate? It cannot be restored.');
 
             event.preventDefault();
 
             // Irreversible: TaxCloud cannot restore a deleted certificate, and
-            // the customer stops being exempt from the next order onwards.
-            if (!window.confirm($t('Remove this certificate? You will be charged tax on future orders unless you add another.'))) {
+            // removing the one in use stops the exemption from the next order.
+            if (!window.confirm(question)) {
                 return;
             }
 

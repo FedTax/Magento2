@@ -3,7 +3,7 @@ import { AdminLoginPage } from '../../pages/admin/AdminLoginPage';
 import { AdminOrderPage } from '../../pages/admin/AdminOrderPage';
 import { ProductPage } from '../../pages/storefront/ProductPage';
 import { CheckoutPage, type GuestAddress } from '../../pages/storefront/CheckoutPage';
-import { loginAsCustomer, EXEMPT_CUSTOMER_EMAIL } from '../../fixtures/auth';
+import { loginAsCustomer, EXEMPT_CUSTOMER_EMAIL, TRUSTED_CUSTOMER_EMAIL } from '../../fixtures/auth';
 import * as path from 'path';
 
 /**
@@ -121,6 +121,35 @@ test.describe('documentation screenshots — order journey', () => {
     await record.waitFor({ timeout: 30_000 });
     await record.screenshot({
       path: path.join(IMAGES, 'exempt-order-record.png'),
+      animations: 'disabled',
+    });
+  });
+
+  test('the add form a nominated customer sees', async ({ page }) => {
+    // The setup project nominates Wholesale; the trusted customer is in it.
+    await loginAsCustomer(page, TRUSTED_CUSTOMER_EMAIL);
+    await page.goto('/taxcloud/certificate/');
+
+    const block = page.locator('[data-taxcloud-certificates]');
+    await block.waitFor({ timeout: 40_000 });
+    // The controls come alive once the page script has read the list; a click
+    // before then lands on a button nothing listens to yet.
+    await expect(
+      page.locator('[data-role="certificate-rows"] tr, [data-role="status"] .message'),
+    ).not.toHaveCount(0, { timeout: 60_000 });
+    await page.locator('[data-role="show-add"]').click();
+
+    const form = page.locator('[data-role="add-form"]');
+    await form.waitFor({ state: 'visible', timeout: 20_000 });
+    await form.locator('#tc_cert_states').selectOption(['TX']);
+    await form.locator('#tc_cert_businesstype').selectOption({ label: 'Wholesale Trade' });
+    await form.locator('#tc_cert_reason').selectOption({ label: 'Resale' });
+    await page.waitForTimeout(1000);
+
+    // Not submitted: the screenshot is of the form, and filing a certificate
+    // would leave one behind in the sandbox for nothing.
+    await form.screenshot({
+      path: path.join(IMAGES, 'certificates-my-account-add.png'),
       animations: 'disabled',
     });
   });

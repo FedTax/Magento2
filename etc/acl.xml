@@ -35,6 +35,21 @@
                               translate="title"
                               sortOrder="100"/>
                 </resource>
+                <resource id="Magento_Backend::stores">
+                    <resource id="Magento_Backend::stores_settings">
+                        <!--
+                            Its own resource rather than riding on the tax
+                            configuration grant: a diagnostics bundle carries
+                            customer order data and leaves the store as a file,
+                            so exporting one is a separate decision from being
+                            allowed to edit tax settings.
+                        -->
+                        <resource id="Taxcloud_Magento2::diagnostics"
+                                  title="TaxCloud Diagnostics Export"
+                                  translate="title"
+                                  sortOrder="100"/>
+                    </resource>
+                </resource>
             </resource>
         </resources>
     </acl>

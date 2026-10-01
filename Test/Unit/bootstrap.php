@@ -60,3 +60,4 @@ require __DIR__ . '/Double/CollectorDoubles.php';
 // fatal error. Same reason the doubles above are required by hand.
 require_once __DIR__ . '/BuildsUserAgent.php';
 require_once __DIR__ . '/BuildsGatewayApi.php';
+require_once __DIR__ . '/Model/Diagnostics/Bundle/DiagnosticsFixture.php';

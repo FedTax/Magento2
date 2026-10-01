@@ -2,6 +2,141 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## 1.5.0
+
+This release adds Canadian tax calculation over V3 REST, lets nominated
+customer groups manage their own exemption certificates from My Account, adds
+a one-click diagnostics bundle for support tickets, and shows an estimated tax
+on the cart page as soon as the shopper fills in *Estimate Shipping and Tax*.
+Every TaxCloud log line now carries a correlation id, so one order's lines can
+be found with a single search.
+
+Run `bin/magento setup:upgrade` after updating. In production mode also run
+`bin/magento setup:di:compile` — this release adds a console command, plugins
+and dependency-injection configuration. Canadian tax and customer certificate
+self-service are off until you enable them. The cart-page estimate is always
+on, and cached V3 lookups miss once after upgrading and repopulate.
+
+### Added
+
+- **Estimated tax on the cart page.** Filling in the cart page's *Estimate
+  Shipping and Tax* box (country, state, ZIP — no street or city) now shows a
+  ZIP-level tax estimate instead of no tax, on both SOAP and V3 REST and for
+  Canadian addresses on Canada-enabled stores. The lookup is sent with the
+  placeholder `ESTIMATE` in the missing street and/or city (TaxCloud prices by
+  state and ZIP), skips address verification, and is marked in the log. Always
+  on. Orders are still filed only against the real checkout address. In ZIPs
+  crossing a jurisdiction boundary the estimate can differ from the checkout
+  tax.
+- **Test coverage for cart-page estimates.** Unit tests for the estimate
+  gate, placeholder and verification skip on both transports; integration tests
+  pricing an estimator address through the real collector on SOAP, REST and a
+  Canada-enabled store (and replacing it with the full address); and an e2e
+  spec filling the cart's *Estimate Shipping and Tax* box, run in both the SOAP
+  and REST passes.
+- **Customers in trusted groups can manage their own exemption certificates.**
+  Two new store-scoped settings, **Let Customers Manage Certificates** (default
+  `No`) and **Customer Groups That Can Manage Certificates** (default none),
+  let nominated customer groups add certificates from My Account, choose which
+  one is in use, and refresh them from TaxCloud. Adding requires the customer
+  to attest the claim; a new certificate is put in use when none is. Every
+  customer change is logged as the customer's. The TaxCloud Customer ID stays
+  admin-only. All customers now see which certificate is in use.
+- **Test coverage for certificate self-service.** Unit tests throughout;
+  integration tests driving the storefront controllers over a recorded v3
+  transport (per-store nomination, create / switch / delete, stale
+  attachments, the repository guard); and an e2e `self-service-on` pass in
+  which a seeded Wholesale customer adds a certificate, checks out exempt,
+  switches it off and on, removes it and is taxed again.
+- **Canadian tax (opt-in, V3 REST only).** A new **Calculate Canadian Tax**
+  setting (default `No`, store-scoped) prices orders shipped to Canada — GST,
+  HST, PST and QST — and files, refunds and cancels them in TaxCloud like US
+  orders. Canada must also be enabled on the TaxCloud account by TaxCloud
+  support. A **Check Canada Access** button runs a sample Canadian lookup and
+  reports whether the account has Canada, does not, or could not be checked;
+  the same check runs when the tax configuration is saved with the setting on,
+  and in the diagnostics bundle's live probe. Canadian postal codes are
+  validated and normalized, address verification is skipped for Canadian
+  addresses, and exemption certificates never apply to them. A failed Canadian
+  lookup logs a hint to confirm Canada access with TaxCloud support.
+- **Test coverage for Canadian tax.** Unit tests throughout, integration tests
+  driving a Canadian cart, order, refund and cancellation over a recorded v3
+  transport (new `installRestMock()` harness) plus the config-save access
+  check, and an e2e `canada-on` pass that checks out a guest to Toronto and
+  confirms account access from the admin.
+- **Diagnostics bundle.** A **Download Diagnostics** button in *Stores →
+  Configuration → Sales → Tax → TaxCloud Settings* and a **TaxCloud
+  Diagnostics** button on the admin order view create a single ZIP to attach to
+  a support ticket: a summary report that flags blockers and anomalies, TaxCloud
+  settings at every scope with where each value comes from and whether it is
+  locked in `app/etc/env.php` or `app/etc/config.php`, Magento's native tax
+  configuration, installed modules, environment, cron and indexer state, the
+  tax collector verdict, a live read-only API probe (DNS and TLS measured
+  separately from the API result), and the TaxCloud log with TaxCloud-related
+  lines from `system.log` and `exception.log`. The order button narrows the
+  bundle to that order: totals, items with the TIC used and where it came from,
+  addresses, RDF state, documents, and only that order's log lines. A dialog
+  sets customer-detail masking, the log window and whether to run the probe
+  before anything is generated. Credentials are never included under any
+  option — each is replaced by a fingerprint (set, length, last four
+  characters, hash prefix, whitespace flags). Access is a new ACL resource,
+  **TaxCloud Diagnostics Export**; every export is audited. Also available as
+  `bin/magento taxcloud:diagnostics:export [--order=] [--redact] [--output=]`.
+  The summary also lists each distinct warning and error found in the included
+  logs (count, first and last seen), when TaxCloud last looked up tax, captured
+  and refunded, flags a TaxCloud log that has gone silent, and blocks on a
+  pending `bin/magento setup:upgrade`.
+- **Log correlation.** TaxCloud log lines written during a tax lookup, address
+  verification, capture, refund or cancellation now end with a JSON context
+  carrying a per-operation `correlation_id`, the `operation`, and the
+  `quote_id` / `order_increment_id` when known, so every line for one order can
+  be found with a single search.
+- **Capture and refund outcomes in Basic logging.** Each capture now ends with
+  `Order … captured in TaxCloud` or `Order … was NOT captured in TaxCloud`, and
+  each refund with `Refund for order … recorded in TaxCloud` or `… was NOT
+  recorded`, so the outcome is visible without Advanced logging.
+- **Request identity on every log line.** Each TaxCloud log record ends with
+  `{"request":"…","pid":…}` identifying the request, command or background job
+  that wrote it, so lines from concurrent requests can be told apart. `pid` is
+  omitted on hosts that disable `getmypid()`.
+
+### Changed
+
+- **Deleting the certificate in use from the admin also stops it applying**,
+  instead of being refused until it was detached.
+- **V3 addresses state their country.** Every origin and destination sent over
+  V3 REST (carts, orders, address verification) now carries `countryCode`
+  (`US` or `CA`). Cached V3 lookups miss once after upgrading and repopulate.
+
+### Fixed
+
+- **The attached certificate could be set around certificate management.** It
+  is a customer attribute, so the customer REST/GraphQL APIs accepted it in
+  `custom_attributes`, and the admin customer form carried it for
+  administrators without the certificate permission. A repository guard now
+  keeps the stored value unless the change comes through certificate
+  management, and logs the refusal.
+- **Removing the certificate in use from My Account left it attached.** The
+  customer was correctly taxed, but the next certificate created for them was
+  not put in use. Deletion now clears the attachment, and an attachment to a
+  certificate that no longer exists no longer blocks a new one.
+- **A repeat capture over V1 SOAP is recognized as the duplicate it is.** Only
+  one of TaxCloud's two refusals ("already been marked as authorized") counted
+  as benign; the other ("already been captured") was reported as a failed
+  capture. The order was then never flagged as captured, so a later
+  cancellation skipped its reversal — and the error surfaced in the log for a
+  sale TaxCloud already held. Both wordings now count, as they already did on
+  V3 REST.
+
+- V1 SOAP log records were multi-line (`print_r` dumps, raw headers and XML),
+  so the correlation labels sat on each record's last line where a search for
+  the order number missed them. SOAP parameters and responses are now logged as
+  single-line JSON, wire traces on one line, and SOAP operations are labelled
+  `(v1 SOAP)` as REST ones are labelled `(v3 REST)`.
+- The refund log line named the credit memo, which has no number yet at that
+  point, and read `for creditmemo ` with nothing after it. It now names the
+  order.
+
 ## 1.4.0
 
 This release makes TaxCloud's v3 REST API a fully supported transport alongside

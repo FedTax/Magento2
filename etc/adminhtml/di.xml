@@ -64,4 +64,15 @@
       </argument>
     </arguments>
   </type>
+
+  <!--
+    "TaxCloud Diagnostics" on the order view button bar. A plugin rather than
+    layout XML because the button bar is built in PHP (ButtonList), not in the
+    layout; the plugin checks the diagnostics ACL resource itself.
+  -->
+  <type name="Magento\Sales\Block\Adminhtml\Order\View">
+    <plugin name="taxcloud_order_view_diagnostics_button"
+            type="Taxcloud\Magento2\Plugin\Adminhtml\OrderViewDiagnosticsButton"
+            sortOrder="100"/>
+  </type>
 </config>

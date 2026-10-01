@@ -20,8 +20,11 @@ any needed doc edits ship as part of the same change:
 - Read `docs/writing-documentation.md` before writing — it defines the
   audience (store owners/admins, not developers) and style. Developer material
   belongs only under the Development nav section.
-- `README.md` remains the developer-facing entry point; when a change touches
-  something both cover (settings, install steps, attributes), update both.
+- `README.md` is the developer-facing entry point and links to the docs site
+  for everything else. Merchant-facing behavior (settings, install steps,
+  features) is documented in `docs/` only — never duplicate it in the README.
+  Update the README only when developer material changes (tests, coding
+  standard, internals, data patches, deployment, releases).
 
 A purely internal change (refactor, tests, CI) with no observable behavior
 change needs no doc edits — but state that conclusion explicitly when wrapping

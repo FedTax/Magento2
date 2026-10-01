@@ -75,6 +75,11 @@ class Refund implements ObserverInterface
 
         if ($this->tclogger instanceof GatewayLogger) {
             $this->tclogger->setStore($storeId);
+            $this->tclogger->beginOperation(
+                'refund',
+                $creditmemo->getOrder()->getQuoteId(),
+                $creditmemo->getOrder()->getIncrementId()
+            );
         }
 
         if (!$this->config->isEnabled($storeId)) {
@@ -93,8 +98,14 @@ class Refund implements ObserverInterface
 
         $this->tclogger->info('Running Observer sales_order_creditmemo_refund');
 
+        $orderNumber = $creditmemo->getOrder()->getIncrementId();
         try {
-            $this->tcapi->returnOrder($creditmemo);
+            if ($this->tcapi->returnOrder($creditmemo)) {
+                $this->tclogger->info('Refund for order ' . $orderNumber . ' recorded in TaxCloud');
+            } else {
+                // The gateway has already logged why; this line marks the outcome.
+                $this->tclogger->warning('Refund for order ' . $orderNumber . ' was NOT recorded in TaxCloud');
+            }
         } catch (\Throwable $e) {
             // Magento has already committed the refund — don't let a TaxCloud
             // failure surface to the admin user.

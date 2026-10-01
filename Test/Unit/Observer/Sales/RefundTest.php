@@ -170,4 +170,43 @@ class RefundTest extends TestCase
         $refund = new Refund(new TaxcloudConfig($scopeConfig), $tcapi, $logger);
         $refund->execute($observer);
     }
+
+    /**
+     * The refund outcome is logged, naming the order: the credit memo has no
+     * number yet when this observer runs.
+     *
+     * @dataProvider refundOutcomes
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refundOutcomes')]
+    public function testExecuteLogsTheRefundOutcome(bool $recorded, string $level, string $message)
+    {
+        $order = $this->createMock(\Magento\Sales\Model\Order::class);
+        $order->method('getStoreId')->willReturn(self::ORDER_STORE_ID);
+        $order->method('getIncrementId')->willReturn('100000077');
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($order);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->method('returnOrder')->willReturn($recorded);
+
+        $logged = [];
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        foreach (['info', 'warning'] as $method) {
+            $logger->method($method)->willReturnCallback(function ($text) use (&$logged, $method) {
+                $logged[] = [$method, $text];
+            });
+        }
+
+        (new Refund($this->buildConfig('1'), $tcapi, $logger))->execute($this->buildObserver($creditmemo));
+
+        $this->assertContains([$level, $message], $logged);
+    }
+
+    public static function refundOutcomes(): array
+    {
+        return [
+            'recorded' => [true, 'info', 'Refund for order 100000077 recorded in TaxCloud'],
+            'not recorded' => [false, 'warning', 'Refund for order 100000077 was NOT recorded in TaxCloud'],
+        ];
+    }
 }

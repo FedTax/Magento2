@@ -72,4 +72,32 @@ class PostalCodeParserTest extends TestCase
             'null Zip5' => [['Zip5' => null, 'Zip4' => null], false, 'null Zip5 invalid'],
         ];
     }
+
+    /**
+     * @dataProvider canadianProvider
+     */
+    #[DataProvider('canadianProvider')]
+    public function testParseCanadian(?string $input, ?string $expected, string $message)
+    {
+        $this->assertSame($expected, PostalCodeParser::parseCanadian($input), $message);
+    }
+
+    public static function canadianProvider(): array
+    {
+        return [
+            'canonical' => ['M5H 2N2', 'M5H 2N2', 'canonical form kept'],
+            'lowercase, no space' => ['m5h2n2', 'M5H 2N2', 'normalized to uppercase with a space'],
+            'surrounding whitespace' => ['  v5y 1v4 ', 'V5Y 1V4', 'stray whitespace trimmed'],
+            'extra inner space' => ['H2Y  1C6', 'H2Y 1C6', 'inner whitespace collapsed'],
+            'US ZIP' => ['12345', null, 'a US ZIP is not a Canadian postal code'],
+            'too short' => ['M5H 2N', null, 'five characters invalid'],
+            'too long' => ['M5H 2N22', null, 'seven characters invalid'],
+            'forbidden letter' => ['D5H 2N2', null, 'D never appears'],
+            'W never leads' => ['W5H 2N2', null, 'W is not a valid first letter'],
+            'Z never leads' => ['Z5H 2N2', null, 'Z is not a valid first letter'],
+            'hyphenated' => ['M5H-2N2', null, 'hyphen is not accepted'],
+            'empty' => ['', null, 'empty invalid'],
+            'null' => [null, null, 'null invalid'],
+        ];
+    }
 }

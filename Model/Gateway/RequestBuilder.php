@@ -43,6 +43,8 @@ class RequestBuilder
     public const ITEM_TYPE_SHIPPING = 'shipping';
     public const ITEM_TYPE_PRODUCT = 'product';
     public const KEY_ITEM = 'item';
+    public const COUNTRY_US = 'US';
+    public const COUNTRY_CANADA = 'CA';
 
     /**
      * @var TaxcloudConfig
@@ -170,6 +172,37 @@ class RequestBuilder
             'State' => $this->resolveRegionCode($address),
             'Zip5' => $parsedZip['Zip5'],
             'Zip4' => $parsedZip['Zip4'],
+        ];
+    }
+
+    /**
+     * Build a Canadian destination address from a quote or order address.
+     *
+     * Same v1 shape as a US destination, so the transport-neutral code that
+     * passes destinations around needs no second format — but with Country
+     * and PostalCode set and the ZIP fields empty. A Canadian postal code is
+     * never stored in Zip5: every reader of Zip5 expects five digits. Only the
+     * v3 transport consumes these keys (see RestRequestBuilder::toV3Address()).
+     *
+     * @param \Magento\Framework\DataObject $address Quote or order address
+     * @param string $postalCode Canonical postal code from PostalCodeParser::parseCanadian()
+     * @return array
+     */
+    public function buildCanadianDestination($address, string $postalCode)
+    {
+        $street = $address->getStreet();
+        $street1 = is_array($street) ? ($street[0] ?? '') : (string) $street;
+        $street2 = is_array($street) && isset($street[1]) ? $street[1] : '';
+
+        return [
+            'Address1' => $street1,
+            'Address2' => $street2,
+            'City' => $address->getCity() ?? '',
+            'State' => $this->resolveRegionCode($address),
+            'Zip5' => '',
+            'Zip4' => '',
+            'Country' => self::COUNTRY_CANADA,
+            'PostalCode' => $postalCode,
         ];
     }
 
@@ -534,7 +567,8 @@ class RequestBuilder
 
     /**
      * Build the destination array for an order, or null when no address on it
-     * yields a usable US destination (missing / non-US / invalid ZIP).
+     * yields a usable destination (missing / unsupported country / invalid
+     * postal code / Canadian address without a province).
      *
      * The address comes from TaxAddressResolver, so an order that ships nothing
      * — and therefore has no shipping address at all, which is every order
@@ -543,13 +577,34 @@ class RequestBuilder
      * failure, which is the right outcome only when there is genuinely no
      * address to source to; it used to be the outcome for every digital order.
      *
+     * A Canadian address is usable only when the caller says so: only the v3
+     * transport files Canadian orders, and only for a store with Canadian tax
+     * in effect. The SOAP gateway never passes $allowCanada.
+     *
      * @param \Magento\Sales\Model\Order $order
+     * @param bool $allowCanada Whether a Canadian address is a usable destination
      * @return array|null
      */
-    public function buildDestinationFromOrder($order)
+    public function buildDestinationFromOrder($order, bool $allowCanada = false)
     {
         $address = $this->addressResolver->forOrder($order);
-        if (!$address || !$address->getPostcode() || $address->getCountryId() !== 'US') {
+        if (!$address || !$address->getPostcode()) {
+            $this->logUnresolvedDestination($order);
+            return null;
+        }
+
+        if ($allowCanada && $address->getCountryId() === self::COUNTRY_CANADA) {
+            $postalCode = PostalCodeParser::parseCanadian($address->getPostcode());
+            $destination = $postalCode !== null ? $this->buildCanadianDestination($address, $postalCode) : null;
+            if ($destination === null || $destination['State'] === '') {
+                $this->logUnresolvedDestination($order);
+                return null;
+            }
+            $this->logResolvedDestination($order);
+            return $destination;
+        }
+
+        if ($address->getCountryId() !== self::COUNTRY_US) {
             $this->logUnresolvedDestination($order);
             return null;
         }
@@ -605,7 +660,7 @@ class RequestBuilder
     {
         $this->logger->error(
             'Order ' . (string) $order->getIncrementId()
-            . ' has no shipping or billing address that yields a valid US destination'
+            . ' has no shipping or billing address that yields a usable destination'
         );
     }
 

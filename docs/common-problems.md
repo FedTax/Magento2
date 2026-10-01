@@ -2,6 +2,13 @@
 
 Symptoms first, in rough order of how often they come up.
 
+!!! tip "Contacting support? Send a diagnostics file first"
+    If the checks on this page do not solve it, create a diagnostics file and
+    attach it to your ticket — from the order itself if the problem is about one
+    order. It gives support your settings, versions, logs and a live connection
+    test in one go, so they can start on the answer instead of asking questions.
+    See [Sending diagnostics to support](diagnostics.md).
+
 ## No tax is charged at all
 
 **Is TaxCloud enabled?** *Stores → Configuration → Sales → Tax →* **TaxCloud
@@ -15,6 +22,7 @@ lookup happening. It needs the full ZIP+4.
 credentials mean every lookup fails.
 
 **Is the destination in the US?** Orders shipping elsewhere are left to Magento.
+For orders to Canada, see [No tax on Canadian orders](#no-tax-on-canadian-orders).
 
 **Is the product's tax class `None`?** Those are never sent to TaxCloud. See
 [Assigning TICs](assigning-tics.md).
@@ -30,11 +38,40 @@ If another one has taken over, TaxCloud still shows as enabled and its
 credentials still verify, but it is not calculating. See
 [Another extension is calculating tax](extension-conflicts.md).
 
+## No tax on Canadian orders
+
+**Is Calculate Canadian Tax set to `Yes` for that store view?** And is that store
+view on `V3 REST`? See [Canadian tax](canadian-tax.md).
+
+**Does your TaxCloud account have Canada?** Click **Check Canada Access**. If it
+says Canada is not enabled, contact TaxCloud support to enable it.
+
+**Is the address complete?** The customer must pick a province and enter a valid
+Canadian postal code, such as `M5H 2N2`.
+
 ## No tax on the cart page
 
-Expected. Until a shopper has entered a shipping address there is nothing to
-calculate against. Tax appears once they reach checkout and give an address.
-See [At checkout](checkout.md).
+Expected until the shopper gives a destination. Once they fill in *Estimate
+Shipping and Tax* on the cart page with a country, state and ZIP, an estimated
+tax appears. If it still does not:
+
+- **Is the destination somewhere you collect?** A state you do not collect in
+  shows no tax, exactly as it would at checkout.
+- **Is the ZIP valid for the state?** A ZIP that does not belong to the chosen
+  state cannot be priced. The reason is recorded in [the log](logs.md).
+- **Is it a Canadian address?** Canadian estimates need [Canadian
+  tax](canadian-tax.md) turned on.
+
+See [Estimated tax on the cart
+page](checkout.md#estimated-tax-on-the-cart-page).
+
+## The cart estimate differs from the tax at checkout
+
+Expected in some ZIPs. The cart estimate is based on the ZIP alone; checkout
+uses the full street address. Where a ZIP crosses a city or district boundary,
+the two can differ. The amount charged at checkout is the correct one. See
+[Estimated tax on the cart
+page](checkout.md#estimated-tax-on-the-cart-page).
 
 ## A download-only order was taxed in the wrong state
 

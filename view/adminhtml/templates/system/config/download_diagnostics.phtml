@@ -1,0 +1,18 @@
+<?php
+/**
+ * Taxcloud_Magento2
+ *
+ * "Download Diagnostics" button; the dialog lives in js/diagnostics/export.js.
+ *
+ * @var \Taxcloud\Magento2\Block\Adminhtml\System\Config\DownloadDiagnostics $block
+ * @var \Magento\Framework\Escaper $escaper
+ */
+$widget = ['Taxcloud_Magento2/js/diagnostics/export' => $block->getWidgetConfig()];
+?>
+<button type="button" id="taxcloud_download_diagnostics_btn" class="action-default scalable"
+        data-mage-init="<?= $escaper->escapeHtmlAttr(json_encode($widget)) ?>">
+    <span><?= $escaper->escapeHtml(__('Download Diagnostics')) ?></span>
+</button>
+<p class="note"><span><?= $escaper->escapeHtml(
+    __('Creates a file with your TaxCloud settings, recent logs and a live connection test to attach to a support ticket. Your credentials are never included.')
+) ?></span></p>

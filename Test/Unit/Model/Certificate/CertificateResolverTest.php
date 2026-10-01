@@ -244,6 +244,41 @@ class CertificateResolverTest extends TestCase
         );
     }
 
+    // ─── stale attachments ───────────────────────────────────────────────
+
+    public function testAnAttachmentToACertificateNoLongerHeldIsStale()
+    {
+        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        $this->assertTrue(
+            $this->resolver()->attachmentIsStale($this->customer(null, 42, 1, 'cert-deleted'))
+        );
+    }
+
+    public function testAnAttachmentToACertificateStillHeldIsNotStale()
+    {
+        $this->holding([$this->certificate(self::TX_CERT, ['TX'])]);
+
+        $this->assertFalse($this->resolver()->attachmentIsStale($this->customer(null, 42, 1, self::TX_CERT)));
+    }
+
+    public function testNoAttachmentIsNotStaleAndCostsNoApiCall()
+    {
+        $this->expectRepository()->expects($this->never())->method('forCustomer');
+
+        $this->assertFalse($this->resolver()->attachmentIsStale($this->customer()));
+    }
+
+    public function testAnAttachmentThatCannotBeCheckedIsNotStale()
+    {
+        $this->repository->method('forCustomer')->willThrowException(new RuntimeException('taxcloud down'));
+
+        $this->assertFalse(
+            $this->resolver()->attachmentIsStale($this->customer(null, 42, 1, self::TX_CERT)),
+            'an attachment that cannot be verified must not be overwritten'
+        );
+    }
+
     // ─── guests ──────────────────────────────────────────────────────────
 
     /**

@@ -91,6 +91,15 @@ class ProductTicService
         $this->categoryTicResolver = $categoryTicResolver;
     }
 
+    /**#@+
+     * Where a resolved TIC came from, as reported by resolveTic().
+     */
+    public const SOURCE_PRODUCT = 'product_attribute';
+    public const SOURCE_CATEGORY = 'category';
+    public const SOURCE_DEFAULT = 'default_tic';
+    public const SOURCE_DEFAULT_PRODUCT_MISSING = 'default_tic_product_missing';
+    /**#@-*/
+
     /**
      * Get product TIC (Taxability Information Code) with null safety
      * Handles cases where product has been deleted or doesn't have custom TIC
@@ -102,6 +111,23 @@ class ProductTicService
      */
     public function getProductTic($item, $context = '', $store = null)
     {
+        return $this->resolveTic($item, $context, $store)['tic'];
+    }
+
+    /**
+     * Resolve a line's TIC together with the level it came from.
+     *
+     * The same precedence getProductTic() applies — product attribute, then
+     * category, then the store's default TIC — exposed with its source, so
+     * diagnostics can show why a line was taxed the way it was.
+     *
+     * @param \Magento\Sales\Model\Order\Item|\Magento\Quote\Model\Quote\Item $item
+     * @param string $context Context for logging
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return array{tic: string, source: string}
+     */
+    public function resolveTic($item, $context = '', $store = null): array
+    {
         $product = $this->resolveTaxableProduct($item);
 
         // Handle case where product has been deleted
@@ -109,7 +135,7 @@ class ProductTicService
             $this->logger->warning(
                 'Product not found for item ' . $item->getSku() . ' in ' . $context . ', using default TIC'
             );
-            return $this->getDefaultTic($store);
+            return ['tic' => $this->getDefaultTic($store), 'source' => self::SOURCE_DEFAULT_PRODUCT_MISSING];
         }
 
         try {
@@ -118,20 +144,20 @@ class ProductTicService
             $this->logger->warning(
                 'Product ID ' . $product->getId() . ' not found in repository for ' . $context . ', using default TIC'
             );
-            return $this->getDefaultTic($store);
+            return ['tic' => $this->getDefaultTic($store), 'source' => self::SOURCE_DEFAULT_PRODUCT_MISSING];
         }
         $tic = $productModel->getCustomAttribute('taxcloud_tic');
         $value = $tic ? trim((string) $tic->getValue()) : '';
         if ($value !== '') {
-            return $value;
+            return ['tic' => $value, 'source' => self::SOURCE_PRODUCT];
         }
 
         $categoryTic = $this->getCategoryTic($item, $productModel, $store);
         if ($categoryTic !== null) {
-            return $categoryTic;
+            return ['tic' => $categoryTic, 'source' => self::SOURCE_CATEGORY];
         }
 
-        return $this->getDefaultTic($store);
+        return ['tic' => $this->getDefaultTic($store), 'source' => self::SOURCE_DEFAULT];
     }
 
     /**

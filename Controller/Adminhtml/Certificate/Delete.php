@@ -50,19 +50,6 @@ class Delete extends AbstractCertificateAction implements HttpPostActionInterfac
             return $this->error(__('That certificate does not belong to this customer.')->render());
         }
 
-        // Refuse to delete the certificate the customer's orders are currently
-        // filed against. Deleting it is irreversible at TaxCloud and would leave
-        // the attachment pointing at something that no longer exists — the
-        // customer silently stops being exempt, with nothing on the screen
-        // saying so. Clearing the attachment first makes that consequence an
-        // explicit act rather than a side effect.
-        if ($this->resolver->attachedCertificateId($customer) === $certificateId) {
-            return $this->error(
-                __('This certificate is in use for this customer. Choose "Stop using" first, then delete it.')
-                    ->render()
-            );
-        }
-
         try {
             $this->certificates->delete($certificateId, $this->identity->resolve($customer), $storeId);
         } catch (\Throwable $e) {
@@ -71,6 +58,22 @@ class Delete extends AbstractCertificateAction implements HttpPostActionInterfac
             );
         }
 
-        return $this->json(['success' => true]);
+        // Deleting the certificate in use also stops it applying. Deleted
+        // first, detached second, so a refused deletion leaves the customer's
+        // exemption as it was; and an attachment left pointing at a deleted
+        // certificate would exempt nothing while blocking the next one created
+        // for this customer from being attached.
+        $detached = false;
+        if ($this->resolver->attachedCertificateId($customer) === $certificateId) {
+            try {
+                $detached = $this->attachment->set($customer, '', $this->administrator(), $storeId);
+            } catch (\Throwable $e) {
+                // Deleted regardless. A stale attachment exempts nothing and is
+                // ignored when the next certificate is created.
+                $detached = false;
+            }
+        }
+
+        return $this->json(['success' => true, 'detached' => $detached]);
     }
 }

@@ -19,6 +19,7 @@ namespace Taxcloud\Magento2\Observer\Sales;
 
 use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
 
@@ -83,6 +84,9 @@ class Address implements ObserverInterface
 
         if ($this->tclogger instanceof GatewayLogger) {
             $this->tclogger->setStore($storeId);
+            // Fires inside the lookup's before-event, so the lookup's context
+            // is normally already bound; this only binds when it is not.
+            $this->tclogger->continueOperation('verify_address');
         }
 
         if (!$this->config->isEnabled($storeId)) {
@@ -103,6 +107,12 @@ class Address implements ObserverInterface
             if ($params !== null) {
                 $obj->setParams($params);
             }
+            return;
+        }
+
+        // A placeholder street/city can never verify: don't spend a call on it.
+        if (EstimateAddress::isEstimate($params['destination'] ?? [])) {
+            $this->tclogger->debug('Estimate destination, skipping address verification');
             return;
         }
 
@@ -139,6 +149,16 @@ class Address implements ObserverInterface
         foreach ($params['items'] as $i => $cart) {
             $destination = $cart['destination'] ?? null;
             if (!is_array($destination)) {
+                continue;
+            }
+            // TaxCloud verifies US addresses only (a Canadian one is answered
+            // "unsupported country code"): leave anything else as entered.
+            if (($destination['countryCode'] ?? 'US') !== 'US') {
+                continue;
+            }
+            // A placeholder street/city can never verify: don't spend a call on it.
+            if (EstimateAddress::isEstimate($destination)) {
+                $this->tclogger->debug('Estimate destination, skipping address verification');
                 continue;
             }
 
@@ -186,8 +206,10 @@ class Address implements ObserverInterface
     }
 
     /**
+     * Only US destinations are verified, so the result is always a US address.
+     *
      * @param array $address v1 shape (Address1/Address2/City/State/Zip5/Zip4)
-     * @return array v3 shape (line1/line2/city/state/zip)
+     * @return array v3 shape (line1/line2/city/state/zip/countryCode)
      */
     private function toV3Address(array $address)
     {
@@ -201,6 +223,7 @@ class Address implements ObserverInterface
             'city' => (string) ($address['City'] ?? ''),
             'state' => (string) ($address['State'] ?? ''),
             'zip' => $zip,
+            'countryCode' => 'US',
         ];
         if (!empty($address['Address2'])) {
             $v3['line2'] = (string) $address['Address2'];

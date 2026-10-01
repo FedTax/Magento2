@@ -116,6 +116,7 @@ class Complete implements ObserverInterface
         $storeId = $order->getStoreId();
         if ($this->tclogger instanceof GatewayLogger) {
             $this->tclogger->setStore($storeId);
+            $this->tclogger->beginOperation('capture', $order->getQuoteId(), $order->getIncrementId());
         }
 
         if (!$this->config->isEnabled($storeId)) {
@@ -175,7 +176,13 @@ class Complete implements ObserverInterface
         $this->tclogger->info('Running Observer ' . $eventName . ' (capture trigger: ' . $configuredTrigger . ')');
 
         if ($this->tcapi->authorizeCapture($order, $this->getCompletedAtFromObserver($observer, $eventName))) {
+            $this->tclogger->info('Order ' . $order->getIncrementId() . ' captured in TaxCloud');
             $this->markCapturedInTaxcloud($order);
+        } else {
+            // The gateway has already logged why; this line marks the outcome.
+            $this->tclogger->warning(
+                'Order ' . $order->getIncrementId() . ' was NOT captured in TaxCloud (see the error above)'
+            );
         }
     }
 

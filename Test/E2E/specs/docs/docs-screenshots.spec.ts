@@ -183,6 +183,18 @@ test.describe('documentation screenshots', () => {
     );
   });
 
+  test('customer self-service settings', async ({ page }) => {
+    const config = await openTaxConfig(page);
+    await config.setExemptions(true);
+    await config.setCustomerCertificates(true, ['Wholesale']);
+    await shootRange(
+      page,
+      page.locator('#row_tax_taxcloud_customer_certificates_enabled'),
+      page.locator('#row_tax_taxcloud_customer_certificate_groups'),
+      'exemptions-self-service-settings.png',
+    );
+  });
+
   test('certificates permission', async ({ page }) => {
     await page.goto('/admin/admin/user_role/');
     await page.locator('tr:has-text("Administrators")').first().click();

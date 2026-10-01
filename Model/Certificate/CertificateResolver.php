@@ -214,6 +214,42 @@ class CertificateResolver
     }
 
     /**
+     * Whether the customer's attachment names a certificate they no longer hold.
+     *
+     * True only when something is attached, the customer's certificates were
+     * actually retrieved, and the attached one is not among them — deleted in
+     * the TaxCloud portal, say, or before deletion cleared attachments. A
+     * failed retrieval answers false: an attachment that cannot be checked is
+     * not one to overwrite.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface|null $customer
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function attachmentIsStale($customer, $store = null)
+    {
+        $attached = $this->attachedCertificateId($customer);
+        $customerIdentity = $this->identity->resolve($customer);
+        if ($attached === '' || $customerIdentity === '') {
+            return false;
+        }
+
+        try {
+            $certificates = $this->repository->forCustomer($customerIdentity, $store);
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        foreach ($certificates as $certificate) {
+            if ($certificate->getCertificateId() === $attached) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Honour an externally supplied identifier only if it is genuinely one of
      * this customer's eligible certificates.
      *

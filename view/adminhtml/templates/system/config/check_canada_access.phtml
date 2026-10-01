@@ -1,0 +1,50 @@
+<?php
+/**
+ * Taxcloud_Magento2
+ *
+ * "Check Canada Access" button + inline result area.
+ *
+ * @var \Taxcloud\Magento2\Block\Adminhtml\System\Config\CheckCanadaAccess $block
+ * @var \Magento\Framework\Escaper $escaper
+ */
+?>
+<button type="button" id="taxcloud_check_canada_access_btn" class="action-default scalable">
+    <span><?= $escaper->escapeHtml(__('Check Canada Access')) ?></span>
+</button>
+<p class="note"><span><?= $escaper->escapeHtml(__(
+    'Runs a sample Canadian tax calculation with the saved settings of this scope. Save any changes first.'
+)) ?></span></p>
+<p id="taxcloud_check_canada_access_result" style="display:none; margin-top: 0.8rem;"></p>
+<script>
+require(['jquery'], function ($) {
+    'use strict';
+
+    var button = $('#taxcloud_check_canada_access_btn');
+    var result = $('#taxcloud_check_canada_access_result');
+    var colors = {enabled: '#006400', not_enabled: '#e22626', unavailable: '#8a5a00'};
+
+    function show(outcome, message) {
+        result
+            .show()
+            .css('color', colors[outcome] || colors.unavailable)
+            .text(message);
+    }
+
+    button.on('click', function () {
+        button.prop('disabled', true);
+        show('enabled', '<?= $escaper->escapeJs(__('Checking Canada access…')) ?>');
+
+        $.post('<?= $escaper->escapeJs($block->getAjaxUrl()) ?>', {
+            form_key: window.FORM_KEY,
+            website: '<?= $escaper->escapeJs($block->getWebsiteParam()) ?>',
+            store: '<?= $escaper->escapeJs($block->getStoreParam()) ?>'
+        }).done(function (response) {
+            show(response.outcome, response.message);
+        }).fail(function () {
+            show('unavailable', '<?= $escaper->escapeJs(__('The request failed — check the admin session and try again.')) ?>');
+        }).always(function () {
+            button.prop('disabled', false);
+        });
+    });
+});
+</script>

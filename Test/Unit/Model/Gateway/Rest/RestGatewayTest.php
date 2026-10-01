@@ -14,6 +14,7 @@ use Magento\Sales\Model\Order\Creditmemo;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+use Taxcloud\Magento2\Model\Address\EstimateAddress;
 use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Model\Cache\ResultCache;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
@@ -74,6 +75,11 @@ class RestGatewayTest extends TestCase
      * @var TaxcloudConfig&\PHPUnit\Framework\MockObject\MockObject
      */
     private $config;
+
+    /**
+     * @var GatewayLogger&\PHPUnit\Framework\MockObject\MockObject
+     */
+    private $gatewayLogger;
 
     /**
      * @var string[] Event names dispatched (before and after), in order
@@ -141,8 +147,10 @@ class RestGatewayTest extends TestCase
             }
         );
 
+        $this->gatewayLogger = $this->createMock(GatewayLogger::class);
+
         return new RestGateway(
-            $this->createMock(GatewayLogger::class),
+            $this->gatewayLogger,
             $this->config,
             $this->restClient,
             $this->restRequestBuilder,
@@ -248,7 +256,6 @@ class RestGatewayTest extends TestCase
             'invalid zip' => ['getPostcode' => 'ABCDE'],
             'non-US' => ['getCountryId' => 'CA'],
             'no region' => ['getRegionId' => 0],
-            'no city' => ['getCity' => ''],
         ] as $label => $override) {
             $gateway = $this->gateway();
             $this->stubLookupBuilders();
@@ -260,6 +267,139 @@ class RestGatewayTest extends TestCase
             $this->assertSame(
                 [Api::ITEM_TYPE_PRODUCT => [], Api::ITEM_TYPE_SHIPPING => 0],
                 $result,
+                $label
+            );
+        }
+    }
+
+    // ─── Estimate addresses (cart-page estimator: region + ZIP, no street/city) ───
+
+    /**
+     * Destination builders stubbed to return $destination as the real ones
+     * would for the address under test; the destination handed to the payload
+     * builder (post-estimate) is captured into $sent.
+     */
+    private function stubEstimateBuilders(array $destination, ?array &$sent, bool $canadian = false): void
+    {
+        $this->requestBuilder->method($canadian ? 'buildCanadianDestination' : 'buildLookupDestination')
+            ->willReturn($destination);
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->restRequestBuilder->method('buildCartLineItems')->willReturn([
+            'lineItems' => [['index' => 0]],
+            'indexedItems' => [0 => 'code-a'],
+        ]);
+        $this->restRequestBuilder->method('buildCartPayload')->willReturnCallback(
+            static function ($customer, $quote, $lineItems, $origin, $dest) use (&$sent) {
+                $sent = $dest;
+                return self::CART_PAYLOAD;
+            }
+        );
+        $this->resultCache->method('getLookup')->willReturn(false);
+    }
+
+    /**
+     * @var string[] Messages logged at info level, once captureInfoLog() is on
+     */
+    private $infoLog = [];
+
+    private function captureInfoLog(): void
+    {
+        $this->infoLog = [];
+        $this->gatewayLogger->method('info')->willReturnCallback(function ($message) {
+            $this->infoLog[] = $message;
+        });
+    }
+
+    public function testEstimateAddressIsPricedWithPlaceholderStreetAndCity()
+    {
+        $gateway = $this->gateway();
+        $sent = null;
+        $this->stubEstimateBuilders(['Address1' => '', 'City' => null] + self::V1_DESTINATION, $sent);
+        $this->captureInfoLog();
+        $this->restClient->expects($this->once())->method('request')->willReturn($this->cartResponse([
+            ['index' => 0, 'itemId' => 'sku-1', 'tax' => ['amount' => 8.88]],
+        ]));
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs(null, ['getStreet' => null, 'getCity' => null]);
+        $result = $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertSame(['code-a' => 8.88], $result[Api::ITEM_TYPE_PRODUCT]);
+        $this->assertSame(
+            ['Address1' => EstimateAddress::PLACEHOLDER, 'City' => EstimateAddress::PLACEHOLDER] + self::V1_DESTINATION,
+            $sent
+        );
+        $this->assertContains(EstimateAddress::LOG_MESSAGE, $this->infoLog);
+    }
+
+    public function testMissingStreetAloneFillsOnlyTheStreet()
+    {
+        $gateway = $this->gateway();
+        $sent = null;
+        $this->stubEstimateBuilders(['Address1' => ''] + self::V1_DESTINATION, $sent);
+        $this->restClient->expects($this->once())->method('request')->willReturn($this->cartResponse([]));
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs(null, ['getStreet' => ['']]);
+        $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertSame(EstimateAddress::PLACEHOLDER, $sent['Address1']);
+        $this->assertSame('Bronx', $sent['City']);
+    }
+
+    public function testCompleteAddressCarriesNoPlaceholder()
+    {
+        $gateway = $this->gateway();
+        $sent = null;
+        $this->stubEstimateBuilders(self::V1_DESTINATION, $sent);
+        $this->captureInfoLog();
+        $this->restClient->method('request')->willReturn($this->cartResponse([]));
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs();
+        $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertSame(self::V1_DESTINATION, $sent);
+        $this->assertNotContains(EstimateAddress::LOG_MESSAGE, $this->infoLog);
+    }
+
+    public function testCanadianEstimateAddressIsPricedOnACanadaEnabledStore()
+    {
+        $gateway = $this->gateway();
+        $sent = null;
+        $this->config->method('isCanadaTaxEnabled')->willReturnMap([[self::STORE_ID, true], [null, false]]);
+        $this->stubEstimateBuilders(['Address1' => '', 'City' => ''] + self::V1_CANADIAN_DESTINATION, $sent, true);
+        $this->restClient->expects($this->once())->method('request')->willReturn($this->cartResponse([]));
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs(
+            null,
+            ['getStreet' => null, 'getCity' => null] + self::CANADIAN_ADDRESS
+        );
+        $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertSame(
+            ['Address1' => EstimateAddress::PLACEHOLDER, 'City' => EstimateAddress::PLACEHOLDER]
+                + self::V1_CANADIAN_DESTINATION,
+            $sent
+        );
+    }
+
+    public function testEstimateAddressStillShortCircuitsOnOtherGates()
+    {
+        $partial = ['getStreet' => null, 'getCity' => null];
+        foreach ([
+            'no region' => $partial + ['getRegionId' => 0],
+            'invalid zip' => $partial + ['getPostcode' => 'ABCDE'],
+            'unsupported country' => $partial + ['getCountryId' => 'MX', 'getPostcode' => '01000'],
+            'canada disabled' => $partial + self::CANADIAN_ADDRESS,
+        ] as $label => $override) {
+            $gateway = $this->gateway();
+            $this->stubLookupBuilders();
+            $this->config->method('isCanadaTaxEnabled')->willReturn(false);
+            $this->restClient->expects($this->never())->method('request');
+
+            [$itemsByType, $assignment, $quote] = $this->lookupInputs(null, $override);
+
+            $this->assertSame(
+                [Api::ITEM_TYPE_PRODUCT => [], Api::ITEM_TYPE_SHIPPING => 0],
+                $gateway->lookupTaxes($itemsByType, $assignment, $quote),
                 $label
             );
         }
@@ -418,6 +558,156 @@ class RestGatewayTest extends TestCase
         );
     }
 
+    private const V1_CANADIAN_DESTINATION = [
+        'Address1' => '100 Queen St W', 'Address2' => '', 'City' => 'Toronto', 'State' => 'ON',
+        'Zip5' => '', 'Zip4' => '', 'Country' => 'CA', 'PostalCode' => 'M5H 2N2',
+    ];
+
+    private const CANADIAN_ADDRESS = [
+        'getPostcode' => 'm5h2n2',
+        'getStreet' => ['100 Queen St W'],
+        'getCity' => 'Toronto',
+        'getRegionId' => 74,
+        'getCountryId' => 'CA',
+    ];
+
+    /**
+     * Canadian tax enabled for the QUOTE's store only, so a lookup that read
+     * the ambient store would see it off.
+     */
+    private function enableCanadaForQuoteStore(): void
+    {
+        $this->config->method('isCanadaTaxEnabled')->willReturnMap([[self::STORE_ID, true], [null, false]]);
+        $this->requestBuilder->method('buildCanadianDestination')->willReturn(self::V1_CANADIAN_DESTINATION);
+    }
+
+    public function testCanadianLookupGatesShortCircuitWithoutApiCall()
+    {
+        foreach ([
+            'invalid postal code' => ['getPostcode' => '12345'],
+            'no province' => ['getRegionId' => 0],
+            'another country' => ['getCountryId' => 'MX', 'getPostcode' => '01000'],
+        ] as $label => $override) {
+            $gateway = $this->gateway();
+            $this->stubLookupBuilders();
+            $this->enableCanadaForQuoteStore();
+            $this->restClient->expects($this->never())->method('request');
+
+            [$itemsByType, $assignment, $quote] = $this->lookupInputs(null, $override + self::CANADIAN_ADDRESS);
+
+            $this->assertSame(
+                [Api::ITEM_TYPE_PRODUCT => [], Api::ITEM_TYPE_SHIPPING => 0],
+                $gateway->lookupTaxes($itemsByType, $assignment, $quote),
+                $label
+            );
+        }
+    }
+
+    public function testCanadianDestinationIsUntaxedWhenCanadianTaxIsOffForTheStore()
+    {
+        $gateway = $this->gateway();
+        $this->stubLookupBuilders();
+        $this->config->method('isCanadaTaxEnabled')->willReturn(false);
+        $this->restClient->expects($this->never())->method('request');
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs(null, self::CANADIAN_ADDRESS);
+
+        $this->assertSame(
+            [Api::ITEM_TYPE_PRODUCT => [], Api::ITEM_TYPE_SHIPPING => 0],
+            $gateway->lookupTaxes($itemsByType, $assignment, $quote)
+        );
+    }
+
+    /**
+     * An enabled Canadian destination is priced: built from the normalized
+     * postal code, sent to the carts endpoint, and the returned tax applied.
+     * An attached certificate is never sent — certificates cover US states —
+     * even one that claims the destination province.
+     */
+    public function testCanadianLookupIsPricedWithoutACertificate()
+    {
+        $gateway = $this->gateway();
+        $this->stubLookupBuilders();
+        $this->enableCanadaForQuoteStore();
+        $this->resultCache->method('getLookup')->willReturn(false);
+        $this->customerCertificates = [
+            new \Taxcloud\Magento2\Model\Certificate\Certificate('cert-9', '42', ['ON']),
+        ];
+
+        $this->requestBuilder->expects($this->once())
+            ->method('buildCanadianDestination')
+            ->with($this->anything(), 'M5H 2N2');
+        $this->requestBuilder->expects($this->never())->method('buildLookupDestination');
+        $this->restRequestBuilder->expects($this->once())
+            ->method('buildCartPayload')
+            ->with(
+                $this->anything(),
+                $this->anything(),
+                $this->anything(),
+                self::V1_ORIGIN,
+                self::V1_CANADIAN_DESTINATION,
+                null
+            )
+            ->willReturn(self::CART_PAYLOAD);
+        $this->restClient->expects($this->once())->method('request')->willReturn($this->cartResponse([
+            ['index' => 0, 'itemId' => 'sku-1', 'tax' => ['amount' => 13.0]],
+        ]));
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs('cert-9', self::CANADIAN_ADDRESS);
+        $result = $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertSame(['code-a' => 13.0], $result[Api::ITEM_TYPE_PRODUCT]);
+    }
+
+    /**
+     * An account without Canada is the likeliest reason a Canadian lookup is
+     * refused, so the log says so — and the store's fallback still applies.
+     */
+    public function testFailedCanadianLookupLogsTheAccountAccessHint()
+    {
+        $gateway = $this->gateway();
+        $this->stubLookupBuilders();
+        $this->enableCanadaForQuoteStore();
+        $this->resultCache->method('getLookup')->willReturn(false);
+        $this->restClient->method('request')->willReturn(new RestResponse(403, '{"title":"Forbidden"}'));
+        $this->config->method('isFallbackToMagentoEnabled')->willReturn(true);
+        $this->fallback->expects($this->once())->method('calculate')->willReturn([]);
+
+        $errors = [];
+        $this->gatewayLogger->method('error')->willReturnCallback(function ($message) use (&$errors) {
+            $errors[] = $message;
+        });
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs(null, self::CANADIAN_ADDRESS);
+        $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringContainsString('HTTP 403 Forbidden', $errors[0]);
+        $this->assertStringContainsString('contact TaxCloud support', $errors[0]);
+    }
+
+    /**
+     * A failed US lookup does not carry the Canada hint.
+     */
+    public function testFailedUsLookupHasNoCanadaHint()
+    {
+        $gateway = $this->gateway();
+        $this->stubLookupBuilders();
+        $this->resultCache->method('getLookup')->willReturn(false);
+        $this->restClient->method('request')->willReturn(new RestResponse(422, '{"title":"Unprocessable"}'));
+
+        $errors = [];
+        $this->gatewayLogger->method('error')->willReturnCallback(function ($message) use (&$errors) {
+            $errors[] = $message;
+        });
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs();
+        $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertCount(1, $errors);
+        $this->assertStringNotContainsString('Canad', $errors[0]);
+    }
+
     private function orderMock(int $storeId = self::STORE_ID): Order
     {
         $order = $this->createMock(Order::class);
@@ -517,6 +807,25 @@ class RestGatewayTest extends TestCase
         $creditmemo->method('getAllItems')->willReturn([]);
 
         return $creditmemo;
+    }
+
+    public function testReturnOrderNamesTheOrderWhenTheCreditMemoIsNotYetNumbered()
+    {
+        $gateway = $this->gateway();
+        $this->restRequestBuilder->method('buildRefundItems')->willReturn(
+            ['items' => [], 'wasTaxOnlyRefund' => false, 'skip' => true, 'fullRefund' => false]
+        );
+        $messages = [];
+        $this->gatewayLogger->method('info')->willReturnCallback(function ($message) use (&$messages) {
+            $messages[] = $message;
+        });
+        $creditmemo = $this->createMock(Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($this->orderMock());
+        $creditmemo->method('getIncrementId')->willReturn(null);
+
+        $gateway->returnOrder($creditmemo);
+
+        $this->assertContains('Calling returnOrder (v3 REST) for order 100000042', $messages);
     }
 
     public function testReturnOrderSkipCaseSucceedsWithoutApiCall()

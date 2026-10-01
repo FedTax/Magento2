@@ -123,7 +123,14 @@ class TaxcloudConfig
     public const XML_PATH_EXEMPTIONS_ENABLED = 'tax/taxcloud_settings/exemptions_enabled';
 
     /**
-     * Seller name recorded on certificates customers create.
+     * Customer self-service for certificates, and the groups it is offered to.
+     * Both off / empty by default.
+     */
+    public const XML_PATH_CUSTOMER_CERTIFICATES_ENABLED = 'tax/taxcloud_settings/customer_certificates_enabled';
+    public const XML_PATH_CUSTOMER_CERTIFICATE_GROUPS = 'tax/taxcloud_settings/customer_certificate_groups';
+
+    /**
+     * Seller name recorded on certificates created through the extension.
      */
     public const XML_PATH_COMPANY_NAME = 'tax/taxcloud_settings/company_name';
     public const XML_PATH_API_TIMEOUT = 'tax/taxcloud_settings/api_timeout';
@@ -140,6 +147,11 @@ class TaxcloudConfig
     public const XML_PATH_CO_RDF_DELIVERY_METHODS = 'tax/taxcloud_settings/co_rdf_delivery_methods';
     public const XML_PATH_CO_RDF_AMOUNT = 'tax/taxcloud_settings/co_rdf_amount';
     public const XML_PATH_CO_RDF_TIC = 'tax/taxcloud_settings/co_rdf_tic';
+
+    /**
+     * Canadian tax calculation. Off by default; REST only.
+     */
+    public const XML_PATH_CANADA_TAX_ENABLED = 'tax/taxcloud_settings/canada_tax_enabled';
     /**#@-*/
 
     /**
@@ -508,6 +520,27 @@ class TaxcloudConfig
     }
 
     /**
+     * Whether Canadian destinations are taxed for this store.
+     *
+     * True only when the merchant turned the setting on AND the store uses
+     * the V3 REST API: Canada is priced over v3 only, so a store view that
+     * overrides the API type to SOAP never sends Canadian requests, whatever
+     * value it inherits. Canada must also be enabled on the TaxCloud account
+     * itself — this setting cannot know that; the Canada access check does.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function isCanadaTaxEnabled($store = null): bool
+    {
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_CANADA_TAX_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        ) && $this->getApiType($store) === ApiType::REST;
+    }
+
+    /**
      * Shipping method codes (carrier_method) configured as motor-vehicle
      * delivery for the Colorado Retail Delivery Fee. Empty when none are
      * mapped — in which case no order can incur the fee.
@@ -578,7 +611,52 @@ class TaxcloudConfig
     }
 
     /**
-     * Seller name recorded on certificates customers create.
+     * Whether customers in nominated groups may manage their own certificates.
+     *
+     * Defaults to false, and is only half of the answer: see
+     * {@see getCustomerCertificateGroups()} and ExemptionPolicy::mayManage().
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return bool
+     */
+    public function areCustomerCertificatesEnabled($store = null): bool
+    {
+        return (bool) $this->scopeConfig->getValue(
+            self::XML_PATH_CUSTOMER_CERTIFICATES_ENABLED,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+    }
+
+    /**
+     * Customer group ids nominated for certificate self-service.
+     *
+     * Empty by default, and empty means nobody.
+     *
+     * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
+     * @return int[]
+     */
+    public function getCustomerCertificateGroups($store = null): array
+    {
+        $value = (string) $this->scopeConfig->getValue(
+            self::XML_PATH_CUSTOMER_CERTIFICATE_GROUPS,
+            ScopeInterface::SCOPE_STORE,
+            $store
+        );
+
+        $groups = [];
+        foreach (explode(',', $value) as $group) {
+            $group = trim($group);
+            if ($group !== '' && ctype_digit($group)) {
+                $groups[] = (int) $group;
+            }
+        }
+
+        return array_values(array_unique($groups));
+    }
+
+    /**
+     * Seller name recorded on certificates created through the extension.
      *
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return string

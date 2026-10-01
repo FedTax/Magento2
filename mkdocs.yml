@@ -59,6 +59,7 @@ nav:
       - Choosing your API: choosing-your-api.md
       - Multi-store setups: multi-store.md
       - Colorado Retail Delivery Fee: colorado-retail-delivery-fee.md
+      - Canadian tax: canadian-tax.md
   - Taxability (TICs):
       - How TICs work: tics.md
       - Assigning TICs: assigning-tics.md
@@ -75,6 +76,7 @@ nav:
       - Cancellations: cancellations.md
       - Filing your returns: filing.md
   - Troubleshooting:
+      - Sending diagnostics to support: diagnostics.md
       - Reading the log: logs.md
       - Clearing the TaxCloud cache: clearing-the-cache.md
       - Common problems: common-problems.md

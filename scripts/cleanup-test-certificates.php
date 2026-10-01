@@ -13,7 +13,7 @@
  *
  * Usage, from a container with the module mounted:
  *
- *     php scripts/cleanup-test-certificates.php               # the seeded customer's namespace
+ *     php scripts/cleanup-test-certificates.php               # the seeded customers' namespace
  *     php scripts/cleanup-test-certificates.php e2e-2026...   # an explicit namespace
  *
  * Safe to run when there is nothing to delete, and safe to run twice. Intended
@@ -67,7 +67,10 @@ if ($identity === '') {
     exit(0);
 }
 
-$say('cleaning certificates filed under ' . $identity);
+// The trusted (Wholesale) customer files under the same namespace with a
+// suffix — see section 4k of the seed — so one run's certificates are all
+// found from the one identity.
+$identities = [$identity, $identity . '-trusted'];
 
 try {
     $storeId = (int) $om->get(\Magento\Store\Model\StoreManagerInterface::class)
@@ -75,31 +78,41 @@ try {
 
     /** @var \Taxcloud\Magento2\Model\Certificate\RestCertificateGateway $gateway */
     $gateway = $om->get(\Taxcloud\Magento2\Model\Certificate\RestCertificateGateway::class);
-
-    $certificates = $gateway->listCertificates($identity, $storeId);
 } catch (\Throwable $e) {
-    // Cleanup must never fail a build: the tests have already had their say,
-    // and an uncleaned certificate is a tidiness problem, not a broken one.
-    $say('WARNING: could not list certificates - ' . $e->getMessage());
+    $say('WARNING: could not reach the certificate gateway - ' . $e->getMessage());
     exit(0);
 }
 
-if ($certificates === []) {
-    $say('nothing filed under that identity');
-    exit(0);
-}
-
-$removed = 0;
-foreach ($certificates as $certificate) {
-    $certificateId = $certificate->getCertificateId();
+foreach ($identities as $namespace) {
+    $say('cleaning certificates filed under ' . $namespace);
 
     try {
-        $gateway->deleteCertificate($certificateId, $identity, $storeId);
-        $removed++;
-        $say('deleted ' . $certificateId);
+        $certificates = $gateway->listCertificates($namespace, $storeId);
     } catch (\Throwable $e) {
-        $say('WARNING: could not delete ' . $certificateId . ' - ' . $e->getMessage());
+        // Cleanup must never fail a build: the tests have already had their
+        // say, and an uncleaned certificate is a tidiness problem, not a
+        // broken one.
+        $say('WARNING: could not list certificates - ' . $e->getMessage());
+        continue;
     }
-}
 
-$say(sprintf('removed %d of %d', $removed, count($certificates)));
+    if ($certificates === []) {
+        $say('nothing filed under that identity');
+        continue;
+    }
+
+    $removed = 0;
+    foreach ($certificates as $certificate) {
+        $certificateId = $certificate->getCertificateId();
+
+        try {
+            $gateway->deleteCertificate($certificateId, $namespace, $storeId);
+            $removed++;
+            $say('deleted ' . $certificateId);
+        } catch (\Throwable $e) {
+            $say('WARNING: could not delete ' . $certificateId . ' - ' . $e->getMessage());
+        }
+    }
+
+    $say(sprintf('removed %d of %d', $removed, count($certificates)));
+}

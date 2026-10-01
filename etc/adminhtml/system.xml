@@ -131,6 +131,12 @@
           </depends>
         </field>
 
+        <field id="download_diagnostics" translate="label" type="button" sortOrder="57" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Diagnostics</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\DownloadDiagnostics</frontend_model>
+          <!-- No depends on "enabled": a store with TaxCloud switched off is exactly one support needs to see. -->
+        </field>
+
         <field id="guest_customer_id" translate="label" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="0">
           <label>Guest Customer ID</label>
           <validate>required-entry</validate>
@@ -231,6 +237,32 @@
         </field>
 
         <!--
+          Canadian tax. OFF BY DEFAULT: Canada is an add-on TaxCloud support
+          enables per account, so turning it on here alone is not enough.
+          V3 REST only — the SOAP API has no Canadian support.
+        -->
+        <field id="canada_tax_enabled" translate="label comment" type="select" sortOrder="115" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Calculate Canadian Tax</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <config_path>tax/taxcloud_settings/canada_tax_enabled</config_path>
+          <comment>Calculates GST, HST, PST and QST on orders shipped to Canada. Canadian tax must also be enabled on your TaxCloud account — contact TaxCloud support to turn it on, then use Check Canada Access to confirm.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+          </depends>
+        </field>
+
+        <field id="check_canada_access" translate="label" type="button" sortOrder="116" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Canada Access</label>
+          <frontend_model>Taxcloud\Magento2\Block\Adminhtml\System\Config\CheckCanadaAccess</frontend_model>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="api_type">rest</field>
+            <field id="canada_tax_enabled">1</field>
+          </depends>
+        </field>
+
+        <!--
           Exemption certificates. OFF BY DEFAULT, deliberately: a certificate is
           an unverified attestation, and offering one is inviting a shopper to
           stop paying tax. A merchant turns this on knowingly.
@@ -246,11 +278,40 @@
         </field>
 
 
+        <!--
+          Customer self-service. A second, deliberate opt-in on top of
+          exemptions: a nominated customer can file and apply their own
+          certificate, which is choosing to stop paying tax. Off, and with no
+          group nominated, until a merchant decides whom they trust.
+        -->
+        <field id="customer_certificates_enabled" translate="label comment" type="select" sortOrder="125" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Let Customers Manage Certificates</label>
+          <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+          <config_path>tax/taxcloud_settings/customer_certificates_enabled</config_path>
+          <comment>Lets customers in the groups below create their own exemption certificates in My Account and choose which one is in use. Their orders stop being taxed as soon as they do. Only nominate groups you trust to hold valid certificates.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="exemptions_enabled">1</field>
+          </depends>
+        </field>
+
+        <field id="customer_certificate_groups" translate="label comment" type="multiselect" sortOrder="130" showInDefault="1" showInWebsite="1" showInStore="1">
+          <label>Customer Groups That Can Manage Certificates</label>
+          <source_model>Taxcloud\Magento2\Model\Config\Source\CustomerGroups</source_model>
+          <config_path>tax/taxcloud_settings/customer_certificate_groups</config_path>
+          <can_be_empty>1</can_be_empty>
+          <comment>With none selected, no customer can manage certificates.</comment>
+          <depends>
+            <field id="enabled">1</field>
+            <field id="exemptions_enabled">1</field>
+            <field id="customer_certificates_enabled">1</field>
+          </depends>
+        </field>
 
         <field id="company_name" translate="label comment" type="text" sortOrder="135" showInDefault="1" showInWebsite="1" showInStore="1">
           <label>Company Name</label>
           <config_path>tax/taxcloud_settings/company_name</config_path>
-          <comment>Your business name, recorded on certificates customers create as the seller they are claiming exemption from.</comment>
+          <comment>Your business name, recorded on every certificate created through the extension as the seller the exemption is claimed from.</comment>
           <depends>
             <field id="enabled">1</field>
             <field id="exemptions_enabled">1</field>

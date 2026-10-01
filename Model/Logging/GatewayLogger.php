@@ -39,6 +39,14 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
  * with no store set, the mode falls back to the ambient request store —
  * which in admin/cron contexts is the default store view, not the store of
  * the entity being processed.
+ *
+ * The same entry points bind a correlation context via beginOperation(): a
+ * per-operation correlation id plus the quote id and order increment id when
+ * known. Every record forwarded while a context is bound carries those values
+ * in its context array, which the channel's line formatter renders as JSON at
+ * the end of the line — so "every line for order 100000123" is one grep, and
+ * the diagnostics bundle can extract an order's lines mechanically. Binding is
+ * optional: with nothing bound, records pass through unchanged.
  */
 class GatewayLogger extends AbstractLogger
 {
@@ -58,6 +66,13 @@ class GatewayLogger extends AbstractLogger
      * @var int|string|\Magento\Store\Api\Data\StoreInterface|null
      */
     private $store = null;
+
+    /**
+     * Correlation context bound by the current operation; empty when none.
+     *
+     * @var array<string, string>
+     */
+    private $correlation = [];
 
     /**
      * @param Logger         $inner
@@ -85,6 +100,92 @@ class GatewayLogger extends AbstractLogger
     }
 
     /**
+     * Bind a correlation context for the operation starting now.
+     *
+     * Replaces whatever was bound before, so a long-running process (cron, a
+     * queue consumer) never attributes one order's lines to the previous
+     * order. The one exception is deliberate: when the context already bound
+     * names the same order (or, with no order, the same quote), the
+     * correlation id is kept — an observer and the gateway call it makes are
+     * one operation, and splitting them across two ids would make the log
+     * harder to read, not easier.
+     *
+     * @param string          $operation        lookup, verify_address, capture, refund, cancel, ...
+     * @param int|string|null $quoteId
+     * @param string|null     $orderIncrementId
+     * @return string The correlation id now bound
+     */
+    public function beginOperation(string $operation, $quoteId = null, $orderIncrementId = null): string
+    {
+        $quoteId = ($quoteId === null || $quoteId === '') ? null : (string) $quoteId;
+        $orderIncrementId = ($orderIncrementId === null || $orderIncrementId === '')
+            ? null
+            : (string) $orderIncrementId;
+
+        $sameEntity = $this->correlation !== [] && (
+            ($orderIncrementId !== null && ($this->correlation['order_increment_id'] ?? null) === $orderIncrementId)
+            || ($orderIncrementId === null && $quoteId !== null
+                && ($this->correlation['quote_id'] ?? null) === $quoteId)
+        );
+
+        $context = [
+            'correlation_id' => $sameEntity ? $this->correlation['correlation_id'] : $this->newCorrelationId(),
+            'operation' => $operation,
+        ];
+        if ($quoteId !== null) {
+            $context['quote_id'] = $quoteId;
+        } elseif ($sameEntity && isset($this->correlation['quote_id'])) {
+            $context['quote_id'] = $this->correlation['quote_id'];
+        }
+        if ($orderIncrementId !== null) {
+            $context['order_increment_id'] = $orderIncrementId;
+        } elseif ($sameEntity && isset($this->correlation['order_increment_id'])) {
+            $context['order_increment_id'] = $this->correlation['order_increment_id'];
+        }
+
+        $this->correlation = $context;
+
+        return $context['correlation_id'];
+    }
+
+    /**
+     * Keep the bound context for a call nested inside a running operation
+     * (address verification runs inside a lookup), or begin a fresh one when
+     * nothing is bound.
+     *
+     * @param string $operation
+     * @return string The correlation id in effect
+     */
+    public function continueOperation(string $operation): string
+    {
+        if ($this->correlation === []) {
+            return $this->beginOperation($operation);
+        }
+
+        return $this->correlation['correlation_id'];
+    }
+
+    /**
+     * The currently bound correlation context (empty when none).
+     *
+     * @return array<string, string>
+     */
+    public function getCorrelationContext(): array
+    {
+        return $this->correlation;
+    }
+
+    /**
+     * Unbind the correlation context.
+     *
+     * @return void
+     */
+    public function clearCorrelation(): void
+    {
+        $this->correlation = [];
+    }
+
+    /**
      * @inheritDoc
      */
     public function log($level, string|\Stringable $message, array $context = []): void
@@ -96,6 +197,30 @@ class GatewayLogger extends AbstractLogger
         if ($level === LogLevel::DEBUG && $mode !== TaxcloudConfig::LOGGING_ADVANCED) {
             return;
         }
-        $this->inner->log($level, $message, $context);
+        // Trailing line breaks (raw HTTP response bodies end with one) would push
+        // the context onto a line of its own, where a line-oriented grep for the
+        // order number no longer finds the record.
+        if (is_string($message)) {
+            $message = rtrim($message, "\r\n");
+        }
+
+        // Caller-supplied keys win: a call site that deliberately logs another
+        // order's id is not overwritten by the ambient binding.
+        $this->inner->log($level, $message, $context + $this->correlation);
+    }
+
+    /**
+     * Short random id: unique enough to tell concurrent operations apart in
+     * one log, short enough to read and grep.
+     *
+     * @return string
+     */
+    private function newCorrelationId(): string
+    {
+        try {
+            return bin2hex(random_bytes(6));
+        } catch (\Throwable $e) {
+            return substr(sha1(uniqid('', true)), 0, 12);
+        }
     }
 }

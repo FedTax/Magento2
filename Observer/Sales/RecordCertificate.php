@@ -141,7 +141,8 @@ class RecordCertificate implements ObserverInterface
     /**
      * The state tax was calculated against — the same address the sale is
      * sourced to when it is filed, so a certificate is matched against the
-     * state the order is actually taxed in.
+     * state the order is actually taxed in. Empty when there is no US
+     * destination to match a certificate against.
      *
      * @param \Magento\Sales\Api\Data\OrderInterface|\Magento\Framework\DataObject $order
      * @return string
@@ -149,7 +150,9 @@ class RecordCertificate implements ObserverInterface
     private function destinationState($order)
     {
         $address = $this->addressResolver->forOrder($order);
-        if (!$address) {
+        // Certificates cover US states only; a Canadian (or any non-US)
+        // destination is never exempted, so there is nothing to record.
+        if (!$address || $address->getCountryId() !== 'US') {
             return '';
         }
 

@@ -154,4 +154,137 @@ class GatewayLoggerTest extends TestCase
 
         $this->assertSame(['store 2, logging on'], $forwarded);
     }
+
+    public function testUnboundContextLeavesRecordsUnchanged()
+    {
+        $inner = $this->createMock(Logger::class);
+        $inner->expects($this->once())->method('log')->with(LogLevel::INFO, 'plain', ['k' => 'v']);
+
+        $this->logger(TaxcloudConfig::LOGGING_BASIC, $inner)->info('plain', ['k' => 'v']);
+    }
+
+    public function testBoundContextIsAddedToEveryRecord()
+    {
+        $inner = $this->createMock(Logger::class);
+        $contexts = [];
+        $inner->method('log')->willReturnCallback(function ($level, $message, $context) use (&$contexts) {
+            $contexts[] = $context;
+        });
+
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $inner);
+        $id = $logger->beginOperation('capture', 42, '100000123');
+        $logger->info('one');
+        $logger->warning('two', ['extra' => 'x']);
+
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{12}$/', $id);
+        $this->assertSame(
+            ['correlation_id' => $id, 'operation' => 'capture', 'quote_id' => '42', 'order_increment_id' => '100000123'],
+            $contexts[0]
+        );
+        $this->assertSame('x', $contexts[1]['extra']);
+        $this->assertSame('100000123', $contexts[1]['order_increment_id']);
+    }
+
+    public function testCallerSuppliedKeysWinOverTheBinding()
+    {
+        $inner = $this->createMock(Logger::class);
+        $inner->expects($this->once())->method('log')->with(
+            LogLevel::INFO,
+            'other order',
+            $this->callback(function ($context) {
+                return $context['order_increment_id'] === '999';
+            })
+        );
+
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $inner);
+        $logger->beginOperation('capture', 1, '100000123');
+        $logger->info('other order', ['order_increment_id' => '999']);
+    }
+
+    public function testNewOperationForAnotherOrderReplacesTheContext()
+    {
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $this->createMock(Logger::class));
+
+        $first = $logger->beginOperation('capture', 1, '100000001');
+        $second = $logger->beginOperation('capture', 2, '100000002');
+
+        $this->assertNotSame($first, $second);
+        $this->assertSame('100000002', $logger->getCorrelationContext()['order_increment_id']);
+        $this->assertSame('2', $logger->getCorrelationContext()['quote_id']);
+    }
+
+    public function testOperationOnTheSameOrderKeepsTheCorrelationId()
+    {
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $this->createMock(Logger::class));
+
+        // The capture observer binds, then the gateway it calls binds again.
+        $observer = $logger->beginOperation('capture', 7, '100000123');
+        $gateway = $logger->beginOperation('capture', null, '100000123');
+
+        $this->assertSame($observer, $gateway);
+        $this->assertSame('7', $logger->getCorrelationContext()['quote_id'], 'a known quote id is not lost');
+    }
+
+    public function testQuoteLookupsWithoutOrderShareAnIdPerQuote()
+    {
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $this->createMock(Logger::class));
+
+        $a = $logger->beginOperation('lookup', 5);
+        $b = $logger->beginOperation('lookup', 5);
+        $c = $logger->beginOperation('lookup', 6);
+
+        $this->assertSame($a, $b);
+        $this->assertNotSame($b, $c);
+    }
+
+    public function testContinueOperationKeepsABoundContextAndBeginsOneOtherwise()
+    {
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $this->createMock(Logger::class));
+
+        $fresh = $logger->continueOperation('verify_address');
+        $this->assertSame('verify_address', $logger->getCorrelationContext()['operation']);
+
+        $lookup = $logger->beginOperation('lookup', 9);
+        $this->assertNotSame($fresh, $lookup);
+        $this->assertSame($lookup, $logger->continueOperation('verify_address'));
+        $this->assertSame('9', $logger->getCorrelationContext()['quote_id']);
+
+        $logger->clearCorrelation();
+        $this->assertSame([], $logger->getCorrelationContext());
+    }
+
+    public function testFormattedLineIsGreppableAndParseable()
+    {
+        $stream = fopen('php://memory', 'w+');
+        $handler = new \Monolog\Handler\StreamHandler($stream);
+        $inner = new Logger('tclogger', [$handler]);
+
+        $logger = $this->logger(TaxcloudConfig::LOGGING_BASIC, $inner);
+        $logger->beginOperation('capture', 42, '100000123');
+        $logger->info('Calling authorizeCapture (v3 REST) for order 100000123');
+
+        rewind($stream);
+        $line = (string) stream_get_contents($stream);
+
+        $this->assertStringContainsString('"order_increment_id":"100000123"', $line);
+        $this->assertStringContainsString('"quote_id":"42"', $line);
+        $this->assertSame(1, preg_match('/(\{"correlation_id":.*\})\s*\[\]\s*$/', $line, $m));
+        $this->assertSame('capture', json_decode($m[1], true)['operation']);
+    }
+
+    public function testTrailingLineBreaksAreTrimmedSoTheContextStaysOnTheSameLine()
+    {
+        $stream = fopen('php://memory', 'w+');
+        $inner = new Logger('tclogger', [new \Monolog\Handler\StreamHandler($stream)]);
+
+        $logger = $this->logger(TaxcloudConfig::LOGGING_ADVANCED, $inner);
+        $logger->beginOperation('capture', 42, '100000123');
+        $logger->debug("authorizeCapture response body: {\"ok\":true}\n");
+
+        rewind($stream);
+        $lines = array_values(array_filter(explode("\n", (string) stream_get_contents($stream))));
+
+        $this->assertCount(1, $lines);
+        $this->assertStringContainsString('{"ok":true} {"correlation_id":', $lines[0]);
+    }
 }

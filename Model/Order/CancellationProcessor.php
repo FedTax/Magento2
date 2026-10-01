@@ -85,6 +85,7 @@ class CancellationProcessor
         // store, not the ambient (default) store view.
         if ($this->logger instanceof \Taxcloud\Magento2\Model\Logging\GatewayLogger) {
             $this->logger->setStore($order->getStoreId());
+            $this->logger->beginOperation('cancel', $order->getQuoteId(), $order->getIncrementId());
         }
 
         if (!$this->config->isEnabled($order->getStoreId())) {

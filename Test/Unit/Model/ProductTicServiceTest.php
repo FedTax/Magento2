@@ -487,4 +487,67 @@ class ProductTicServiceTest extends TestCase
 
         return $productModel;
     }
+
+    public function testResolveTicReportsTheProductAttributeAsSource()
+    {
+        $item = $this->createMock(Item::class);
+        $product = $this->createMock(Product::class);
+        $productModel = $this->createMock(Product::class);
+        $attribute = $this->createMock(AttributeValue::class);
+        $item->method('getProduct')->willReturn($product);
+        $product->method('getId')->willReturn(1);
+        $attribute->method('getValue')->willReturn('20010');
+        $productModel->method('getCustomAttribute')->willReturn($attribute);
+        $this->productRepository->method('getById')->willReturn($productModel);
+
+        $this->assertSame(
+            ['tic' => '20010', 'source' => ProductTicService::SOURCE_PRODUCT],
+            $this->productTicService->resolveTic($item, 'diagnostics', 1)
+        );
+    }
+
+    public function testResolveTicReportsTheCategoryAsSource()
+    {
+        $item = $this->createMock(Item::class);
+        $product = $this->createMock(Product::class);
+        $productModel = $this->createMock(Product::class);
+        $item->method('getProduct')->willReturn($product);
+        $product->method('getId')->willReturn(1);
+        $productModel->method('getCustomAttribute')->willReturn(null);
+        $this->productRepository->method('getById')->willReturn($productModel);
+        $this->categoryTicResolver->method('resolve')->willReturn('30070');
+
+        $this->assertSame(
+            ['tic' => '30070', 'source' => ProductTicService::SOURCE_CATEGORY],
+            $this->productTicService->resolveTic($item, 'diagnostics', 1)
+        );
+    }
+
+    public function testResolveTicReportsTheStoreDefaultAsSource()
+    {
+        $item = $this->createMock(Item::class);
+        $product = $this->createMock(Product::class);
+        $productModel = $this->createMock(Product::class);
+        $item->method('getProduct')->willReturn($product);
+        $product->method('getId')->willReturn(1);
+        $productModel->method('getCustomAttribute')->willReturn(null);
+        $this->productRepository->method('getById')->willReturn($productModel);
+        $this->scopeConfig->method('getValue')->willReturn('91000');
+
+        $result = $this->productTicService->resolveTic($item, 'diagnostics', 1);
+
+        $this->assertSame(['tic' => '91000', 'source' => ProductTicService::SOURCE_DEFAULT], $result);
+        $this->assertSame('91000', $this->productTicService->getProductTic($item, 'diagnostics', 1));
+    }
+
+    public function testResolveTicReportsAMissingProduct()
+    {
+        $item = $this->createMock(Item::class);
+        $item->method('getProduct')->willReturn(null);
+
+        $this->assertSame(
+            ProductTicService::SOURCE_DEFAULT_PRODUCT_MISSING,
+            $this->productTicService->resolveTic($item, 'diagnostics', 1)['source']
+        );
+    }
 }
