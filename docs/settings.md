@@ -84,8 +84,8 @@ marked *conditional* only appear once a related setting is turned on.
 | [API Timeout](#api-timeout-seconds) | Number (seconds) | `10` | Any positive number |
 | [WSDL Endpoint](#wsdl-endpoint) | URL | TaxCloud production WSDL | Any valid URL |
 | [Fallback to Magento Tax Rates](#fallback-to-magento-tax-rates) | Select | `Disable` | Enable, Disable |
-| [Only do tax calculations…](#only-do-tax-calculations-without-further-taxcloud-integration) | Select | `Disable` | Enable, Disable |
-| [Capture in TaxCloud](#capture-in-taxcloud) | Select | `On order creation` | On order creation, On payment, On shipment (conditional) |
+| [Report orders to TaxCloud](#report-orders-to-taxcloud) | Select | `Yes` | Yes, No |
+| [Capture in TaxCloud](#capture-in-taxcloud) | Select | `On order creation` | On order creation, On payment, On shipment |
 | [Calculate Canadian Tax](#calculate-canadian-tax) | Select | `No` | Yes, No (conditional) |
 | [Check Canada Access](#check-canada-access) | Button | — | — (conditional) |
 | [Enable Exemption Certificates](#enable-exemption-certificates) | Select | `No` | Yes, No |
@@ -413,35 +413,42 @@ wrong.
 
 ---
 
-### Only do tax calculations without further TaxCloud integration
+### Report orders to TaxCloud
 
-**Type:** Select · **Default:** `Disable` · **Values:** `Enable`, `Disable`
+**Type:** Select · **Default:** `Yes` · **Values:** `Yes`, `No`
 
-Calculates tax with TaxCloud but never reports the sale to it.
+Whether orders are reported to TaxCloud when no
+[order processing rule](order-processing-rules.md) decides otherwise.
 
-With this `Enable`d, the storefront still charges the right amount: tax lookups,
-address verification and exemption checks all run as usual. What stops is
-everything that records or reverses a sale in your TaxCloud account — captured
-orders, refunds, and cancellations are not sent.
+With `No`, the storefront still charges the right amount: tax lookups, address
+verification and exemption checks all run as usual. What stops is everything
+that records or reverses a sale in your TaxCloud account — captured orders,
+refunds, and cancellations are not sent.
 
 This is for merchants whose orders reach TaxCloud from somewhere else — an
 accounting system such as QuickBooks that is itself connected to TaxCloud. In
 that setup, sending the order from Magento too would report the same sale twice.
 
+To treat some orders differently — imported marketplace orders, a customer group,
+a payment method — leave this setting as it is and add
+[order processing rules](order-processing-rules.md). A rule always takes
+precedence over this setting, including a rule that reports orders from a store
+view set to `No`.
+
 !!! warning "Your sales will not be in TaxCloud unless something else puts them there"
-    TaxCloud files returns from the transactions it holds. Only turn this on if
+    TaxCloud files returns from the transactions it holds. Only choose `No` if
     another connected system is reporting the same orders.
 
-When this is `Enable`d, [Capture in TaxCloud](#capture-in-taxcloud) disappears —
-there is no capture left for it to schedule.
+Each order's outcome is decided when it is placed. Changing this setting
+affects new orders; orders placed before the change keep the outcome they were
+given.
 
 ---
 
 ### Capture in TaxCloud
 
 **Type:** Select · **Default:** `On order creation` · **Values:**
-`On order creation`, `On payment`, `On shipment` · **Hidden when:** *Only do tax
-calculations…* is `Enable`
+`On order creation`, `On payment`, `On shipment`
 
 When the completed order is reported to TaxCloud as a sale. This is about
 *timing*, not about amounts — the whole order is reported either way.
@@ -693,7 +700,7 @@ the labels shown in the admin.
 | `tax/taxcloud_settings/api_timeout` | `10` | Seconds |
 | `tax/taxcloud_settings/wsdl_url` | `https://api.taxcloud.net/1.0/TaxCloud.asmx?wsdl` | URL |
 | `tax/taxcloud_settings/fallback_to_magento` | `0` | `1` / `0` |
-| `tax/taxcloud_settings/calculations_only` | `0` | `1` / `0` |
+| `tax/taxcloud_settings/calculations_only` | `0` | *Report orders to TaxCloud*, inverted: `0` = Yes, `1` = No |
 | `tax/taxcloud_settings/capture_trigger` | `order_creation` | `order_creation`, `payment`, `shipment` |
 | `tax/taxcloud_settings/canada_tax_enabled` | `0` | `1` = Yes, `0` = No |
 | `tax/taxcloud_settings/exemptions_enabled` | `0` | `1` = Yes, `0` = No |

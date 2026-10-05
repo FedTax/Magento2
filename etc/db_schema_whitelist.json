@@ -5,7 +5,10 @@
             "taxcloud_certificate_id": true,
             "taxcloud_certificate_snapshot": true,
             "taxcloud_rdf_amount": true,
-            "base_taxcloud_rdf_amount": true
+            "base_taxcloud_rdf_amount": true,
+            "taxcloud_outcome": true,
+            "taxcloud_outcome_rule_id": true,
+            "taxcloud_outcome_rule_name": true
         }
     },
     "quote_address": {
@@ -24,6 +27,28 @@
         "column": {
             "taxcloud_rdf_amount": true,
             "base_taxcloud_rdf_amount": true
+        }
+    },
+    "taxcloud_order_rule": {
+        "column": {
+            "rule_id": true,
+            "name": true,
+            "is_active": true,
+            "sort_order": true,
+            "action": true,
+            "store_ids": true,
+            "customer_group_ids": true,
+            "payment_methods": true,
+            "shipping_methods": true,
+            "order_prefixes": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "TAXCLOUD_ORDER_RULE_SORT_ORDER": true
+        },
+        "constraint": {
+            "PRIMARY": true
         }
     }
 }

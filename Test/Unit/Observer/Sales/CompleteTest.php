@@ -50,7 +50,7 @@ class CompleteTest extends TestCase
 
     /**
      * Build a TaxcloudConfig whose store-2-scoped values honor the given
-     * enabled flag, capture_trigger and calculations_only flag.
+     * enabled flag, capture_trigger and calculations_only (\"do not report\") flag.
      */
     private function buildScopeConfig(
         $enabled,
@@ -148,10 +148,18 @@ class CompleteTest extends TestCase
         return $order;
     }
 
-    private function buildOrder(int $invoiceCollectionSize = 0, int $shipmentCollectionSize = 0): Order
-    {
+    private function buildOrder(
+        int $invoiceCollectionSize = 0,
+        int $shipmentCollectionSize = 0,
+        array $data = []
+    ): Order {
         $order = $this->createMock(Order::class);
         $order->method('getStoreId')->willReturn(self::ORDER_STORE_ID);
+        if ($data) {
+            $order->method('getData')->willReturnCallback(static function ($key) use ($data) {
+                return $data[$key] ?? null;
+            });
+        }
         $invoiceCollection = $this->createMock(\Magento\Sales\Model\ResourceModel\Order\Invoice\Collection::class);
         $invoiceCollection->method('getSize')->willReturn($invoiceCollectionSize);
         $order->method('getInvoiceCollection')->willReturn($invoiceCollection);
@@ -884,17 +892,18 @@ class CompleteTest extends TestCase
     }
 
     /**
-     * Calculations-only mode suppresses the capture on every trigger.
+     * An order placed before rules existed (no stored outcome) on a store that
+     * does not report orders is never captured, on any trigger.
      *
-     * The setting is checked after the trigger routing, so this has to hold for
+     * The gate is checked after the trigger routing, so this has to hold for
      * whichever event the store is configured to capture on — a gate that only
      * covered order_creation would still push the sale for a store configured
      * to capture on payment or shipment.
      *
-     * @dataProvider calculationsOnlyTriggerProvider
+     * @dataProvider triggerProvider
      */
-    #[DataProvider('calculationsOnlyTriggerProvider')]
-    public function testExecuteSkipsCaptureInCalculationsOnlyMode(string $trigger, string $eventName)
+    #[DataProvider('triggerProvider')]
+    public function testLegacyOrderOnANonReportingStoreIsNotCaptured(string $trigger, string $eventName)
     {
         $observer = $this->buildObserverForTrigger($eventName);
 
@@ -919,9 +928,51 @@ class CompleteTest extends TestCase
     }
 
     /**
+     * An order whose stored outcome keeps it from TaxCloud is never captured,
+     * on any trigger, even on a store that reports by default.
+     *
+     * @dataProvider notReportedOutcomeTriggerProvider
+     */
+    #[DataProvider('notReportedOutcomeTriggerProvider')]
+    public function testStoredNonReportOutcomeIsNotCaptured(string $outcome, string $trigger, string $eventName)
+    {
+        $observer = $this->buildObserverForTrigger($eventName, [
+            'taxcloud_outcome' => $outcome,
+            'taxcloud_outcome_rule_name' => 'Amazon',
+        ]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('authorizeCapture');
+
+        $orderResource = $this->createMock(\Magento\Sales\Model\ResourceModel\Order::class);
+        $orderResource->expects($this->never())->method('saveAttribute');
+
+        $messages = [];
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $logger->method('info')->willReturnCallback(static function ($message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', $trigger, '0'),
+            $tcapi,
+            $logger,
+            $orderResource
+        );
+        $complete->execute($observer);
+
+        // The log names the outcome and the rule, so "why was this not
+        // captured?" is answered by the log alone.
+        $this->assertStringContainsString(
+            'outcome: ' . $outcome . ', rule "Amazon"',
+            implode("\n", $messages)
+        );
+    }
+
+    /**
      * @return array
      */
-    public static function calculationsOnlyTriggerProvider(): array
+    public static function triggerProvider(): array
     {
         return [
             'order creation' => [CaptureTrigger::ORDER_CREATION, 'sales_order_place_after'],
@@ -931,10 +982,45 @@ class CompleteTest extends TestCase
     }
 
     /**
-     * With the setting off, the same store still captures — this is what pins
-     * the gate to the setting rather than to some unrelated early return.
+     * @return array
      */
-    public function testExecuteStillCapturesWhenCalculationsOnlyIsDisabled()
+    public static function notReportedOutcomeTriggerProvider(): array
+    {
+        $cases = [];
+        foreach (['calculate_only', 'skip'] as $outcome) {
+            foreach (self::triggerProvider() as $name => [$trigger, $event]) {
+                $cases[$outcome . ' / ' . $name] = [$outcome, $trigger, $event];
+            }
+        }
+        return $cases;
+    }
+
+    /**
+     * A stored Report outcome is captured even when the store no longer
+     * reports by default: a Report rule decided it at placement.
+     */
+    public function testStoredReportOutcomeIsCapturedOnANonReportingStore()
+    {
+        $order = $this->buildOrder(0, 0, ['taxcloud_outcome' => 'report']);
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())->method('authorizeCapture')->with($order);
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION, '1'),
+            $tcapi,
+            $this->createMock(\Taxcloud\Magento2\Logger\Logger::class),
+            $this->makeOrderResource()
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * With the store reporting, a legacy order still captures — this is what
+     * pins the gate to the setting rather than to some unrelated early return.
+     */
+    public function testLegacyOrderOnAReportingStoreIsCaptured()
     {
         $order = $this->buildOrder();
         $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
@@ -954,13 +1040,13 @@ class CompleteTest extends TestCase
     }
 
     /**
-     * The setting is read against the ORDER's store, not the ambient one.
+     * The store setting is read against the ORDER's store, not the ambient one.
      *
-     * Only store 2 (the order's) is mapped to calculations-only; the default
-     * scope says otherwise. An implementation that dropped the $store argument
-     * would read the unmapped default and go on to capture.
+     * Only store 2 (the order's) is mapped to not reporting; the default scope
+     * says otherwise. An implementation that dropped the $store argument would
+     * read the unmapped default and go on to capture.
      */
-    public function testCalculationsOnlyIsReadAgainstTheOrderStore()
+    public function testStoreSettingIsReadAgainstTheOrderStore()
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap([
@@ -984,6 +1070,58 @@ class CompleteTest extends TestCase
             $tcapi,
             $logger,
             $this->makeOrderResource()
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * Orders placed without quote submission get their outcome at
+     * sales_order_place_after, before the capture gate reads it; other
+     * lifecycle events never record one.
+     *
+     * @dataProvider triggerProvider
+     */
+    #[DataProvider('triggerProvider')]
+    public function testOutcomeIsRecordedOnlyAtPlacement(string $trigger, string $eventName)
+    {
+        $observer = $this->buildObserverForTrigger($eventName);
+
+        $recorder = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\OutcomeRecorder::class);
+        $recorder->expects($eventName === 'sales_order_place_after' ? $this->once() : $this->never())
+            ->method('record');
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', $trigger, '0'),
+            $this->createMock(\Taxcloud\Magento2\Model\Api::class),
+            $this->createMock(\Taxcloud\Magento2\Logger\Logger::class),
+            $this->makeOrderResource(),
+            null,
+            $recorder
+        );
+        $complete->execute($observer);
+    }
+
+    /**
+     * A failure recording the outcome never stops the capture flow.
+     */
+    public function testRecorderFailureDoesNotBlockCapture()
+    {
+        $order = $this->buildOrder();
+        $observer = $this->buildObserver('sales_order_place_after', ['order' => $order]);
+
+        $recorder = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\OutcomeRecorder::class);
+        $recorder->method('record')->willThrowException(new \RuntimeException('db down'));
+
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())->method('authorizeCapture');
+
+        $complete = new Complete(
+            $this->buildScopeConfig('1', CaptureTrigger::ORDER_CREATION, '0'),
+            $tcapi,
+            $this->createMock(\Taxcloud\Magento2\Logger\Logger::class),
+            $this->makeOrderResource(),
+            null,
+            $recorder
         );
         $complete->execute($observer);
     }
@@ -1020,23 +1158,23 @@ class CompleteTest extends TestCase
      * Build the observer each capture trigger listens on, with the order shaped
      * so the observer's first-invoice / first-shipment dedupe lets it through.
      */
-    private function buildObserverForTrigger(string $eventName): \Magento\Framework\Event\Observer
+    private function buildObserverForTrigger(string $eventName, array $orderData = []): \Magento\Framework\Event\Observer
     {
         if ($eventName === 'sales_order_invoice_pay') {
-            $order = $this->buildOrder(invoiceCollectionSize: 1);
+            $order = $this->buildOrder(1, 0, $orderData);
             $invoice = $this->createMock(Invoice::class);
             $invoice->method('getOrder')->willReturn($order);
             return $this->buildObserver($eventName, ['invoice' => $invoice]);
         }
 
         if ($eventName === 'sales_order_shipment_save_after') {
-            $order = $this->buildOrder(shipmentCollectionSize: 1);
+            $order = $this->buildOrder(0, 1, $orderData);
             $shipment = $this->createMock(Shipment::class);
             $shipment->method('getOrder')->willReturn($order);
             return $this->buildObserver($eventName, ['shipment' => $shipment]);
         }
 
-        return $this->buildObserver($eventName, ['order' => $this->buildOrder()]);
+        return $this->buildObserver($eventName, ['order' => $this->buildOrder(0, 0, $orderData)]);
     }
 
     /**

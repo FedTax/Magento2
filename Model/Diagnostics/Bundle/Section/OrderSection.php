@@ -18,6 +18,7 @@
 namespace Taxcloud\Magento2\Model\Diagnostics\Bundle\Section;
 
 use Magento\Sales\Model\Order;
+use Taxcloud\Magento2\Api\Data\OrderRuleInterface;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\BundleArchive;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\BundleContext;
@@ -120,6 +121,9 @@ class OrderSection implements SectionInterface
             'shipping_description' => $order->getShippingDescription(),
             'taxcloud' => [
                 'taxcloud_captured' => $order->getData('taxcloud_captured'),
+                'taxcloud_outcome' => $order->getData('taxcloud_outcome'),
+                'taxcloud_outcome_rule_id' => $order->getData('taxcloud_outcome_rule_id'),
+                'taxcloud_outcome_rule_name' => $order->getData('taxcloud_outcome_rule_name'),
                 'taxcloud_certificate_id' => $order->getData('taxcloud_certificate_id'),
                 'taxcloud_certificate_snapshot' => $this->snapshot($order->getData('taxcloud_certificate_snapshot')),
                 'taxcloud_rdf_amount' => $order->getData('taxcloud_rdf_amount'),
@@ -131,7 +135,7 @@ class OrderSection implements SectionInterface
                         && in_array($shippingMethod, $deliveryMethods, true),
                     'configured_motor_vehicle_methods' => $deliveryMethods,
                 ],
-                'tax_source' => $this->taxSource($context),
+                'tax_source' => $this->taxSource($context, (string) $order->getData('taxcloud_outcome')),
             ],
             'invoices' => $this->documents($order->getInvoiceCollection()),
             'credit_memos' => $this->documents($order->getCreditmemosCollection()),
@@ -305,10 +309,20 @@ class OrderSection implements SectionInterface
      * Where this order's tax came from, as far as the correlated log shows.
      *
      * @param BundleContext $context
+     * @param string $outcome The order's stored processing outcome, if any
      * @return array
      */
-    private function taxSource(BundleContext $context): array
+    private function taxSource(BundleContext $context, string $outcome = ''): array
     {
+        // A rule took the order away from TaxCloud at checkout: Magento's own
+        // tax rules priced it by design, which no log line would explain.
+        if ($outcome === OrderRuleInterface::ACTION_SKIP) {
+            return [
+                'determination' => 'order_rule_skip',
+                'reason' => 'an order processing rule skipped TaxCloud; Magento\'s tax rules calculated the tax',
+            ];
+        }
+
         $correlation = $context->getSectionData('logs')['order_correlation'] ?? null;
         if ($correlation === null) {
             return ['determination' => 'unknown', 'reason' => 'log section unavailable'];

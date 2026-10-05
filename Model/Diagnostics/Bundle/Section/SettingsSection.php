@@ -19,12 +19,14 @@ namespace Taxcloud\Magento2\Model\Diagnostics\Bundle\Section;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
+use Taxcloud\Magento2\Api\OrderRuleRepositoryInterface;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\BundleArchive;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\BundleContext;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\ConfigSourceReader;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\Redaction\CredentialFingerprint;
 use Taxcloud\Magento2\Model\Diagnostics\Bundle\Redaction\CredentialInventory;
+use Taxcloud\Magento2\Model\OrderRule\RuleSummary;
 
 /**
  * settings.json: every TaxCloud setting, at every scope, with provenance.
@@ -77,21 +79,37 @@ class SettingsSection implements SectionInterface
     private $context;
 
     /**
-     * @param ScopeConfigInterface  $scopeConfig
-     * @param ConfigSourceReader    $sourceReader
-     * @param CredentialInventory   $credentials
-     * @param CredentialFingerprint $fingerprint
+     * @var OrderRuleRepositoryInterface|null
+     */
+    private $ruleRepository;
+
+    /**
+     * @var RuleSummary|null
+     */
+    private $ruleSummary;
+
+    /**
+     * @param ScopeConfigInterface              $scopeConfig
+     * @param ConfigSourceReader                $sourceReader
+     * @param CredentialInventory               $credentials
+     * @param CredentialFingerprint             $fingerprint
+     * @param OrderRuleRepositoryInterface|null $ruleRepository Bound in di.xml
+     * @param RuleSummary|null                  $ruleSummary Bound in di.xml
      */
     public function __construct(
         ScopeConfigInterface $scopeConfig,
         ConfigSourceReader $sourceReader,
         CredentialInventory $credentials,
-        CredentialFingerprint $fingerprint
+        CredentialFingerprint $fingerprint,
+        ?OrderRuleRepositoryInterface $ruleRepository = null,
+        ?RuleSummary $ruleSummary = null
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->sourceReader = $sourceReader;
         $this->credentials = $credentials;
         $this->fingerprint = $fingerprint;
+        $this->ruleRepository = $ruleRepository;
+        $this->ruleSummary = $ruleSummary;
     }
 
     /**
@@ -207,10 +225,40 @@ class SettingsSection implements SectionInterface
             'settings' => $settings,
             'locked' => $locked,
         ];
+        if ($this->ruleRepository !== null) {
+            $data['order_rules'] = $this->orderRules();
+        }
 
         $archive->addJson(self::FILE, $data);
 
         return $data;
+    }
+
+    /**
+     * Every order processing rule, in evaluation order. Rules hold no
+     * customer data, only store/group ids and method codes.
+     *
+     * @return array
+     */
+    private function orderRules(): array
+    {
+        $rules = [];
+        foreach ($this->ruleRepository->getList() as $position => $rule) {
+            $rules[] = [
+                'position' => $position + 1,
+                'rule_id' => (int) $rule->getId(),
+                'name' => $rule->getName(),
+                'active' => $rule->isActive(),
+                'action' => $rule->getAction(),
+                'store_ids' => $rule->getStoreIds(),
+                'customer_group_ids' => $rule->getCustomerGroupIds(),
+                'payment_methods' => $rule->getPaymentMethods(),
+                'shipping_methods' => $rule->getShippingMethods(),
+                'order_prefixes' => $rule->getOrderPrefixes(),
+                'summary' => $this->ruleSummary ? implode(' · ', $this->ruleSummary->describe($rule)) : null,
+            ];
+        }
+        return $rules;
     }
 
     /**

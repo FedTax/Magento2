@@ -115,6 +115,10 @@ class TaxcloudConfig
     public const XML_PATH_GUEST_CUSTOMER_ID = 'tax/taxcloud_settings/guest_customer_id';
     public const XML_PATH_CACHE_LIFETIME = 'tax/taxcloud_settings/cache_lifetime';
     public const XML_PATH_FALLBACK_TO_MAGENTO = 'tax/taxcloud_settings/fallback_to_magento';
+    /**
+     * "Report orders to TaxCloud", stored inverted: 1 = do not report.
+     * See isReportingByDefault().
+     */
     public const XML_PATH_CALCULATIONS_ONLY = 'tax/taxcloud_settings/calculations_only';
 
     /**
@@ -310,22 +314,23 @@ class TaxcloudConfig
     }
 
     /**
-     * Whether the module is restricted to tax calculation only.
+     * Whether orders that match no order processing rule are reported to
+     * TaxCloud ("Report orders to TaxCloud").
      *
-     * When on, the calculation calls still run (Lookup, VerifyAddress, and the
-     * exempt-certificate validation nested inside Lookup), but nothing that
-     * mutates order state in TaxCloud is sent: AuthorizedWithCapture, Returned
-     * for credit memos, and Returned/OrderDetails for cancellations are all
-     * skipped. It is for merchants whose orders reach TaxCloud through another
-     * system (QuickBooks and the like), where a second push from Magento would
-     * double-report the sale.
+     * Stored inverted at calculations_only (1 = never report) so that values
+     * set before the setting was relabelled keep their meaning. A store that
+     * does not report still runs every calculation call (Lookup, VerifyAddress,
+     * the exempt-certificate validation nested inside Lookup); only the calls
+     * that record or reverse a sale are withheld. Per-order decisions go
+     * through \Taxcloud\Magento2\Model\OrderRule\ReportingPolicy, which
+     * falls back to this only for orders that carry no stored outcome.
      *
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return bool
      */
-    public function isCalculationsOnly($store = null): bool
+    public function isReportingByDefault($store = null): bool
     {
-        return (bool) $this->scopeConfig->getValue(
+        return !$this->scopeConfig->getValue(
             self::XML_PATH_CALCULATIONS_ONLY,
             ScopeInterface::SCOPE_STORE,
             $store

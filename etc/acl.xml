@@ -36,6 +36,18 @@
                               sortOrder="100"/>
                 </resource>
                 <resource id="Magento_Backend::stores">
+                    <resource id="Magento_Tax::manage_tax">
+                        <!--
+                            Its own resource rather than riding on "Taxes":
+                            a rule can stop orders being reported to TaxCloud,
+                            or take them away from TaxCloud altogether, which
+                            changes what the merchant files.
+                        -->
+                        <resource id="Taxcloud_Magento2::order_rules"
+                                  title="TaxCloud Order Rules"
+                                  translate="title"
+                                  sortOrder="100"/>
+                    </resource>
                     <resource id="Magento_Backend::stores_settings">
                         <!--
                             Its own resource rather than riding on the tax

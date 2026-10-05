@@ -134,7 +134,11 @@ extension does.
 **Which capture trigger?** With *On payment* or *On shipment*, orders that never
 reached that point were never reported. See [Capture](capture.md).
 
-**Calculations-only mode?** Then nothing is ever reported, by design.
+**Kept out on purpose?** Open the order and read its history. A comment
+starting *TaxCloud:* names the [order processing rule](order-processing-rules.md)
+that kept it out of TaxCloud. With no such comment, check whether the store
+view has [Report orders to TaxCloud](settings.md#report-orders-to-taxcloud) set
+to *No* — then nothing is reported unless a rule says so, by design.
 
 **Did capture fail?** Check [the log](logs.md) around the order.
 

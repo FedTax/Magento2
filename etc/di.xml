@@ -77,6 +77,7 @@
   <type name="Taxcloud\Magento2\Model\Order\CancellationProcessor">
     <arguments>
       <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="reportingPolicy" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\ReportingPolicy</argument>
     </arguments>
   </type>
 
@@ -87,6 +88,17 @@
     need and stay transport-unaware; adding REST tax operations only changes
     the router's target wiring, never a call site.
   -->
+  <!-- Order processing rules -->
+  <preference for="Taxcloud\Magento2\Api\Data\OrderRuleInterface" type="Taxcloud\Magento2\Model\OrderRule\Rule" />
+  <preference for="Taxcloud\Magento2\Api\OrderRuleRepositoryInterface" type="Taxcloud\Magento2\Model\OrderRule\RuleRepository" />
+  <!-- Optional constructor arguments are never auto-wired; bind them. -->
+  <type name="Taxcloud\Magento2\Model\Diagnostics\Bundle\Section\SettingsSection">
+    <arguments>
+      <argument name="ruleRepository" xsi:type="object">Taxcloud\Magento2\Api\OrderRuleRepositoryInterface</argument>
+      <argument name="ruleSummary" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\RuleSummary</argument>
+    </arguments>
+  </type>
+
   <preference for="Taxcloud\Magento2\Api\GatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
   <preference for="Taxcloud\Magento2\Api\LookupGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
   <preference for="Taxcloud\Magento2\Api\OrderGatewayInterface" type="Taxcloud\Magento2\Model\Gateway\Router" />
@@ -132,6 +144,12 @@
   <type name="Taxcloud\Magento2\Observer\Sales\RecordCertificate">
     <arguments>
       <argument name="addressResolver" xsi:type="object">Taxcloud\Magento2\Model\Address\TaxAddressResolver</argument>
+      <argument name="skipResolver" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver</argument>
+    </arguments>
+  </type>
+  <type name="Taxcloud\Magento2\Model\RetailDeliveryFee\Total\Quote\RetailDeliveryFee">
+    <arguments>
+      <argument name="skipResolver" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver</argument>
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Observer\Sales\PersistRetailDeliveryFee">
@@ -324,6 +342,7 @@
   <type name="Taxcloud\Magento2\Model\Tax">
     <arguments>
       <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="skipResolver" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver</argument>
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Observer\Sales\Address">
@@ -331,14 +350,22 @@
       <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
     </arguments>
   </type>
+  <type name="Taxcloud\Magento2\Observer\Sales\RecordOrderOutcome">
+    <arguments>
+      <argument name="logger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+    </arguments>
+  </type>
   <type name="Taxcloud\Magento2\Observer\Sales\Complete">
     <arguments>
       <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="reportingPolicy" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\ReportingPolicy</argument>
+      <argument name="outcomeRecorder" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\OutcomeRecorder</argument>
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Observer\Sales\Refund">
     <arguments>
       <argument name="tclogger" xsi:type="object">Taxcloud\Magento2\Model\Logging\GatewayLogger</argument>
+      <argument name="reportingPolicy" xsi:type="object">Taxcloud\Magento2\Model\OrderRule\ReportingPolicy</argument>
     </arguments>
   </type>
   <type name="Taxcloud\Magento2\Observer\Adminhtml\CheckCanadaAccessOnSave">

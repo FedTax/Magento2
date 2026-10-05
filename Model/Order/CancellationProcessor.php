@@ -22,6 +22,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Api\OrderGatewayInterface;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\OrderRule\ReportingPolicy;
 
 /**
  * Reverses a cancelled order's sale in TaxCloud.
@@ -59,16 +60,24 @@ class CancellationProcessor
     private $processedOrderIds = [];
 
     /**
+     * @var ReportingPolicy
+     */
+    private $reportingPolicy;
+
+    /**
      * @param TaxcloudConfig        $config
      * @param OrderGatewayInterface $gateway
      * @param LoggerInterface|null  $logger
+     * @param ReportingPolicy|null  $reportingPolicy Bound in di.xml
      */
     public function __construct(
         TaxcloudConfig $config,
         OrderGatewayInterface $gateway,
-        ?LoggerInterface $logger = null
+        ?LoggerInterface $logger = null,
+        ?ReportingPolicy $reportingPolicy = null
     ) {
         $this->config = $config;
+        $this->reportingPolicy = $reportingPolicy ?? new ReportingPolicy($config);
         $this->gateway = $gateway;
         $this->logger = $logger ?? new NullLogger();
     }
@@ -92,14 +101,15 @@ class CancellationProcessor
             return;
         }
 
-        // Calculation-only stores never captured the sale, so there is nothing
-        // to reverse. Gated before wasCapturedInTaxcloud() so a legacy order
-        // carrying taxcloud_captured from before the setting was turned on
-        // cannot leak a Returned call, and so the OrderDetails fallback is
-        // never reached either.
-        if ($this->config->isCalculationsOnly($order->getStoreId())) {
+        // An order kept from TaxCloud never captured the sale, so there is
+        // nothing to reverse. Gated before wasCapturedInTaxcloud() so a legacy
+        // order carrying taxcloud_captured from before its store stopped
+        // reporting cannot leak a Returned call, and so the OrderDetails
+        // fallback is never reached either.
+        if (!$this->reportingPolicy->isReported($order)) {
             $this->logger->info(
-                'TaxCloud Cancel: skipping order ' . $order->getIncrementId() . ' (calculations-only mode)'
+                'TaxCloud Cancel: skipping order ' . $order->getIncrementId()
+                . ' (' . $this->reportingPolicy->describe($order) . ')'
             );
             return;
         }

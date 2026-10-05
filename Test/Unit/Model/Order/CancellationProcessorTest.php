@@ -12,6 +12,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model\Order;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\ResourceModel\Order\Invoice\Collection as InvoiceCollection;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Api\OrderGatewayInterface;
@@ -34,6 +35,7 @@ class CancellationProcessorTest extends TestCase
         $this->gateway = $this->createMock(OrderGatewayInterface::class);
         $this->config = $this->createMock(TaxcloudConfig::class);
         $this->config->method('isEnabled')->willReturn(true);
+        $this->config->method('isReportingByDefault')->willReturn(true);
     }
 
     private function processor(): CancellationProcessor
@@ -47,7 +49,8 @@ class CancellationProcessorTest extends TestCase
     private function order(
         $id = 42,
         string $state = Order::STATE_CANCELED,
-        int $invoiceCount = 0
+        int $invoiceCount = 0,
+        array $data = []
     ) {
         $invoices = $this->createMock(InvoiceCollection::class);
         $invoices->method('getSize')->willReturn($invoiceCount);
@@ -57,6 +60,9 @@ class CancellationProcessorTest extends TestCase
         $order->method('getIncrementId')->willReturn('100000001');
         $order->method('getState')->willReturn($state);
         $order->method('getInvoiceCollection')->willReturn($invoices);
+        $order->method('getData')->willReturnCallback(static function ($key) use ($data) {
+            return $data[$key] ?? null;
+        });
 
         return $order;
     }
@@ -84,8 +90,7 @@ class CancellationProcessorTest extends TestCase
         $this->gateway->expects($this->never())->method('getOrderDetails');
         $this->gateway->expects($this->once())->method('returnOrderCancellation')->willReturn(true);
 
-        $order = $this->order();
-        $order->method('getData')->with('taxcloud_captured')->willReturn(1);
+        $order = $this->order(42, Order::STATE_CANCELED, 0, ['taxcloud_captured' => 1]);
 
         $this->processor()->process($order);
     }
@@ -170,45 +175,66 @@ class CancellationProcessorTest extends TestCase
     }
 
     /**
-     * Calculations-only mode: neither the reversal nor the OrderDetails probe
-     * that decides on it may reach TaxCloud.
+     * An order whose stored outcome keeps it from TaxCloud: neither the
+     * reversal nor the OrderDetails probe that decides on it may reach
+     * TaxCloud.
+     *
+     * @dataProvider notReportedOutcomeProvider
      */
-    public function testDoesNothingInCalculationsOnlyMode()
+    #[DataProvider('notReportedOutcomeProvider')]
+    public function testDoesNothingForAnOrderNotReported(string $outcome)
     {
-        $this->config = $this->createMock(TaxcloudConfig::class);
-        $this->config->method('isEnabled')->willReturn(true);
-        $this->config->method('isCalculationsOnly')->willReturn(true);
-
         $this->gateway->expects($this->never())->method('getOrderDetails');
         $this->gateway->expects($this->never())->method('returnOrderCancellation');
 
-        $this->processor()->process($this->order());
+        $this->processor()->process($this->order(42, Order::STATE_CANCELED, 0, ['taxcloud_outcome' => $outcome]));
+    }
+
+    public static function notReportedOutcomeProvider(): array
+    {
+        return [
+            'calculate only' => ['calculate_only'],
+            'skip' => ['skip'],
+        ];
     }
 
     /**
-     * An order captured before the setting was switched on still must not be
-     * reversed: the gate sits ahead of the taxcloud_captured check, so a stale
-     * flag cannot arm a Returned call while the store is calculation-only.
+     * A stale taxcloud_captured flag cannot arm a Returned call: the gate sits
+     * ahead of the captured check.
      */
-    public function testDoesNothingInCalculationsOnlyModeEvenWhenCapturedFlagIsSet()
+    public function testDoesNothingForAnOrderNotReportedEvenWhenCapturedFlagIsSet()
+    {
+        $this->gateway->expects($this->never())->method('returnOrderCancellation');
+
+        $this->processor()->process($this->order(42, Order::STATE_CANCELED, 0, [
+            'taxcloud_outcome' => 'calculate_only',
+            'taxcloud_captured' => 1,
+        ]));
+    }
+
+    /**
+     * A stored Report outcome reverses even when the store no longer reports
+     * by default — the outcome was decided at placement and stands.
+     */
+    public function testStoredReportOutcomeWinsOverTheStoreDefault()
     {
         $this->config = $this->createMock(TaxcloudConfig::class);
         $this->config->method('isEnabled')->willReturn(true);
-        $this->config->method('isCalculationsOnly')->willReturn(true);
+        $this->config->method('isReportingByDefault')->willReturn(false);
+        $this->gateway->expects($this->once())->method('returnOrderCancellation')->willReturn(true);
 
-        $this->gateway->expects($this->never())->method('returnOrderCancellation');
-
-        $order = $this->order();
-        $order->method('getData')->with('taxcloud_captured')->willReturn(1);
-
-        $this->processor()->process($order);
+        $this->processor()->process($this->order(42, Order::STATE_CANCELED, 0, [
+            'taxcloud_outcome' => 'report',
+            'taxcloud_captured' => 1,
+        ]));
     }
 
     /**
-     * The setting is read against the ORDER's store — cancellations run in
-     * admin/cron contexts where the ambient store is the default view.
+     * An order placed before rules existed follows its store's setting, read
+     * against the ORDER's store — cancellations run in admin/cron contexts
+     * where the ambient store is the default view.
      */
-    public function testCalculationsOnlyIsReadAgainstTheOrderStore()
+    public function testLegacyOrderFollowsItsStoreSetting()
     {
         $order = $this->order();
         $order->method('getStoreId')->willReturn(2);
@@ -216,9 +242,9 @@ class CancellationProcessorTest extends TestCase
         $this->config = $this->createMock(TaxcloudConfig::class);
         $this->config->method('isEnabled')->willReturn(true);
         $this->config->expects($this->once())
-            ->method('isCalculationsOnly')
+            ->method('isReportingByDefault')
             ->with(2)
-            ->willReturn(true);
+            ->willReturn(false);
 
         $this->gateway->expects($this->never())->method('returnOrderCancellation');
 

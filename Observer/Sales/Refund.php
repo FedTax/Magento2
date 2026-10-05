@@ -21,6 +21,7 @@ use \Magento\Framework\Event\ObserverInterface;
 use \Magento\Framework\Event\Observer;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
+use Taxcloud\Magento2\Model\OrderRule\ReportingPolicy;
 
 class Refund implements ObserverInterface
 {
@@ -47,16 +48,24 @@ class Refund implements ObserverInterface
     protected $tclogger;
 
     /**
+     * @var ReportingPolicy
+     */
+    private $reportingPolicy;
+
+    /**
      * @param TaxcloudConfig $config
      * @param \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi
      * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
+     * @param ReportingPolicy|null $reportingPolicy Bound in di.xml
      */
     public function __construct(
         TaxcloudConfig $config,
         \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi,
-        \Psr\Log\LoggerInterface $tclogger
+        \Psr\Log\LoggerInterface $tclogger,
+        ?ReportingPolicy $reportingPolicy = null
     ) {
         $this->config = $config;
+        $this->reportingPolicy = $reportingPolicy ?? new ReportingPolicy($config);
         $this->tcapi = $tcapi;
 
         $this->tclogger = $tclogger;
@@ -86,12 +95,14 @@ class Refund implements ObserverInterface
             return;
         }
 
-        // Calculation-only stores never sent the sale to TaxCloud in the first
-        // place, so there is nothing to reverse — a Returned call here would
-        // reference an order TaxCloud has no record of.
-        if ($this->config->isCalculationsOnly($storeId)) {
+        // An order kept from TaxCloud was never sent there, so there is
+        // nothing to reverse — a Returned call here would reference an order
+        // TaxCloud has no record of.
+        $order = $creditmemo->getOrder();
+        if (!$this->reportingPolicy->isReported($order)) {
             $this->tclogger->info(
-                'Skipping returnOrder for creditmemo ' . $creditmemo->getIncrementId() . ' (calculations-only mode)'
+                'Skipping returnOrder for creditmemo ' . $creditmemo->getIncrementId()
+                . ' (' . $this->reportingPolicy->describe($order) . ')'
             );
             return;
         }

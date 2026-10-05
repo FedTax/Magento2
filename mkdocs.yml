@@ -74,6 +74,7 @@ nav:
       - Capture: capture.md
       - Refunds and credit memos: refunds.md
       - Cancellations: cancellations.md
+      - Order processing rules: order-processing-rules.md
       - Filing your returns: filing.md
   - Troubleshooting:
       - Sending diagnostics to support: diagnostics.md

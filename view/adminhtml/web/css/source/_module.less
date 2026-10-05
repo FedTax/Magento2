@@ -131,3 +131,59 @@
         color: @color-gray60;
     }
 }
+
+// Order processing rules list
+.taxcloud-order-rules {
+    &__intro,
+    &__default {
+        margin: 0 0 1.5rem;
+    }
+
+    &__default {
+        margin-top: 1.5rem;
+    }
+
+    &__table {
+        td {
+            vertical-align: middle;
+        }
+    }
+
+    &__handle {
+        cursor: move;
+        font-size: 1.8rem;
+        line-height: 1;
+        text-align: center;
+        width: 3rem;
+    }
+
+    &__inactive td {
+        color: #858585;
+    }
+
+    &__actions {
+        white-space: nowrap;
+
+        a,
+        form {
+            display: inline-block;
+            margin-right: 1rem;
+        }
+
+        .action-link {
+            background: none;
+            border: 0;
+            color: #007bdb;
+            padding: 0;
+
+            &:hover {
+                text-decoration: underline;
+            }
+        }
+    }
+
+    .ui-sortable-helper {
+        background: #fff;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, .2);
+    }
+}

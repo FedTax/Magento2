@@ -23,39 +23,41 @@ use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 use Taxcloud\Magento2\Test\Integration\IntegrationTestCase;
 
 /**
- * "Only do tax calculations without further Taxcloud integration"
- * (tax/taxcloud_settings/calculations_only) driven through real Magento.
+ * "Report orders to TaxCloud" set to No — stored inverted at
+ * tax/taxcloud_settings/calculations_only = 1 — driven through real Magento,
+ * with no order processing rules defined.
  *
  * The setting splits the module in two: the calculation calls (Lookup,
  * VerifyAddress) keep running so the shopper is charged correctly, while every
  * call that records or reverses a sale in TaxCloud — AuthorizedWithCapture,
  * Returned, OrderDetails — is suppressed, because another system (QuickBooks
  * and the like) owns that side of the integration and a second push would
- * double-report the sale.
+ * double-report the sale. With no rules, every order's stored outcome is the
+ * store view default, and that outcome is what the lifecycle gates read.
  *
  * These tests assert on the recorded SOAP operations rather than on mocks, so
  * they cover the wiring the unit tests cannot see: observer registration, the
- * cancellation plugin, and DI. The default scope is put into calculation-only
- * mode and the second store view left on the full integration, which makes the
- * last test a genuine store-awareness check — a gate that read the ambient
- * store would suppress the second store's capture too.
+ * cancellation plugin, and DI. The default scope is set not to report and the
+ * second store view left reporting, which makes the store-awareness tests
+ * genuine — a gate that read the ambient store would suppress the second
+ * store's capture too.
  */
-class CalculationsOnlyStoreViewTest extends IntegrationTestCase
+class ReportOrdersStoreViewTest extends IntegrationTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
         $this->installSoapMock();
 
-        // Default scope: enabled (seeded baseline) and calculation-only.
+        // Default scope: enabled (seeded baseline), orders not reported.
         $this->setScopedConfig('tax/taxcloud_settings/calculations_only', '1');
     }
 
     /**
      * Placing an order looks tax up but never captures it.
      *
-     * This is the core of the mode — the storefront still charges TaxCloud tax,
-     * and TaxCloud is never told a sale happened.
+     * The storefront still charges TaxCloud tax, and TaxCloud is never told a
+     * sale happened.
      */
     public function testOrderPlacementLooksUpTaxButDoesNotCapture(): void
     {
@@ -71,12 +73,12 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->assertGreaterThan(
             0,
             $soap->callCount('lookup'),
-            'Calculation-only mode must still perform the tax Lookup — that is the whole point of the mode.'
+            'A store that does not report must still perform the tax Lookup.'
         );
         $this->assertSame(
             0,
             $soap->callCount('authorizedWithCapture'),
-            'Calculation-only mode must not report the sale to TaxCloud.'
+            'A store that does not report must not send the sale to TaxCloud.'
         );
     }
 
@@ -93,7 +95,7 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->assertGreaterThan(
             0,
             $soap->callCount('verifyAddress'),
-            'Calculation-only mode must leave VerifyAddress running; it does not touch order state.'
+            'Not reporting must leave VerifyAddress running; it does not touch order state.'
         );
     }
 
@@ -117,6 +119,22 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
     }
 
     /**
+     * With no rules, the order records the store view default as its outcome,
+     * and — because no rule decided it — no explanatory comment: a store that
+     * does not report would otherwise comment on every order.
+     */
+    public function testTheStoreDefaultIsRecordedWithoutAComment(): void
+    {
+        $order = $this->reloadOrder($this->placeOrder());
+
+        $this->assertSame('calculate_only', $order->getData('taxcloud_outcome'));
+        $this->assertNull($order->getData('taxcloud_outcome_rule_id'));
+        foreach ($order->getStatusHistoryCollection() as $history) {
+            $this->assertStringNotContainsString('TaxCloud:', (string) $history->getComment());
+        }
+    }
+
+    /**
      * Capture is suppressed on the invoice trigger too.
      *
      * The gate sits after the capture-trigger routing, so it has to hold for
@@ -133,7 +151,7 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->assertSame(
             0,
             $soap->callCount('authorizedWithCapture'),
-            'Calculation-only mode must suppress the capture on the payment trigger as well.'
+            'Not reporting must suppress the capture on the payment trigger as well.'
         );
     }
 
@@ -152,7 +170,7 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->assertSame(
             0,
             $soap->callCount('Returned'),
-            'There is no TaxCloud sale to reverse in calculation-only mode, so a credit memo must not call Returned.'
+            'There is no TaxCloud sale to reverse, so a credit memo must not call Returned.'
         );
     }
 
@@ -183,13 +201,13 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
     }
 
     /**
-     * Store-awareness: calculation-only at default scope must not leak into a
-     * store view that is left on the full integration.
+     * Store-awareness: not reporting at default scope must not leak into a
+     * store view that reports.
      *
      * Both orders go through the same request-scoped observers. The second
      * store's capture may only fire because the gate resolves the ORDER's store
      * rather than the ambient one — the ambient store is pinned to the default
-     * (calculation-only) view before the capture is triggered, so an ambient
+     * (non-reporting) view before the capture is triggered, so an ambient
      * read would suppress it.
      */
     public function testSecondStoreWithoutTheSettingStillCaptures(): void
@@ -205,7 +223,7 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $defaultOrder = $this->placeOrder();
         $secondOrder = $this->placeOrder(self::SECOND_STORE_CODE);
 
-        // Ambient store = default, where calculations_only=1. Both captures
+        // Ambient store = default, which does not report. Both captures
         // below resolve their own order's store or neither fires.
         $this->pinAmbientStoreToDefault();
 
@@ -213,14 +231,14 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->assertSame(
             0,
             $soap->callCount('authorizedWithCapture'),
-            'The default-scope order is calculation-only and must not capture.'
+            'The default-scope order is not reported and must not capture.'
         );
 
         $this->payInvoice($secondOrder);
         $this->assertSame(
             1,
             $soap->callCount('authorizedWithCapture'),
-            'The second store does not set calculations_only, so its order must still capture — '
+            'The second store reports, so its order must still capture — '
             . 'a gate reading the ambient store would wrongly suppress this.'
         );
 
@@ -228,12 +246,12 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->assertSame(
             $secondOrder->getIncrementId(),
             $capture['orderID'] ?? null,
-            'The one capture that fired must be the second store\'s order, not the calculation-only one.'
+            'The one capture that fired must be the second store\'s order, not the non-reporting one.'
         );
     }
 
     /**
-     * The inverse: calculation-only set only at store scope must not suppress
+     * The inverse: not reporting set only at store scope must not suppress
      * the default store's capture.
      */
     public function testSettingAtStoreScopeDoesNotAffectTheDefaultStore(): void
@@ -242,7 +260,7 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->setCaptureTrigger(CaptureTrigger::ORDER_CREATION);
 
         // Undo the class-wide default-scope setting for this test: only the
-        // second store view runs calculation-only here.
+        // second store view stops reporting here.
         $this->setScopedConfig('tax/taxcloud_settings/calculations_only', '0');
         $this->setSecondStoreConfig('tax/taxcloud_settings/enabled', '1');
         $this->setSecondStoreConfig('tax/taxcloud_settings/calculations_only', '1');
@@ -252,7 +270,7 @@ class CalculationsOnlyStoreViewTest extends IntegrationTestCase
         $this->assertSame(
             1,
             $soap->callCount('authorizedWithCapture'),
-            'A store-scope calculations_only override must not suppress the default store\'s capture.'
+            'A store-scope "do not report" override must not suppress the default store\'s capture.'
         );
     }
 }

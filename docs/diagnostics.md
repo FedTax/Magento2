@@ -61,14 +61,14 @@ anywhere else.
 | Part | What it tells support |
 |---|---|
 | A summary | A one-page report of everything below, with anything unusual flagged — the first thing support reads. It lists every distinct warning and error in the included logs with how often and how recently it happened, when TaxCloud last calculated tax, captured and refunded, and whether a `bin/magento setup:upgrade` is still pending |
-| Your TaxCloud settings | Every TaxCloud setting at every level (default, website, store view): where each value was set, which values are inherited, and which are locked by your server's configuration so they cannot be changed in the admin |
+| Your TaxCloud settings | Every TaxCloud setting at every level (default, website, store view): where each value was set, which values are inherited, and which are locked by your server's configuration so they cannot be changed in the admin. Also your [order processing rules](order-processing-rules.md), in order |
 | Magento's own tax settings | Magento tax settings, tax rules, tax rates and tax classes, which can interfere with TaxCloud |
 | Installed extensions | Every extension on your store, with versions — other extensions are a common cause of tax problems |
 | Server details | Magento, PHP and extension versions, server settings, cron and indexer status, time zones |
 | Tax calculation check | Whether TaxCloud is the extension actually calculating tax on each store — see [Another extension is calculating tax](extension-conflicts.md) |
 | Connection test results | The outcome of the live test, if you left it on — including the [Canada access check](canadian-tax.md#checking-that-your-account-has-canada) for every store with Canadian tax turned on |
 | The TaxCloud log | Recent entries from the [TaxCloud log](logs.md), plus TaxCloud-related entries from Magento's own error logs |
-| The order | For the order button only: the order's totals, items and the TIC used for each, addresses, invoices, credit memos and shipments |
+| The order | For the order button only: the order's totals, items and the TIC used for each, addresses, invoices, credit memos and shipments, and whether the order is reported to TaxCloud — with the order rule that decided it |
 
 If part of the information cannot be collected — a database table is missing, a
 log file cannot be read — the file is still created, and the summary says
