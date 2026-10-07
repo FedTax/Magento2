@@ -113,27 +113,31 @@ export class OrderRulesPage {
    *
    * The admin can push the table down after load — the system messages banner
    * ("Cache Types are invalidated") arrives asynchronously — so the layout is
-   * first left to settle, and every coordinate is measured right before the
-   * pointer uses it. Measuring once up front grabbed the wrong row on a loaded
-   * CI runner: the drop then left the order unchanged and no save was sent.
+   * first left to settle and both rows are measured only then, immediately
+   * before the press. Measuring at page load grabbed the wrong row on a
+   * loaded CI runner.
+   *
+   * Nothing is re-measured once the drag is under way: the first move already
+   * lifts the row and shifts the target down by a placeholder, and following
+   * the target down would put the row straight back — order unchanged, no
+   * save sent.
    */
   async drag(name: string, ontoName: string): Promise<void> {
     await this.waitForStableLayout();
 
     const handle = this.row(name).locator('[data-role="drag-handle"]');
-    const target = this.row(ontoName);
+    const from = await this.box(handle);
+    const to = await this.box(this.row(ontoName));
     const saved = this.page.waitForResponse(
       (r) => r.url().includes('/taxcloud/orderrule/saveOrder'),
       { timeout: 30_000 },
     );
 
-    await handle.hover();
+    const x = from.x + from.width / 2;
+    await this.page.mouse.move(x, from.y + from.height / 2);
     await this.page.mouse.down();
-    const from = await this.box(handle);
-    const to = await this.box(target);
-    await this.page.mouse.move(from.x + from.width / 2, to.y + 2, { steps: 15 });
-    const settled = await this.box(target);
-    await this.page.mouse.move(from.x + from.width / 2, settled.y + 1, { steps: 5 });
+    await this.page.mouse.move(x, to.y + 2, { steps: 15 });
+    await this.page.mouse.move(x, to.y + 1, { steps: 5 });
     await this.page.mouse.up();
 
     expect((await saved).ok()).toBeTruthy();
