@@ -96,12 +96,27 @@ jobs:
 
     - name: Install Magento codebase (no DB)
       if: steps.magento-cache.outputs.cache-hit != 'true'
+      env:
+        MAGENTO_VERSION: ${{ matrix.magento-version }}
       run: |
         composer config --global http-basic.repo.magento.com "$MAGENTO_PUBLIC_KEY" "$MAGENTO_PRIVATE_KEY"
         composer create-project --repository-url=https://repo.magento.com/ \
-          --no-interaction --no-progress \
-          "magento/project-community-edition=${{ matrix.magento-version }}" \
+          --no-interaction --no-progress --no-install \
+          "magento/project-community-edition=$MAGENTO_VERSION" \
           "$MAGENTO_ROOT"
+        # Magento 2.4.7 requires league/flysystem ^2.4, and every 2.x release is
+        # covered by PKSA-w9tt-7782-78jx (CVE-2026-102601, low), which Composer
+        # 2.9+ blocks by default — so 2.4.7 cannot resolve at all. Ignore that one
+        # advisory, in this throwaway test install only; every other advisory, on
+        # every version, still blocks. Remove once Adobe ships a 2.4.7 patch on
+        # flysystem 3, or when 2.4.7 leaves the matrix. Mirrored in
+        # scripts/install-magento.sh. (audit.ignore, not 2.10's newer
+        # policy.advisories.ignore-id: the integration image runs Composer 2.9,
+        # which only knows the former; 2.10 honors both.)
+        case "$MAGENTO_VERSION" in
+          2.4.7*) composer -d "$MAGENTO_ROOT" config audit.ignore --json '["PKSA-w9tt-7782-78jx"]' ;;
+        esac
+        composer -d "$MAGENTO_ROOT" update --no-interaction --no-progress
 
     - name: Link module into app/code
       run: |

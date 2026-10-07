@@ -155,7 +155,10 @@ docker compose exec -T -u root app chmod 644 /var/www/.composer/auth.json
 
 # --- 3. Composer create-project (idempotent) ------------------------------
 
-if docker compose exec -T app test -f /var/www/html/composer.json; then
+# Keyed on vendor/autoload.php, not composer.json: a create-project whose
+# dependency resolution failed leaves composer.json behind with no vendor/, and
+# that half-made project is resumed below rather than mistaken for an install.
+if docker compose exec -T app test -f /var/www/html/vendor/autoload.php; then
     echo "==> Magento already present at $MAGENTO_INSTALL_DIR, skipping composer create-project."
 else
     if [[ "$EDITION" == "community" ]]; then
@@ -163,12 +166,36 @@ else
     else
         PACKAGE="magento/project-enterprise-edition"
     fi
-    echo "==> composer create-project ${PACKAGE}:${VERSION}..."
-    docker compose exec -T app composer create-project \
-        --repository-url=https://repo.magento.com/ \
-        --no-interaction \
-        "${PACKAGE}=${VERSION}" \
-        .
+    if docker compose exec -T app test -f /var/www/html/composer.json; then
+        echo "==> Resuming the unfinished ${PACKAGE}:${VERSION} project at $MAGENTO_INSTALL_DIR..."
+    else
+        echo "==> composer create-project ${PACKAGE}:${VERSION}..."
+        docker compose exec -T app composer create-project \
+            --repository-url=https://repo.magento.com/ \
+            --no-interaction --no-install \
+            "${PACKAGE}=${VERSION}" \
+            .
+    fi
+
+    # Magento 2.4.7 requires league/flysystem ^2.4, and every 2.x release is
+    # covered by PKSA-w9tt-7782-78jx (CVE-2026-102601, low), which Composer 2.9+
+    # blocks by default — so 2.4.7 cannot resolve at all. Ignore that one
+    # advisory, in this throwaway test install only; every other advisory, on
+    # every version, still blocks. Remove once Adobe ships a 2.4.7 patch on
+    # flysystem 3, or when 2.4.7 leaves the matrix. Mirrored in the unit job of
+    # .github/workflows/test.yml.
+    case "$VERSION" in
+        2.4.7*)
+            echo "==> Magento 2.4.7: ignoring advisory PKSA-w9tt-7782-78jx (league/flysystem 2.x) for this test install."
+            # audit.ignore is understood by Composer 2.6+ and honored by the
+            # blocking in 2.9 and 2.10 alike; older Composer does not block.
+            docker compose exec -T app composer config audit.ignore --json '["PKSA-w9tt-7782-78jx"]' \
+                || echo "==> This Composer has no audit.ignore setting (and does not block advisories); continuing."
+            ;;
+    esac
+
+    echo "==> composer update (${PACKAGE}:${VERSION})..."
+    docker compose exec -T app composer update --no-interaction
 fi
 
 # --- 4. Mount this module under app/code/Taxcloud/Magento2 ----------------

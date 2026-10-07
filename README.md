@@ -39,7 +39,10 @@ make test-unit MAGENTO_ROOT=/path/to/magento   # explicit install root
 ```
 
 In CI, unit tests run on every push/PR against a matrix of Magento
-versions (see `.github/workflows/test.yml`).
+versions (see `.github/workflows/test.yml`). Test installs of Magento 2.4.7
+ignore one Composer security advisory, `PKSA-w9tt-7782-78jx`, for
+`league/flysystem` 2.x. Without that, 2.4.7 cannot be installed; the comment
+on the unit job's install step explains why and when to remove it.
 
 Integration tests live in their own pipeline — they boot the full Magento
 application against a real database and run via PHPUnit. They are expensive

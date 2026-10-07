@@ -40,7 +40,12 @@ That's it. On the first run, the install script will:
 
 1. Bring up the integration stack via `docker-compose.yml`.
 2. `composer create-project magento/project-community-edition=<version>` into
-   a sibling directory (`../magento-community-<version>` by default).
+   a sibling directory (`../magento-community-<version>` by default). For
+   2.4.7, the install ignores the single security advisory
+   `PKSA-w9tt-7782-78jx`. That advisory covers every release of
+   `league/flysystem` 2.x, which 2.4.7 requires, so Composer 2.9+ would
+   otherwise refuse to install 2.4.7 at all. Every other advisory still stops
+   the install. An install that stopped part-way is resumed on the next run.
 3. Symlink this module into the install's `app/code/Taxcloud/Magento2`.
 4. Run `bin/magento setup:install` for a clean baseline install.
 5. Run `setup:upgrade`, `setup:di:compile`, enable the module.

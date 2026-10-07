@@ -57,6 +57,33 @@ table and three order columns. In production mode also run
   in store views that do not report by default — a Report rule can still send
   their orders.
 
+## 1.5.1
+
+Run `bin/magento setup:upgrade` after updating. In production mode also run
+`bin/magento setup:di:compile`: the v3 REST transport now uses its own HTTP
+client class.
+
+### Fixed
+
+- **Successful V3 REST calls were read as failures on some servers, so larger
+  carts silently fell back to Magento's tax rates.** On servers with an older
+  libcurl that talks HTTP/1.1 to TaxCloud (for example libcurl 7.61, as shipped
+  with RHEL, AlmaLinux and Rocky Linux 8), every request over 1 KB asked
+  TaxCloud to confirm with `100 Continue` before sending its body. Magento's
+  HTTP client then reported that interim `100` as the outcome. A request that
+  size is a cart of roughly nine lines or more. TaxCloud priced the cart and
+  recorded the Lookup, but the extension logged
+  `Error encountered during lookupTaxes: HTTP 100`. It then charged Magento's
+  own rates (with fallback on) or no tax (with fallback off). Under Magento's
+  rates, shipping is untaxed even where it is taxable. Large order captures,
+  refunds and exemption-certificate calls could be misreported the same way.
+  V3 requests no longer ask for the confirmation, and any interim response is
+  now ignored in favor of the final one. The V1 SOAP API was not affected.
+
+  Orders placed before this release from a lookup that logged `HTTP 100`
+  carry Magento-rate tax (or none) rather than TaxCloud's, and are not
+  corrected by updating.
+
 ## 1.5.0
 
 This release adds Canadian tax calculation over V3 REST, lets nominated
