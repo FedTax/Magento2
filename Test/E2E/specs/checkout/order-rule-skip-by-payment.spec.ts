@@ -37,6 +37,8 @@ test('a skip rule on the payment method takes the order away from TaxCloud', asy
 
   await new AdminLoginPage(page).login();
   const rules = new OrderRulesPage(page);
+  // A retried attempt starts from what the failed one left behind.
+  await rules.delete(RULE);
 
   try {
     await rules.create({ name: RULE, action: 'skip', paymentMethods: ['checkmo'] });

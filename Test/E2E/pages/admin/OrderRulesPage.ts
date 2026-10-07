@@ -92,37 +92,70 @@ export class OrderRulesPage {
     await expect(this.row(rule.name)).toHaveCount(1);
   }
 
-  /** Delete a rule from the list, confirming the dialog. No-op when absent. */
+  /**
+   * Delete every rule with this name, confirming each dialog. No-op when
+   * absent; a failed earlier attempt can leave more than one.
+   */
   async delete(name: string): Promise<void> {
     await this.open();
-    const row = this.row(name);
-    if ((await row.count()) === 0) {
-      return;
+    while ((await this.row(name).count()) > 0) {
+      await waitForOverlaysToClear(this.page);
+      await this.row(name).first().locator('button', { hasText: 'Delete' }).click();
+      await this.page.locator('.modal-popup.confirm._show button.action-accept').click();
+      await expect(this.successMessage).toContainText('The order rule has been deleted', { timeout: 30_000 });
+      await this.open();
     }
-    await row.locator('button', { hasText: 'Delete' }).click();
-    await this.page.locator('.modal-popup.confirm._show button.action-accept').click();
-    await expect(this.successMessage).toContainText('The order rule has been deleted', { timeout: 30_000 });
   }
 
   /**
    * Drag one rule's handle onto another rule's row. Moved in steps: jQuery UI
    * sortable only reacts to a pointer that travels, not to a jump.
+   *
+   * The admin can push the table down after load — the system messages banner
+   * ("Cache Types are invalidated") arrives asynchronously — so the layout is
+   * first left to settle, and every coordinate is measured right before the
+   * pointer uses it. Measuring once up front grabbed the wrong row on a loaded
+   * CI runner: the drop then left the order unchanged and no save was sent.
    */
   async drag(name: string, ontoName: string): Promise<void> {
+    await this.waitForStableLayout();
+
     const handle = this.row(name).locator('[data-role="drag-handle"]');
     const target = this.row(ontoName);
-    const from = await handle.boundingBox();
-    const to = await target.boundingBox();
-    if (!from || !to) {
-      throw new Error('Rule rows are not visible');
-    }
+    const saved = this.page.waitForResponse(
+      (r) => r.url().includes('/taxcloud/orderrule/saveOrder'),
+      { timeout: 30_000 },
+    );
 
-    const saved = this.page.waitForResponse((r) => r.url().includes('/taxcloud/orderrule/saveOrder'));
-    await this.page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await handle.hover();
     await this.page.mouse.down();
+    const from = await this.box(handle);
+    const to = await this.box(target);
     await this.page.mouse.move(from.x + from.width / 2, to.y + 2, { steps: 15 });
-    await this.page.mouse.move(from.x + from.width / 2, to.y + 1, { steps: 5 });
+    const settled = await this.box(target);
+    await this.page.mouse.move(from.x + from.width / 2, settled.y + 1, { steps: 5 });
     await this.page.mouse.up();
+
     expect((await saved).ok()).toBeTruthy();
+  }
+
+  /** Wait until the rules table stops moving (two equal readings 250 ms apart). */
+  private async waitForStableLayout(): Promise<void> {
+    const table = this.page.locator('.taxcloud-order-rules__table');
+    let previous = -1;
+    await expect.poll(async () => {
+      const y = (await table.boundingBox())?.y ?? -2;
+      const stable = y === previous;
+      previous = y;
+      return stable;
+    }, { timeout: 15_000, intervals: [250] }).toBe(true);
+  }
+
+  private async box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+    const box = await locator.boundingBox();
+    if (!box) {
+      throw new Error('Rule row is not visible');
+    }
+    return box;
   }
 }

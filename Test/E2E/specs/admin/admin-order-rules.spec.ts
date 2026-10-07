@@ -25,6 +25,11 @@ test.describe('TaxCloud order rules', () => {
     await new AdminLoginPage(page).login();
     const rules = new OrderRulesPage(page);
 
+    // A retried attempt starts from what the failed one left behind.
+    for (const name of [RULE_A, RULE_B, RULE_A_RENAMED]) {
+      await rules.delete(name);
+    }
+
     try {
       // An empty list explains what happens with no rules.
       await rules.open();
