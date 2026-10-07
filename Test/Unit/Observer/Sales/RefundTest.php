@@ -40,10 +40,13 @@ class RefundTest extends TestCase
     /**
      * A credit memo whose order lives on store ORDER_STORE_ID.
      */
-    private function buildCreditmemo(): \Magento\Sales\Model\Order\Creditmemo
+    private function buildCreditmemo(array $orderData = []): \Magento\Sales\Model\Order\Creditmemo
     {
         $order = $this->createMock(\Magento\Sales\Model\Order::class);
         $order->method('getStoreId')->willReturn(self::ORDER_STORE_ID);
+        $order->method('getData')->willReturnCallback(static function ($key) use ($orderData) {
+            return $orderData[$key] ?? null;
+        });
 
         $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
         $creditmemo->method('getOrder')->willReturn($order);
@@ -51,8 +54,8 @@ class RefundTest extends TestCase
     }
 
     /**
-     * A TaxcloudConfig whose store-2-scoped enabled and calculations_only flags
-     * are $enabled / $calculationsOnly.
+     * A TaxcloudConfig whose store-2-scoped enabled and calculations_only
+     * ("do not report") flags are $enabled / $calculationsOnly.
      */
     private function buildConfig(string $enabled, string $calculationsOnly = '0'): TaxcloudConfig
     {
@@ -126,10 +129,10 @@ class RefundTest extends TestCase
     }
 
     /**
-     * Calculations-only mode: the sale was never sent to TaxCloud, so there is
-     * nothing to reverse and Returned must not be called.
+     * An order placed before rules existed, on a store that does not report:
+     * the sale was never sent to TaxCloud, so there is nothing to reverse.
      */
-    public function testExecuteSkipsReturnOrderInCalculationsOnlyMode()
+    public function testLegacyOrderOnANonReportingStoreIsNotReturned()
     {
         $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
         $tcapi->expects($this->never())->method('returnOrder');
@@ -143,13 +146,67 @@ class RefundTest extends TestCase
     }
 
     /**
-     * The setting is read against the ORDER's store, not the ambient one.
+     * An order whose stored outcome keeps it from TaxCloud is never returned,
+     * even on a store that reports by default.
+     *
+     * @dataProvider notReportedOutcomeProvider
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('notReportedOutcomeProvider')]
+    public function testStoredNonReportOutcomeIsNotReturned(string $outcome)
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->never())->method('returnOrder');
+
+        $messages = [];
+        $logger = $this->createMock(\Taxcloud\Magento2\Logger\Logger::class);
+        $logger->method('info')->willReturnCallback(static function ($message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        $observer = $this->buildObserver($this->buildCreditmemo([
+            'taxcloud_outcome' => $outcome,
+            'taxcloud_outcome_rule_name' => 'Wholesale',
+        ]));
+
+        (new Refund($this->buildConfig('1', '0'), $tcapi, $logger))->execute($observer);
+
+        $this->assertStringContainsString('outcome: ' . $outcome . ', rule "Wholesale"', implode("\n", $messages));
+    }
+
+    /**
+     * @return array
+     */
+    public static function notReportedOutcomeProvider(): array
+    {
+        return [
+            'calculate only' => ['calculate_only'],
+            'skip' => ['skip'],
+        ];
+    }
+
+    /**
+     * A stored Report outcome is returned even on a store that no longer
+     * reports by default.
+     */
+    public function testStoredReportOutcomeIsReturnedOnANonReportingStore()
+    {
+        $tcapi = $this->createMock(\Taxcloud\Magento2\Model\Api::class);
+        $tcapi->expects($this->once())->method('returnOrder')->willReturn(true);
+
+        $observer = $this->buildObserver($this->buildCreditmemo(['taxcloud_outcome' => 'report']));
+
+        (new Refund($this->buildConfig('1', '1'), $tcapi, $this->createMock(\Taxcloud\Magento2\Logger\Logger::class)))
+            ->execute($observer);
+    }
+
+    /**
+     * The store setting is read against the ORDER's store, not the ambient one.
      *
      * Credit memos are issued from the admin, where the ambient store is the
-     * default view — only store 2 is mapped to calculations-only here, so an
+     * default view — only store 2 is mapped to not reporting here, so an
      * implementation that dropped the $store argument would call Returned.
      */
-    public function testCalculationsOnlyIsReadAgainstTheOrderStore()
+    public function testStoreSettingIsReadAgainstTheOrderStore()
     {
         $scopeConfig = $this->createMock(\Magento\Framework\App\Config\ScopeConfigInterface::class);
         $scopeConfig->method('getValue')

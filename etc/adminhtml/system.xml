@@ -211,11 +211,16 @@
           </depends>
         </field>
 
+        <!--
+          Stored at calculations_only, where 1 has always meant "never report".
+          The label and the ReportOrders source model present it inverted
+          (stored 0 = Yes, 1 = No) so no existing value needs migrating.
+        -->
         <field id="calculations_only" translate="label comment" type="select" sortOrder="105" showInDefault="1" showInWebsite="1" showInStore="1">
-          <label>Only do tax calculations without further Taxcloud integration</label>
-          <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+          <label>Report orders to TaxCloud</label>
+          <source_model>Taxcloud\Magento2\Model\Config\Source\ReportOrders</source_model>
           <config_path>tax/taxcloud_settings/calculations_only</config_path>
-          <comment>Useful for merchants that push orders to other systems (i.e. Quickbooks) that are themselves connected to Taxcloud.</comment>
+          <comment>What happens to orders that match none of the TaxCloud Order Rules (Stores › Taxes). Choose No if another system connected to TaxCloud, such as QuickBooks, reports your orders: tax is still calculated by TaxCloud, but the sale is not sent.</comment>
           <depends>
             <field id="enabled">1</field>
           </depends>
@@ -227,12 +232,12 @@
           <config_path>tax/taxcloud_settings/capture_trigger</config_path>
           <tooltip>On order creation: at checkout (default; canceled orders may reach TaxCloud). On payment: when invoice is paid (recommended to avoid canceled orders). On shipment: when shipment is created.</tooltip>
           <!--
-            Hidden when calculations_only is on: with orders never sent to
-            TaxCloud, there is no capture for this setting to schedule.
+            Shown even when orders are not reported by default: an order rule
+            with the Report action still sends orders from such a store view,
+            and they are captured at this trigger.
           -->
           <depends>
             <field id="enabled">1</field>
-            <field id="calculations_only">0</field>
           </depends>
         </field>
 

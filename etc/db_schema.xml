@@ -46,8 +46,46 @@
                 comment="Colorado Retail Delivery Fee charged on this order"/>
         <column xsi:type="decimal" name="base_taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
                 comment="Colorado Retail Delivery Fee charged on this order (base currency)"/>
+        <!-- How much of TaxCloud this order uses (report / calculate_only / skip),
+             decided once when the order is placed by the order processing rules
+             or the store view's "Report orders to TaxCloud" default. NULL for
+             orders placed before rules existed, which follow the store setting. -->
+        <column xsi:type="varchar" name="taxcloud_outcome" length="32" nullable="true"
+                comment="TaxCloud order processing outcome"/>
+        <!-- The rule that decided the outcome; NULL when the store default did.
+             No foreign key: deleting a rule must not touch order history. -->
+        <column xsi:type="int" name="taxcloud_outcome_rule_id" unsigned="true" nullable="true"
+                comment="TaxCloud order processing rule that decided the outcome"/>
+        <!-- The rule's name when it decided, kept so the reason survives the rule. -->
+        <column xsi:type="varchar" name="taxcloud_outcome_rule_name" length="255" nullable="true"
+                comment="Name of the TaxCloud order processing rule that decided the outcome"/>
     </table>
 
+    <!--
+      Order processing rules: an ordered list, first active match wins. The
+      filter columns hold JSON arrays (empty = any); rules are few and matched
+      in PHP, never queried by filter in SQL, so link tables would add nothing.
+    -->
+    <table name="taxcloud_order_rule" resource="default" engine="innodb" comment="TaxCloud order processing rules">
+        <column xsi:type="int" name="rule_id" unsigned="true" nullable="false" identity="true" comment="Rule ID"/>
+        <column xsi:type="varchar" name="name" length="255" nullable="false" comment="Name"/>
+        <column xsi:type="smallint" name="is_active" unsigned="true" nullable="false" default="1" comment="Is active"/>
+        <column xsi:type="int" name="sort_order" unsigned="true" nullable="false" default="0" comment="Evaluation order"/>
+        <column xsi:type="varchar" name="action" length="32" nullable="false" comment="report / calculate_only / skip"/>
+        <column xsi:type="text" name="store_ids" nullable="true" comment="JSON store view IDs"/>
+        <column xsi:type="text" name="customer_group_ids" nullable="true" comment="JSON customer group IDs"/>
+        <column xsi:type="text" name="payment_methods" nullable="true" comment="JSON payment method codes"/>
+        <column xsi:type="text" name="shipping_methods" nullable="true" comment="JSON shipping method codes"/>
+        <column xsi:type="text" name="order_prefixes" nullable="true" comment="JSON order number prefixes"/>
+        <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false" default="CURRENT_TIMESTAMP" comment="Created at"/>
+        <column xsi:type="timestamp" name="updated_at" on_update="true" nullable="false" default="CURRENT_TIMESTAMP" comment="Updated at"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="rule_id"/>
+        </constraint>
+        <index referenceId="TAXCLOUD_ORDER_RULE_SORT_ORDER" indexType="btree">
+            <column name="sort_order"/>
+        </index>
+    </table>
     <table name="quote_address">
         <column xsi:type="decimal" name="taxcloud_rdf_amount" scale="4" precision="20" nullable="true"
                 comment="Colorado Retail Delivery Fee charged on this address"/>

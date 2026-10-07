@@ -161,6 +161,44 @@ class QuoteRetailDeliveryFeeTest extends TestCase
     }
 
     /**
+     * A quote an order rule takes away from TaxCloud gets nothing TaxCloud
+     * adds — the fee included, even when it would otherwise be eligible.
+     */
+    public function testASkippedQuoteIsNotCharged()
+    {
+        $this->feeService->method('isEligible')->willReturn(true);
+        $this->feeService->method('getAmount')->willReturn(0.31);
+
+        [$quote, $assignment, $address] = $this->scenario();
+        $skip = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver::class);
+        $skip->method('resolve')->with($quote)
+            ->willReturn(new \Taxcloud\Magento2\Model\OrderRule\Decision('skip', 1, 'Amazon'));
+        $collector = new RetailDeliveryFee($this->feeService, $this->priceCurrency, $skip);
+        $total = new Dbl\TotalDouble();
+
+        $collector->collect($quote, $assignment, $total);
+
+        $this->assertSame(0.0, (float) $total->getTotalAmount(RetailDeliveryFee::CODE));
+        $this->assertSame(0.0, (float) $address->getTaxcloudRdfAmount());
+    }
+
+    public function testAQuoteNoRuleSkipsIsStillCharged()
+    {
+        $this->feeService->method('isEligible')->willReturn(true);
+        $this->feeService->method('getAmount')->willReturn(0.31);
+
+        [$quote, $assignment] = $this->scenario();
+        $skip = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver::class);
+        $skip->method('resolve')->willReturn(null);
+        $collector = new RetailDeliveryFee($this->feeService, $this->priceCurrency, $skip);
+        $total = new Dbl\TotalDouble();
+
+        $collector->collect($quote, $assignment, $total);
+
+        $this->assertSame(0.31, (float) $total->getTotalAmount(RetailDeliveryFee::CODE));
+    }
+
+    /**
      * @param array|null $items
      * @return array [quote, shippingAssignment, address]
      */

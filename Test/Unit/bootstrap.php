@@ -61,3 +61,4 @@ require __DIR__ . '/Double/CollectorDoubles.php';
 require_once __DIR__ . '/BuildsUserAgent.php';
 require_once __DIR__ . '/BuildsGatewayApi.php';
 require_once __DIR__ . '/Model/Diagnostics/Bundle/DiagnosticsFixture.php';
+require_once __DIR__ . '/Model/OrderRule/RuleFixture.php';

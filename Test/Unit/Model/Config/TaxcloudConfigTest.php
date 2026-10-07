@@ -63,43 +63,46 @@ class TaxcloudConfigTest extends TestCase
     }
 
     /**
-     * calculations_only is opt-in: an install that has never seen the field
-     * keeps the full integration.
+     * "Report orders to TaxCloud" is stored inverted at calculations_only, so
+     * an install that has never seen the field reports every order.
      */
-    public function testCalculationsOnlyDefaultsToFalse()
+    public function testReportingByDefaultIsOnWhenNeverSet()
     {
-        $this->assertFalse($this->config([])->isCalculationsOnly());
+        $this->assertTrue($this->config([])->isReportingByDefault());
     }
 
     /**
-     * @dataProvider calculationsOnlyProvider
+     * The stored value keeps the meaning it had before the field was
+     * relabelled: 1 = do not report.
+     *
+     * @dataProvider reportingByDefaultProvider
      */
-    #[DataProvider('calculationsOnlyProvider')]
-    public function testCalculationsOnlyCoercesStoredValue($stored, bool $expected)
+    #[DataProvider('reportingByDefaultProvider')]
+    public function testReportingByDefaultInvertsTheStoredValue($stored, bool $expected)
     {
         $config = $this->config([self::value(TaxcloudConfig::XML_PATH_CALCULATIONS_ONLY, $stored)]);
 
-        $this->assertSame($expected, $config->isCalculationsOnly());
+        $this->assertSame($expected, $config->isReportingByDefault());
     }
 
     /**
      * @return array
      */
-    public static function calculationsOnlyProvider(): array
+    public static function reportingByDefaultProvider(): array
     {
         return [
-            'stored "1"' => ['1', true],
-            'stored "0"' => ['0', false],
-            'stored null' => [null, false],
-            'stored empty' => ['', false],
+            'stored "1" (calculations only)' => ['1', false],
+            'stored "0"' => ['0', true],
+            'stored null' => [null, true],
+            'stored empty' => ['', true],
         ];
     }
 
     /**
      * The store argument is forwarded as the scope code, so a store view can
-     * run calculation-only while the default scope keeps the full integration.
+     * stop reporting while the default scope keeps reporting.
      */
-    public function testCalculationsOnlyIsResolvedPerStore()
+    public function testReportingByDefaultIsResolvedPerStore()
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap([
@@ -108,8 +111,8 @@ class TaxcloudConfigTest extends TestCase
         ]);
         $config = new TaxcloudConfig($scopeConfig);
 
-        $this->assertFalse($config->isCalculationsOnly());
-        $this->assertTrue($config->isCalculationsOnly(7));
+        $this->assertTrue($config->isReportingByDefault());
+        $this->assertFalse($config->isReportingByDefault(7));
     }
 
     /**

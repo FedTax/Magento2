@@ -2,6 +2,61 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## Unreleased
+
+This release adds order processing rules: decide, order by order, whether
+TaxCloud calculates and reports an order, only calculates it, or stays out of
+it entirely — for marketplace imports, wholesale invoiced elsewhere, or any
+split by store view, customer group, payment method, shipping method or order
+number prefix.
+
+Run `bin/magento setup:upgrade` after updating — this release adds a database
+table and three order columns. In production mode also run
+`bin/magento setup:di:compile`. Nothing changes until you create a rule.
+
+### Added
+
+- **Order processing rules** (*Stores → Taxes → TaxCloud Order Rules*). An
+  ordered list of rules, reordered by drag; the first active match decides.
+  Each rule filters on store views, customer groups, payment methods, shipping
+  methods and order number prefixes (empty = any; several values in one filter
+  = any of them; several filters = all of them) and has one action:
+  **Report to TaxCloud**, **Calculate only** (TaxCloud calculates, the sale is
+  never captured, refunded or cancelled) or **Skip TaxCloud** (Magento's own
+  tax rules calculate the order as if TaxCloud were off; no TaxCloud call of any
+  kind — no lookup, address verification, exemption certificate, Colorado
+  Retail Delivery Fee or Canadian tax). Skip is decided at checkout and cannot
+  filter on the order number. Guarded by its own ACL resource,
+  `Taxcloud_Magento2::order_rules`.
+- **Each order records its outcome** (`taxcloud_outcome`,
+  `taxcloud_outcome_rule_id`, `taxcloud_outcome_rule_name` on `sales_order`),
+  decided once at placement. Capture, refund and cancellation act on the
+  stored outcome, so editing rules never changes an order already placed.
+  Orders placed before this release carry no outcome and keep following their
+  store view's setting.
+- **An order history comment** (not visible to the customer) when a rule keeps
+  an order from TaxCloud, naming the rule and the values it matched.
+- **Diagnostics** list the rules in order and, for an order, its outcome and
+  deciding rule; a skipped order's tax source reads `order_rule_skip`.
+- **Test coverage.** Unit tests for rule storage and validation, matching,
+  the checkout skip on every TaxCloud touchpoint, outcome recording, the
+  comment, the reporting gates and the DI wiring; integration tests for
+  outcome recording, native tax on a skipped quote with no TaxCloud call, a
+  Report rule on a non-reporting store, rule edits after placement, and orders
+  without an outcome; e2e specs for the rules screen (create, validate, drag
+  reorder, edit, delete) and a storefront checkout skipped by payment method.
+
+### Changed
+
+- **"Only do tax calculations without further TaxCloud integration" is now
+  "Report orders to TaxCloud"** (Yes/No), the outcome for orders no rule
+  matches. It keeps the `tax/taxcloud_settings/calculations_only` path and its
+  stored values, shown inverted (`0` = Yes, `1` = No), so no value needs
+  migrating and deploy scripts keep working.
+- **Capture in TaxCloud is always shown** while TaxCloud is enabled, including
+  in store views that do not report by default — a Report rule can still send
+  their orders.
+
 ## 1.5.1
 
 Run `bin/magento setup:upgrade` after updating. In production mode also run

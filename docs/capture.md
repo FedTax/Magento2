@@ -60,11 +60,13 @@ both when an order was reported and where it was reported to.
 
 ## When capture does not happen
 
-**Calculations-only mode.** If [Only do tax calculations without further TaxCloud
-integration](settings.md#only-do-tax-calculations-without-further-taxcloud-integration)
-is on, nothing is ever reported and the Capture setting disappears — there is
-nothing left for it to schedule. Use it only when another system is reporting
-the same sales to TaxCloud.
+**The order is not reported.** An order that an
+[order processing rule](order-processing-rules.md) marks *Calculate only* or
+*Skip TaxCloud* — or that matches no rule in a store view with
+[Report orders to TaxCloud](settings.md#report-orders-to-taxcloud) set to *No* —
+is never reported, whatever the trigger. Its order history says which rule
+decided it. Use these only when another system is reporting the same sales to
+TaxCloud.
 
 **The order never reached the trigger.** An order set to capture on payment that
 is cancelled before invoicing is never reported. That is the point of the

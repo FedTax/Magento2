@@ -62,9 +62,11 @@ treats it as not captured — meaning **no reversal is sent**.
 There is no partial cancellation. Cancelling part of an order is not something
 Magento does — remove the items and refund instead, if the order is invoiced.
 
-## Calculations-only mode
+## Orders that are not reported
 
-With [calculations-only
-mode](settings.md#only-do-tax-calculations-without-further-taxcloud-integration)
-on, nothing is reported to TaxCloud and nothing is reversed. Cancellations are
-between you and whichever other system reports your sales.
+An order that is not reported to TaxCloud — because an
+[order processing rule](order-processing-rules.md) marks it *Calculate only* or
+*Skip TaxCloud*, or its store view has
+[Report orders to TaxCloud](settings.md#report-orders-to-taxcloud) set to *No* —
+is not reversed when it is cancelled either. Cancellations are between you and
+whichever other system reports those sales.

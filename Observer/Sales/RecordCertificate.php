@@ -24,6 +24,7 @@ use Taxcloud\Magento2\Model\Certificate\CertificateResolver;
 use Taxcloud\Magento2\Model\Certificate\OrderCertificateRecord;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
+use Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver;
 
 /**
  * Writes onto a placed order which certificate untaxed it, and what that
@@ -70,25 +71,33 @@ class RecordCertificate implements ObserverInterface
     private $addressResolver;
 
     /**
+     * @var QuoteSkipResolver|null
+     */
+    private $skipResolver;
+
+    /**
      * @param CertificateResolver $resolver
      * @param OrderCertificateRecord $record
      * @param TaxcloudConfig $config
      * @param GatewayLogger $logger
      * @param TaxAddressResolver|null $addressResolver Bound in di.xml; defaulted
      *        so a stale compiled DI cannot fatal order placement
+     * @param QuoteSkipResolver|null $skipResolver Bound in di.xml; null only under a stale compiled DI
      */
     public function __construct(
         CertificateResolver $resolver,
         OrderCertificateRecord $record,
         TaxcloudConfig $config,
         GatewayLogger $logger,
-        ?TaxAddressResolver $addressResolver = null
+        ?TaxAddressResolver $addressResolver = null,
+        ?QuoteSkipResolver $skipResolver = null
     ) {
         $this->resolver = $resolver;
         $this->record = $record;
         $this->config = $config;
         $this->logger = $logger;
         $this->addressResolver = $addressResolver ?? new TaxAddressResolver();
+        $this->skipResolver = $skipResolver;
     }
 
     /**
@@ -105,6 +114,12 @@ class RecordCertificate implements ObserverInterface
 
         $storeId = $order->getStoreId();
         if (!$this->config->isEnabled($storeId)) {
+            return;
+        }
+
+        // A quote an order rule took away from TaxCloud was never exempted:
+        // no certificate was applied to it, so none is recorded.
+        if ($this->skipResolver && $this->skipResolver->resolve($quote)) {
             return;
         }
 
