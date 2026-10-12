@@ -103,7 +103,8 @@ states — see [Shipping and handling](shipping-and-handling.md).
 
 **Is fallback masking the problem?** With [fallback](settings.md#fallback-to-magento-tax-rates)
 on, a failed lookup silently produces Magento's own rate instead of TaxCloud's.
-The number looks plausible and is not TaxCloud's. Check the log.
+The number looks plausible and is not TaxCloud's. Check the log. (An exempt
+customer's order is the exception: a failed lookup charges it no tax.)
 
 ## Percentages differ slightly from TaxCloud's dashboard
 

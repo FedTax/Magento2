@@ -29,6 +29,19 @@ own pocket.
     certificates, the order is taxed. The extension will not assume an
     exemption it could not confirm.
 
+## When the tax calculation fails
+
+Once a certificate has been confirmed for an order, it stays applied even if
+TaxCloud then fails to calculate the tax — it is unreachable, times out, or
+returns an error. The order is charged no tax, which is what TaxCloud would
+have charged.
+
+This holds whatever [Fallback to Magento Tax
+Rates](settings.md#fallback-to-magento-tax-rates) is set to. Magento's own rate
+tables know nothing about certificates, so falling back to them would tax a
+customer you have exempted. [The log](logs.md) records a warning naming the
+certificate each time.
+
 ## Why a customer was charged anyway
 
 Work down the list — these are the usual causes, most common first.
@@ -53,8 +66,15 @@ hour. If you created or enabled one in the TaxCloud dashboard, use **Refresh
 from TaxCloud** in the admin panel, or [flush the TaxCloud
 cache](clearing-the-cache.md).
 
-**TaxCloud was unreachable.** Check [the log](logs.md) around the time of the
-order.
+**TaxCloud was unreachable when the certificates were checked.** Check [the
+log](logs.md) around the time of the order for an error saying the
+certificates could not be resolved.
+
+**The certificate was attached after the cart was priced.** The tax shown to
+the customer was calculated before the certificate applied, and the order kept
+it. The order has no exemption record, and the log has a warning that the
+certificate was not recorded because the order carries tax. Refund the tax, or
+have the customer place the order again.
 
 ## What is recorded on an exempt order
 
@@ -64,6 +84,10 @@ to, which states, on what grounds.
 
 That copy is the point. Certificates change and get deleted; the evidence for
 why *this* order was not taxed does not, because it is stored with the order.
+
+The record only appears on an order that carries no tax. If an order was taxed,
+it has no exemption record, even when the customer holds a certificate covering
+the destination — so the record never contradicts what the customer paid.
 
 You can see it on the order view in the admin.
 
