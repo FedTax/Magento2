@@ -2,6 +2,32 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## 1.5.2
+
+Run `bin/magento setup:upgrade` after updating.
+
+### Fixed
+
+- **Exempt customers were charged tax when a tax lookup failed.** When the
+  TaxCloud lookup for a customer's cart failed — TaxCloud unreachable, a
+  timeout, or an error response — and **Fallback to Magento Tax Rates** was on,
+  the cart was taxed at Magento's own rates even though the customer's
+  exemption certificate covered the order. Magento's rate tables know nothing
+  about TaxCloud certificates. A failed lookup for a cart with an applied
+  certificate now charges no tax, whatever the fallback setting, on both V1
+  SOAP and V3 REST, and logs a warning naming the certificate. Carts without a
+  certificate fall back as before.
+- **Taxed orders could show an exemption record.** The TaxCloud Exemption block
+  was written onto an order whenever the customer held a certificate covering
+  the destination, whether or not the order was actually untaxed. A lookup that
+  fell back to Magento's rates, or a certificate attached after the cart was
+  last priced, left an order carrying both tax and the record. The record is
+  now only written onto an order with no tax; otherwise a warning names the
+  order and the certificate.
+
+  Orders placed before this release that were taxed despite a certificate are
+  not corrected by updating.
+
 ## 1.5.1
 
 Run `bin/magento setup:upgrade` after updating. In production mode also run

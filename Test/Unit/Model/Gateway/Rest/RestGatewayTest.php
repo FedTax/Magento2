@@ -12,6 +12,7 @@ namespace Taxcloud\Magento2\Test\Unit\Model\Gateway\Rest;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Creditmemo;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Taxcloud\Magento2\Model\Address\EstimateAddress;
@@ -556,6 +557,89 @@ class RestGatewayTest extends TestCase
             [Api::ITEM_TYPE_PRODUCT => [], Api::ITEM_TYPE_SHIPPING => 0],
             $gateway->lookupTaxes($itemsByType, $assignment, $quote)
         );
+    }
+
+    /**
+     * Every way a lookup can fail, crossed with the store's fallback setting.
+     *
+     * @return array<string, array{0: string, 1: bool}>
+     */
+    public static function failedLookupProvider(): array
+    {
+        return [
+            'error response, fallback on' => ['response', true],
+            'error response, fallback off' => ['response', false],
+            'transport error, fallback on' => ['exception', true],
+            'transport error, fallback off' => ['exception', false],
+        ];
+    }
+
+    private function failLookup(string $failure): void
+    {
+        if ($failure === 'exception') {
+            $this->restClient->method('request')->willThrowException(new RestTransportException('Operation timed out'));
+            return;
+        }
+        $this->restClient->method('request')->willReturn(new RestResponse(500, '{"title":"Server Error"}'));
+    }
+
+    /**
+     * Magento's rates know nothing of certificates, so falling back would tax
+     * a customer TaxCloud was about to exempt (CXRE-232). A failed lookup for
+     * an exempt cart is answered with no tax, whatever the fallback setting.
+     *
+     * @dataProvider failedLookupProvider
+     */
+    #[DataProvider('failedLookupProvider')]
+    public function testFailedLookupForAnExemptCartChargesNoTax(string $failure, bool $fallbackEnabled)
+    {
+        $gateway = $this->gateway();
+        $this->stubLookupBuilders();
+        $this->resultCache->method('getLookup')->willReturn(false);
+        $this->failLookup($failure);
+        $this->config->method('isFallbackToMagentoEnabled')->willReturn($fallbackEnabled);
+        $this->fallback->expects($this->never())->method('calculate');
+        $this->resultCache->expects($this->never())->method('saveLookup');
+        $this->customerCertificates = [
+            new \Taxcloud\Magento2\Model\Certificate\Certificate('cert-9', '42', ['NY']),
+        ];
+
+        $warnings = [];
+        $this->gatewayLogger->method('warning')->willReturnCallback(function ($message) use (&$warnings) {
+            $warnings[] = $message;
+        });
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs('cert-9');
+        $this->assertSame(
+            [Api::ITEM_TYPE_PRODUCT => [], Api::ITEM_TYPE_SHIPPING => 0],
+            $gateway->lookupTaxes($itemsByType, $assignment, $quote)
+        );
+        $this->assertSame(
+            ['TaxCloud lookup failed; certificate cert-9 is applied, so charging no tax instead of Magento tax rates'],
+            $warnings
+        );
+    }
+
+    /**
+     * An attached certificate that does not cover the destination exempts
+     * nothing, so the cart is an ordinary taxed cart and still falls back.
+     */
+    public function testFailedLookupWithANonCoveringCertificateStillFallsBack()
+    {
+        $gateway = $this->gateway();
+        $this->stubLookupBuilders();
+        $this->resultCache->method('getLookup')->willReturn(false);
+        $this->failLookup('response');
+        $this->config->method('isFallbackToMagentoEnabled')->willReturn(true);
+        $this->customerCertificates = [
+            new \Taxcloud\Magento2\Model\Certificate\Certificate('cert-9', '42', ['NJ']),
+        ];
+
+        $fallbackResult = [Api::ITEM_TYPE_PRODUCT => ['code-a' => 1.23], Api::ITEM_TYPE_SHIPPING => 0];
+        $this->fallback->expects($this->once())->method('calculate')->willReturn($fallbackResult);
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs('cert-9');
+        $this->assertSame($fallbackResult, $gateway->lookupTaxes($itemsByType, $assignment, $quote));
     }
 
     private const V1_CANADIAN_DESTINATION = [
