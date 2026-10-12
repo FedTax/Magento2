@@ -25,5 +25,5 @@
 
 ## 5. Carry forward to 1.6.0
 
-- [ ] 5.1 Cherry-pick (`-x`) the 1.5.2 commit onto `1.6.0`; verify the change's files match 1.5.2 and the suite passes there.
-- [ ] 5.2 Archive the OpenSpec change on `1.6.0` (syncing the deltas into the main specs) and push.
+- [x] 5.1 Cherry-pick (`-x`) the 1.5.2 commit onto `1.6.0`; verify the change's files match 1.5.2 and the suite passes there.
+- [x] 5.2 Archive the OpenSpec change on `1.6.0` (syncing the deltas into the main specs) and push.

@@ -33,8 +33,12 @@ A destination lacking a street line or city SHALL NOT short-circuit the lookup; 
 - **THEN** the cached result is returned without calling the v3 API
 
 #### Scenario: Failed lookup falls back per store configuration
-- **WHEN** the v3 lookup fails (transport error, non-2xx response) and fallback to Magento rates is enabled for the quote's store
+- **WHEN** the v3 lookup fails (transport error, non-2xx response) for a cart with no applied exemption certificate, and fallback to Magento rates is enabled for the quote's store
 - **THEN** tax is calculated from Magento's native tax rules; with fallback disabled, a zero-tax result is returned
+
+#### Scenario: Failed lookup for an exempt cart charges no tax
+- **WHEN** the v3 lookup fails for a cart to which an exemption certificate was applied
+- **THEN** a zero-tax result is returned regardless of the store's fallback setting, as specified by the `exemption-certificates` capability
 
 ### Requirement: Order capture creates a v3 order directly
 
