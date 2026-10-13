@@ -34,7 +34,7 @@ class SettingsSectionTest extends TestCase
 {
     use DiagnosticsFixture;
 
-    private function collect(array $locks = []): array
+    private function collect(array $locks = [], ?array $rules = null): array
     {
         $scopeConfig = $this->scopeConfig();
         $sourceReader = $this->createMock(ConfigSourceReader::class);
@@ -60,7 +60,22 @@ class SettingsSectionTest extends TestCase
             new TaxcloudConfig($scopeConfig, $encryptor),
             $this->createMock(TokenCache::class)
         );
-        $section = new SettingsSection($scopeConfig, $sourceReader, $inventory, new CredentialFingerprint());
+        $repository = null;
+        $summary = null;
+        if ($rules !== null) {
+            $repository = $this->createMock(\Taxcloud\Magento2\Api\OrderRuleRepositoryInterface::class);
+            $repository->method('getList')->willReturn($rules);
+            $summary = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\RuleSummary::class);
+            $summary->method('describe')->willReturn(['Payment: M2E Pro']);
+        }
+        $section = new SettingsSection(
+            $scopeConfig,
+            $sourceReader,
+            $inventory,
+            new CredentialFingerprint(),
+            $repository,
+            $summary
+        );
 
         $scope = new BundleScope(BundleRequest::SCOPE_DEFAULT, null, 'default', $this->stores(), $this->websites());
         $context = new BundleContext(new BundleRequest(), $scope, null, sys_get_temp_dir(), [], null);
@@ -95,6 +110,34 @@ class SettingsSectionTest extends TestCase
         $this->assertSame('2', $logging['effective']['us_es']['value']);
         $this->assertSame('stores/us_es', $logging['effective']['us_es']['resolved_from']);
         $this->assertSame('1', $logging['effective']['us_en']['value']);
+    }
+
+    /**
+     * The rule list is exported in evaluation order, with what each rule
+     * matches and does.
+     */
+    public function testOrderRulesAreExportedInOrder()
+    {
+        $this->setConfig([]);
+        $rule = \Taxcloud\Magento2\Test\Unit\Model\OrderRule\RuleFixture::rule([
+            'id' => 3, 'name' => 'Amazon', 'action' => 'skip', 'payment_methods' => ['m2epropayment'],
+        ]);
+
+        $data = $this->collect([], [$rule]);
+
+        $this->assertSame([[
+            'position' => 1,
+            'rule_id' => 3,
+            'name' => 'Amazon',
+            'active' => true,
+            'action' => 'skip',
+            'store_ids' => [],
+            'customer_group_ids' => [],
+            'payment_methods' => ['m2epropayment'],
+            'shipping_methods' => [],
+            'order_prefixes' => [],
+            'summary' => 'Payment: M2E Pro',
+        ]], $data['order_rules']);
     }
 
     public function testEveryKnownSettingIsListedEvenWhenUnset()

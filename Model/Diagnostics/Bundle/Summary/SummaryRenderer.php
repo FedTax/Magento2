@@ -46,6 +46,14 @@ class SummaryRenderer
     ];
 
     /**
+     * Summary row names that differ from the settings.json key. The stored
+     * key keeps its historic name; the row says what the admin calls it.
+     */
+    private const SETTING_LABELS = [
+        'calculations_only' => 'report_orders (calculations_only)',
+    ];
+
+    /**
      * Stores shown as table columns before switching to one list per store.
      */
     private const MAX_STORE_COLUMNS = 4;
@@ -316,13 +324,13 @@ class SummaryRenderer
             $out[] = '| setting | ' . implode(' | ', $stores) . ' |';
             $out[] = '|---|' . str_repeat('---|', count($stores));
             foreach ($rows as $key => $cells) {
-                $out[] = '| ' . $key . ' | ' . implode(' | ', $cells) . ' |';
+                $out[] = '| ' . (self::SETTING_LABELS[$key] ?? $key) . ' | ' . implode(' | ', $cells) . ' |';
             }
         } else {
             foreach ($stores as $code) {
                 $parts = [];
                 foreach ($rows as $key => $cells) {
-                    $parts[] = $key . '=' . $cells[$code];
+                    $parts[] = (self::SETTING_LABELS[$key] ?? $key) . '=' . $cells[$code];
                 }
                 $out[] = '- **' . $code . '**: ' . implode(' · ', $parts);
             }
@@ -339,6 +347,8 @@ class SummaryRenderer
                 $lock['locked_by']
             );
         }
+
+        $out = array_merge($out, $this->orderRules($settings['order_rules'] ?? null));
 
         if ($magentoTax !== null) {
             $ruleCount = count((array) ($magentoTax['tax_rules'] ?? []));
@@ -618,6 +628,20 @@ class SummaryRenderer
             . ' · method `' . ($order['shipping_method'] ?? 'none') . '`';
 
         $tc = $order['taxcloud'] ?? [];
+        $outcome = (string) ($tc['taxcloud_outcome'] ?? '');
+        if ($outcome === '') {
+            $out[] = 'Processing outcome: none (placed before order processing rules, or TaxCloud was off for the'
+                . ' store) — its store\'s "Report orders to TaxCloud" decides.';
+        } else {
+            $ruleName = (string) ($tc['taxcloud_outcome_rule_name'] ?? '');
+            $out[] = 'Processing outcome: **' . $outcome . '** — '
+                . ($ruleName !== '' ? 'rule "' . $this->cell($ruleName) . '"' : 'store view default');
+            if ($outcome !== 'report') {
+                $flags['warnings'][] = 'This order is not reported to TaxCloud (outcome `' . $outcome . '`'
+                    . ($ruleName !== '' ? ', rule "' . $ruleName . '"' : ', store view default')
+                    . '): no capture, refund or cancellation is sent for it.';
+            }
+        }
         $out[] = sprintf(
             'taxcloud_captured=%s · certificate=%s · RDF %s (applied: %s; method in motor-vehicle list: %s)',
             $this->scalar($tc['taxcloud_captured'] ?? null),
@@ -917,12 +941,48 @@ class SummaryRenderer
     }
 
     /**
+     * The order processing rules, in evaluation order.
+     *
+     * @param array|null $rules
+     * @return string[]
+     */
+    private function orderRules(?array $rules): array
+    {
+        if ($rules === null) {
+            return [];
+        }
+        $out = ['', '### Order processing rules', ''];
+        if ($rules === []) {
+            return array_merge($out, ['None — every order follows its store view\'s report_orders setting.']);
+        }
+        $out[] = '| # | name | matches | action | active |';
+        $out[] = '|---|---|---|---|---|';
+        foreach ($rules as $rule) {
+            $out[] = sprintf(
+                '| %s | %s | %s | %s | %s |',
+                $rule['position'] ?? '?',
+                $this->cell((string) ($rule['name'] ?? '')),
+                $this->cell((string) ($rule['summary'] ?? '')),
+                $rule['action'] ?? '?',
+                !empty($rule['active']) ? 'yes' : 'no'
+            );
+        }
+        $out[] = '';
+        $out[] = 'First active match wins; orders matching none follow report_orders.';
+        return $out;
+    }
+
+    /**
      * @param string $key
      * @param mixed  $value
      * @return string
      */
     private function displayValue(string $key, $value): string
     {
+        if ($key === 'calculations_only') {
+            // Stored inverted: 1 = do not report.
+            return (string) $value === '1' ? 'no' : 'yes';
+        }
         if ($key === 'logging') {
             $labels = [
                 (string) TaxcloudConfig::LOGGING_DISABLED => 'disabled',

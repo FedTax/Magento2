@@ -61,7 +61,8 @@ worth understanding before you file, not after.
 |---|---|
 | Orders in Magento, not in TaxCloud | Failed captures, or a capture trigger they never reached |
 | Refunds in Magento, not in TaxCloud | Failed reversals, or refunds issued outside Magento |
-| Nothing in TaxCloud at all | Calculations-only mode, or TaxCloud not enabled on that store |
+| Nothing in TaxCloud at all | *Report orders to TaxCloud* set to *No*, or TaxCloud not enabled on that store |
+| Some kinds of order missing | An [order processing rule](order-processing-rules.md) keeps them out — the order history names the rule |
 | Orders from one store only | Settings applied at the wrong scope — see [Multi-store setups](multi-store.md) |
 
 ## Questions about the return itself

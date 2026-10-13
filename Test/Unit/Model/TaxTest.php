@@ -94,7 +94,7 @@ class TaxTest extends TestCase
      * tcapi and tclogger, so no reflection is needed. Call this AFTER scopeConfig
      * is configured, since the constructor reads the logging flag from it.
      */
-    private function createTaxInstance()
+    private function createTaxInstance($skipResolver = null)
     {
         $this->tax = $this->getMockBuilder(Tax::class)
             ->setConstructorArgs([
@@ -110,6 +110,7 @@ class TaxTest extends TestCase
                 $this->tcapi,
                 $this->tclogger,
                 $this->serializer,
+                $skipResolver,
             ])
             ->onlyMethods([
                 'clearValues',
@@ -1190,14 +1191,116 @@ class TaxTest extends TestCase
     }
 
     /**
-     * calculations_only=1 must NOT touch the tax collector — Lookup is the whole
-     * point of the mode.
+     * A quote an order rule skips is collected exactly as on a disabled store:
+     * the native parent collector runs and TaxCloud is never asked.
+     */
+    public function testCollectDefersToParentWhenARuleSkipsTaxCloud()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+            ]);
+        $quote = $this->createMockQuote();
+
+        $resolver = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver::class);
+        $resolver->expects($this->atLeastOnce())->method('resolve')->with($quote)
+            ->willReturn(new \Taxcloud\Magento2\Model\OrderRule\Decision('skip', 5, 'Amazon', []));
+        $this->createTaxInstance($resolver);
+
+        $quoteItem = $this->createMockQuoteItem();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+        $total = $this->createMock(Total::class);
+
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
+        $this->tax->method('organizeItemTaxDetailsByType')->willReturn([]);
+
+        $this->tcapi->expects($this->never())->method('lookupTaxes');
+
+        $this->assertSame($this->tax, $this->tax->collect($quote, $shippingAssignment, $total));
+    }
+
+    /**
+     * A quote no skip rule matches is looked up as usual.
+     */
+    public function testCollectLooksUpWhenNoRuleSkips()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '1'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+            ]);
+        $resolver = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver::class);
+        $resolver->method('resolve')->willReturn(null);
+        $this->createTaxInstance($resolver);
+
+        $quote = $this->createMockQuote();
+        $quoteItem = $this->createMockQuoteItem();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$quoteItem]);
+        $total = $this->createMock(Total::class);
+
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
+        $this->tax->method('organizeItemTaxDetailsByType')->willReturn([]);
+
+        $this->tcapi->expects($this->once())->method('lookupTaxes')->willReturn([]);
+
+        $this->tax->collect($quote, $shippingAssignment, $total);
+    }
+
+    /**
+     * Rules have no effect on a store with TaxCloud off — they are not even
+     * consulted.
+     */
+    public function testCollectDoesNotConsultRulesWhenModuleDisabled()
+    {
+        $this->scopeConfig->method('getValue')
+            ->willReturnMap([
+                ['tax/taxcloud_settings/enabled', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+                ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, 1, '0'],
+            ]);
+        $resolver = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver::class);
+        $resolver->expects($this->never())->method('resolve');
+        $this->createTaxInstance($resolver);
+
+        $quote = $this->createMockQuote();
+        $shippingAssignment = $this->createMock(ShippingAssignmentInterface::class);
+        $shippingAssignment->method('getItems')->willReturn([$this->createMockQuoteItem()]);
+
+        $this->tax->method('getQuoteTaxDetails')
+            ->willReturn($this->createMock(\Magento\Tax\Api\Data\TaxDetailsInterface::class));
+        $this->tax->method('organizeItemTaxDetailsByType')->willReturn([]);
+
+        $this->tax->collect($quote, $shippingAssignment, $this->createMock(Total::class));
+    }
+
+    /**
+     * The skip resolver is an optional constructor argument; Magento never
+     * auto-wires those, so di.xml must bind it or rules silently do nothing.
+     */
+    public function testDiXmlWiresTheSkipResolver()
+    {
+        $diXml = simplexml_load_file(__DIR__ . '/../../../etc/di.xml');
+        $argument = $diXml->xpath(
+            '//type[@name="Taxcloud\Magento2\Model\Tax"]/arguments/argument[@name="skipResolver"]'
+        );
+        $this->assertCount(1, $argument);
+        $this->assertSame('Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver', trim((string) $argument[0]));
+    }
+
+    /**
+     * A store that does not report orders (calculations_only=1) must NOT touch
+     * the tax collector — TaxCloud still calculates, it just isn't told about
+     * the sale.
      *
      * Paired with the "does not capture/return" tests on the observers, this is
-     * what separates calculation-only from disabled: a gate accidentally applied
+     * what separates not reporting from disabled: a gate accidentally applied
      * to Tax::collect would leave the storefront charging no TaxCloud tax at all.
      */
-    public function testCollectStillLooksUpTaxesInCalculationsOnlyMode()
+    public function testCollectStillLooksUpTaxesOnANonReportingStore()
     {
         $this->scopeConfig->method('getValue')
             ->willReturnMap([

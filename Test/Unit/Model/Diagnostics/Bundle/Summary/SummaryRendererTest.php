@@ -229,6 +229,79 @@ class SummaryRendererTest extends TestCase
         $this->assertStringContainsString('tax came from the Magento fallback', $blockers);
     }
 
+    /**
+     * The renamed setting reads as the admin calls it, with its inverted
+     * value, and the rule list is printed in evaluation order.
+     */
+    public function testReportOrdersAndTheRuleListAreShown()
+    {
+        $sections = $this->healthySections();
+        $sections['settings']['settings']['calculations_only'] = ['effective' => $this->effective('1')];
+        $sections['settings']['order_rules'] = [
+            ['position' => 1, 'name' => 'Amazon', 'summary' => 'Payment: M2E Pro', 'action' => 'skip', 'active' => true],
+            ['position' => 2, 'name' => 'Old', 'summary' => 'All orders', 'action' => 'report', 'active' => false],
+        ];
+
+        $summary = $this->render($sections);
+
+        $this->assertStringContainsString('| report_orders (calculations_only) | `no` ↑ |', $summary);
+        $this->assertStringContainsString('### Order processing rules', $summary);
+        $this->assertStringContainsString('| 1 | Amazon | Payment: M2E Pro | skip | yes |', $summary);
+        $this->assertStringContainsString('| 2 | Old | All orders | report | no |', $summary);
+    }
+
+    public function testNoRulesSaysEveryOrderFollowsTheSetting()
+    {
+        $sections = $this->healthySections();
+        $sections['settings']['order_rules'] = [];
+
+        $this->assertStringContainsString(
+            'None — every order follows its store view\'s report_orders setting.',
+            $this->render($sections)
+        );
+    }
+
+    /**
+     * An order kept from TaxCloud says so, with the rule — the first thing a
+     * "why is this order not in TaxCloud?" ticket needs.
+     */
+    public function testAnOrderNotReportedNamesItsOutcomeAndRule()
+    {
+        $sections = $this->healthySections();
+        $sections['order'] = [
+            'increment_id' => 'AMZ-1', 'store' => ['code' => 'us_en'], 'customer' => ['is_guest' => true],
+            'taxcloud' => [
+                'taxcloud_outcome' => 'skip',
+                'taxcloud_outcome_rule_name' => 'Amazon',
+                'tax_source' => ['determination' => 'order_rule_skip', 'reason' => 'rule'],
+            ],
+            'items' => ['lines' => []], 'invoices' => [], 'credit_memos' => [], 'shipments' => [],
+        ];
+        $sections['logs']['order_correlation'] = ['correlated_records' => 1];
+
+        $summary = $this->render($sections, ['order_increment_id' => 'AMZ-1']);
+
+        $this->assertStringContainsString('Processing outcome: **skip** — rule "Amazon"', $summary);
+        $this->assertStringContainsString('This order is not reported to TaxCloud (outcome `skip`, rule "Amazon")', $summary);
+        $this->assertStringContainsString('Tax source: **order_rule_skip**', $summary);
+    }
+
+    public function testAnOrderWithoutAnOutcomeSaysItsStoreSettingDecides()
+    {
+        $sections = $this->healthySections();
+        $sections['order'] = [
+            'increment_id' => '1', 'store' => ['code' => 'us_en'], 'customer' => ['is_guest' => true],
+            'taxcloud' => ['tax_source' => ['determination' => 'taxcloud', 'reason' => 'x']],
+            'items' => ['lines' => []], 'invoices' => [], 'credit_memos' => [], 'shipments' => [],
+        ];
+        $sections['logs']['order_correlation'] = ['correlated_records' => 1];
+
+        $this->assertStringContainsString(
+            'Processing outcome: none (placed before order processing rules',
+            $this->render($sections, ['order_increment_id' => '1'])
+        );
+    }
+
     public function testAPendingSetupUpgradeIsABlocker()
     {
         $sections = $this->healthySections();

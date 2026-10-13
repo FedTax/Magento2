@@ -34,7 +34,7 @@ class OrderSectionTest extends TestCase
 {
     use DiagnosticsFixture;
 
-    private function order(): Order
+    private function order(array $data = []): Order
     {
         $item = $this->createMock(Item::class);
         $item->method('getSku')->willReturn('SVC-1');
@@ -64,14 +64,15 @@ class OrderSectionTest extends TestCase
         $order->method('getInvoiceCollection')->willReturn([]);
         $order->method('getCreditmemosCollection')->willReturn([]);
         $order->method('getShipmentsCollection')->willReturn([]);
-        $order->method('getData')->willReturnCallback(function ($key = '') {
-            return ['taxcloud_rdf_amount' => '0.2800', 'taxcloud_captured' => '1'][$key] ?? null;
+        $data += ['taxcloud_rdf_amount' => '0.2800', 'taxcloud_captured' => '1'];
+        $order->method('getData')->willReturnCallback(function ($key = '') use ($data) {
+            return $data[$key] ?? null;
         });
 
         return $order;
     }
 
-    private function collect(bool $redact, ?array $logs = null): array
+    private function collect(bool $redact, ?array $logs = null, array $orderData = []): array
     {
         $this->setConfig(
             ['tax/taxcloud_settings/co_rdf_enabled' => '0'],
@@ -88,7 +89,7 @@ class OrderSectionTest extends TestCase
         $context = new BundleContext(
             new BundleRequest(),
             new BundleScope(BundleRequest::SCOPE_STORE, 2, 'us_es', [], []),
-            $this->order(),
+            $this->order($orderData),
             sys_get_temp_dir(),
             [],
             $redact ? new PiiRedactor() : null
@@ -115,6 +116,26 @@ class OrderSectionTest extends TestCase
         $this->assertTrue($rdf['shipping_method_in_motor_vehicle_list']);
         $this->assertSame('taxcloud', $data['taxcloud']['tax_source']['determination']);
         $this->assertSame('Jane', $data['shipping_address']['firstname']);
+    }
+
+    /**
+     * The stored outcome is exported, and a skipped order's tax source is
+     * explained by the rule rather than guessed from the log.
+     */
+    public function testExportsTheProcessingOutcome()
+    {
+        $data = $this->collect(false, ['order_correlation' => [
+            'correlated_records' => 4,
+            'tax_source_evidence' => ['taxcloud_lookup_records' => 0, 'magento_fallback_records' => 0],
+        ]], [
+            'taxcloud_outcome' => 'skip',
+            'taxcloud_outcome_rule_id' => '3',
+            'taxcloud_outcome_rule_name' => 'Amazon',
+        ]);
+
+        $this->assertSame('skip', $data['taxcloud']['taxcloud_outcome']);
+        $this->assertSame('Amazon', $data['taxcloud']['taxcloud_outcome_rule_name']);
+        $this->assertSame('order_rule_skip', $data['taxcloud']['tax_source']['determination']);
     }
 
     public function testMasksCustomerDetailsButKeepsTaxInputs()
