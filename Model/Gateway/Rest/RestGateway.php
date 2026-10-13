@@ -321,7 +321,14 @@ class RestGateway implements GatewayInterface
             });
         } catch (Throwable $e) {
             $this->tclogger->error('Error encountered during lookupTaxes: ' . $e->getMessage());
-            return $this->lookupFallback($itemsByType, $shippingAssignment, $quote, $storeId, $result);
+            return $this->lookupFallback(
+                $itemsByType,
+                $shippingAssignment,
+                $quote,
+                $storeId,
+                $result,
+                $certificateID
+            );
         }
 
         $this->logResponse('lookupTaxes', $response, $storeId);
@@ -331,7 +338,14 @@ class RestGateway implements GatewayInterface
                 'Error encountered during lookupTaxes: ' . $response->errorDetail()
                 . ($isCanada ? self::CANADA_ACCESS_HINT : '')
             );
-            return $this->lookupFallback($itemsByType, $shippingAssignment, $quote, $storeId, $result);
+            return $this->lookupFallback(
+                $itemsByType,
+                $shippingAssignment,
+                $quote,
+                $storeId,
+                $result,
+                $certificateID
+            );
         }
 
         $cart = $this->restResponseMapper->extractCart($response->getBody());
@@ -567,18 +581,39 @@ class RestGateway implements GatewayInterface
     }
 
     /**
-     * Resolve a failed lookup: Magento's native tax rates when the store has
-     * fallback enabled, the zero result otherwise (SOAP parity).
+     * Resolve a failed lookup: no tax when a certificate exempts the cart,
+     * otherwise Magento's native tax rates when the store has fallback
+     * enabled, the zero result otherwise (SOAP parity).
+     *
+     * The certificate check comes first because Magento's rates know nothing
+     * of certificates — only the customer tax class — so falling back would
+     * tax a customer TaxCloud was about to exempt, while the order still
+     * recorded the certificate.
      *
      * @param array $itemsByType
      * @param \Magento\Quote\Api\Data\ShippingAssignmentInterface $shippingAssignment
      * @param \Magento\Quote\Model\Quote $quote
      * @param int|string|null $storeId
      * @param array $zeroResult
+     * @param string|null $certificateID The certificate the failed request carried
      * @return array
      */
-    private function lookupFallback($itemsByType, $shippingAssignment, $quote, $storeId, array $zeroResult)
-    {
+    private function lookupFallback(
+        $itemsByType,
+        $shippingAssignment,
+        $quote,
+        $storeId,
+        array $zeroResult,
+        ?string $certificateID
+    ) {
+        if ($certificateID !== null) {
+            $this->tclogger->warning(
+                'TaxCloud lookup failed; certificate ' . $certificateID
+                . ' is applied, so charging no tax instead of Magento tax rates'
+            );
+            return $zeroResult;
+        }
+
         if ($this->config->isFallbackToMagentoEnabled($storeId)) {
             $this->tclogger->warning('TaxCloud lookup failed, falling back to Magento tax rates');
             return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);

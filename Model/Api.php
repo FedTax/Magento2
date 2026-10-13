@@ -432,13 +432,15 @@ class Api implements GatewayInterface
             $this->tclogger->error('Error encountered during lookupTaxes: ' . $e->getMessage());
             $this->logSoapTrace($client, 'lookupTaxes', $storeId);
 
-            // Check if fallback to Magento is enabled
-            if ($this->config->isFallbackToMagentoEnabled($storeId)) {
-                $this->tclogger->warning('TaxCloud lookup failed, falling back to Magento tax rates');
-                return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
-            }
-
-            return $result;
+            return $this->lookupFallback(
+                $itemsByType,
+                $shippingAssignment,
+                $quote,
+                $storeId,
+                $result,
+                $certificateID,
+                'TaxCloud lookup failed, falling back to Magento tax rates'
+            );
         }
 
         $this->logSoapTrace($client, 'lookupTaxes', $storeId);
@@ -487,14 +489,60 @@ class Api implements GatewayInterface
             );
             $this->tclogger->debug($this->toLogJson($lookupResult));
 
-            // Check if fallback to Magento is enabled
-            if ($this->config->isFallbackToMagentoEnabled($storeId)) {
-                $this->tclogger->warning('TaxCloud lookup returned error response, falling back to Magento tax rates');
-                return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
-            }
-            
-            return $result;
+            return $this->lookupFallback(
+                $itemsByType,
+                $shippingAssignment,
+                $quote,
+                $storeId,
+                $result,
+                $certificateID,
+                'TaxCloud lookup returned error response, falling back to Magento tax rates'
+            );
         }
+    }
+
+    /**
+     * Resolve a failed lookup: no tax when a certificate exempts the cart,
+     * otherwise Magento's native tax rates when the store has fallback
+     * enabled, the zero result otherwise (REST parity).
+     *
+     * The certificate check comes first because Magento's rates know nothing
+     * of certificates — only the customer tax class — so falling back would
+     * tax a customer TaxCloud was about to exempt, while the order still
+     * recorded the certificate.
+     *
+     * @param array $itemsByType
+     * @param \Magento\Quote\Api\Data\ShippingAssignmentInterface $shippingAssignment
+     * @param \Magento\Quote\Model\Quote $quote
+     * @param int|string|null $storeId
+     * @param array $zeroResult
+     * @param string|null $certificateID The certificate the failed request carried
+     * @param string $fallbackMessage Logged when falling back to Magento rates
+     * @return array
+     */
+    private function lookupFallback(
+        $itemsByType,
+        $shippingAssignment,
+        $quote,
+        $storeId,
+        array $zeroResult,
+        ?string $certificateID,
+        string $fallbackMessage
+    ) {
+        if ($certificateID !== null) {
+            $this->tclogger->warning(
+                'TaxCloud lookup failed; certificate ' . $certificateID
+                . ' is applied, so charging no tax instead of Magento tax rates'
+            );
+            return $zeroResult;
+        }
+
+        if ($this->config->isFallbackToMagentoEnabled($storeId)) {
+            $this->tclogger->warning($fallbackMessage);
+            return $this->magentoTaxFallback->calculate($itemsByType, $shippingAssignment, $quote);
+        }
+
+        return $zeroResult;
     }
 
     /**

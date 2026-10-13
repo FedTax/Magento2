@@ -42,6 +42,14 @@ use Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver;
  * and checkout, the record describes the certificate that WOULD apply now, and
  * TaxCloud will have been sent that same one when the order was filed — so the
  * record still matches what was transacted, which is the property that matters.
+ *
+ * A record is only ever written onto an order that carries no tax. Resolving
+ * says which certificate WOULD exempt the order, not that the totals were
+ * computed with it: a lookup that failed over to Magento's rates, a
+ * certificate attached after the last totals calculation, or a resolution that
+ * failed during totals and succeeded here all leave a taxed order behind. The
+ * record is evidence that the sale was untaxed, so it must never sit on one
+ * that was not.
  */
 class RecordCertificate implements ObserverInterface
 {
@@ -150,7 +158,33 @@ class RecordCertificate implements ObserverInterface
             return;
         }
 
+        $tax = $this->orderTax($order);
+        if ($tax > 0) {
+            $this->logger->warning(
+                'Not recording certificate ' . $certificate->getCertificateId()
+                . ' on order ' . (string) $order->getIncrementId()
+                . ': the order carries tax of ' . $tax . ', so it was not exempted'
+            );
+            return;
+        }
+
         $this->record->record($order, $certificate);
+    }
+
+    /**
+     * The larger of the order's store- and base-currency tax, rounded so float
+     * noise from totals arithmetic does not read as tax.
+     *
+     * Both are read because either one being non-zero means the customer was
+     * charged tax; a store-currency amount that rounds to zero must not hide a
+     * base amount that does not.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return float
+     */
+    private function orderTax($order): float
+    {
+        return round(max((float) $order->getTaxAmount(), (float) $order->getBaseTaxAmount()), 4);
     }
 
     /**

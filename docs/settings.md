@@ -400,6 +400,12 @@ out, or the credentials are rejected.
 - **Enable** — Magento falls back to its own tax rules and rate tables for that
   order.
 
+Either way, an order exempted by a customer's
+[exemption certificate](how-an-order-becomes-exempt.md) is charged no tax.
+Magento's own rate tables know nothing about TaxCloud certificates, so falling
+back would tax a customer TaxCloud exempts. [The log](logs.md) names the
+certificate each time this happens.
+
 Neither is risk-free, and the right choice depends on how you would rather be
 wrong.
 
