@@ -2,17 +2,19 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
-## Unreleased
+## 1.6.0
 
 This release adds order processing rules: decide, order by order, whether
 TaxCloud calculates and reports an order, only calculates it, or stays out of
 it entirely — for marketplace imports, wholesale invoiced elsewhere, or any
 split by store view, customer group, payment method, shipping method or order
-number prefix.
+number prefix. It also includes the fixes from 1.5.1 and 1.5.2.
 
 Run `bin/magento setup:upgrade` after updating — this release adds a database
 table and three order columns. In production mode also run
-`bin/magento setup:di:compile`. Nothing changes until you create a rule.
+`bin/magento setup:di:compile` and `bin/magento setup:static-content:deploy`:
+the rules screen brings its own admin script and styles. Nothing changes until
+you create a rule.
 
 ### Added
 

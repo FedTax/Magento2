@@ -95,11 +95,24 @@ bin/magento setup:upgrade
 bin/magento setup:di:compile
 ```
 
+If your store runs in production mode, also redeploy static content:
+
+```bash
+bin/magento setup:static-content:deploy
+```
+
+Then flush the cache:
+
+```bash
+bin/magento cache:flush
+```
+
 !!! note "Upgrading keeps your settings"
     Features that need a setting arrive switched off: exemption certificates,
     Canadian tax and customer certificate self-service stay off until you
-    enable them, and a store already using the V1 SOAP API stays on it — you
-    move to V3 REST when you decide to, not because you upgraded. Read the
+    enable them, order processing rules change nothing until you create one,
+    and a store already using the V1 SOAP API stays on it — you move to V3
+    REST when you decide to, not because you upgraded. Read the
     [changelog](https://github.com/FedTax/Magento2/blob/main/CHANGELOG.md)
     before upgrading to see what shoppers and administrators will notice.
 
@@ -122,9 +135,10 @@ bin/magento module:uninstall Taxcloud_Magento2
 ```
 
 !!! warning "Uninstalling deletes your TaxCloud data in Magento"
-    Removing the extension drops the attributes it added, and with them every
-    TIC you set on a product or category and every exemption certificate link on
-    a customer. Reinstalling brings the fields back empty — the values are gone.
-    Export anything you would not want to re-enter before you uninstall.
+    Removing the extension drops the attributes and tables it added, and with
+    them every TIC you set on a product or category, every exemption
+    certificate link on a customer and every order processing rule.
+    Reinstalling brings the fields back empty — the values are gone. Export
+    anything you would not want to re-enter before you uninstall.
 
 Next: [Quick start](quick-start.md).
