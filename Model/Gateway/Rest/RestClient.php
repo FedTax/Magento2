@@ -17,7 +17,6 @@
 
 namespace Taxcloud\Magento2\Model\Gateway\Rest;
 
-use Magento\Framework\HTTP\Client\CurlFactory;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\PingResult;
 use Taxcloud\Magento2\Model\Gateway\UserAgent;
@@ -37,6 +36,10 @@ use Throwable;
  * verifies an explicit credential pair (unsaved form input) and
  * {@see pingForScope()} verifies the store's resolved configuration, both
  * mapping onto {@see PingResult}.
+ *
+ * Every request goes out through {@see FinalStatusCurl}, so its status is the
+ * final response's, and without `Expect: 100-continue`, so no interim response
+ * is solicited in the first place (see {@see send()}).
  */
 class RestClient
 {
@@ -51,7 +54,7 @@ class RestClient
     private const CONNECTION_PATH = '/tax/connections/%s';
 
     /**
-     * @var CurlFactory
+     * @var FinalStatusCurlFactory
      */
     private $curlFactory;
 
@@ -71,13 +74,13 @@ class RestClient
     private $userAgent;
 
     /**
-     * @param CurlFactory    $curlFactory
-     * @param TaxcloudConfig $config
-     * @param AuthProvider   $authProvider
-     * @param UserAgent      $userAgent
+     * @param FinalStatusCurlFactory $curlFactory
+     * @param TaxcloudConfig         $config
+     * @param AuthProvider           $authProvider
+     * @param UserAgent              $userAgent
      */
     public function __construct(
-        CurlFactory $curlFactory,
+        FinalStatusCurlFactory $curlFactory,
         TaxcloudConfig $config,
         AuthProvider $authProvider,
         UserAgent $userAgent
@@ -261,9 +264,14 @@ class RestClient
         $curl = $this->curlFactory->create();
         $curl->setTimeout($this->config->getSoapTimeout($store));
 
+        // An empty Expect suppresses libcurl's own `Expect: 100-continue`, which
+        // older libcurl (7.61, RHEL/AlmaLinux 8) adds to HTTP/1.1 bodies over
+        // 1 KiB: the body goes out with the request and TaxCloud never sends an
+        // interim 100. FinalStatusCurl covers interim responses we do not ask for.
         $headers = $authHeaders + [
             'Accept' => 'application/json',
             'User-Agent' => $this->userAgent->get(),
+            'Expect' => '',
         ];
         if ($body !== null) {
             $headers += ['Content-Type' => 'application/json'];

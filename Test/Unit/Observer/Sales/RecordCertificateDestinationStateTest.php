@@ -88,6 +88,45 @@ class RecordCertificateDestinationStateTest extends TestCase
         $this->assertSame($expectedState, $sourcedState, $message);
     }
 
+    /**
+     * A quote an order rule took away from TaxCloud was never exempted, so no
+     * certificate is resolved or recorded for it.
+     */
+    public function testASkippedQuoteRecordsNoCertificate()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getStoreId')->willReturn(3);
+        $order->method('getShippingAddress')->willReturn($this->address('CO'));
+
+        $customer = $this->createMock(CustomerInterface::class);
+        $customer->method('getId')->willReturn(42);
+        $quote = $this->createMock(Quote::class);
+        $quote->method('getCustomer')->willReturn($customer);
+
+        $config = $this->createMock(TaxcloudConfig::class);
+        $config->method('isEnabled')->willReturn(true);
+
+        $resolver = $this->createMock(CertificateResolver::class);
+        $resolver->expects($this->never())->method('resolve');
+        $record = $this->createMock(OrderCertificateRecord::class);
+        $record->expects($this->never())->method($this->anything());
+
+        $skip = $this->createMock(\Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver::class);
+        $skip->method('resolve')->with($quote)
+            ->willReturn(new \Taxcloud\Magento2\Model\OrderRule\Decision('skip', 1, 'Amazon'));
+
+        $observer = new RecordCertificate(
+            $resolver,
+            $record,
+            $config,
+            $this->createMock(GatewayLogger::class),
+            new TaxAddressResolver(),
+            $skip
+        );
+
+        $observer->execute($this->observerFor($order, $quote));
+    }
+
     public static function destinationStateProvider(): array
     {
         return [

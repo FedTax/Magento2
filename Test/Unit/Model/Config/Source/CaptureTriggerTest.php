@@ -56,12 +56,12 @@ class CaptureTriggerTest extends TestCase
     }
 
     /**
-     * The field is meaningless in calculations-only mode (orders are never sent
-     * to TaxCloud, so there is no capture to schedule) and meaningless with the
-     * module off. Both dependencies must stay declared or the admin offers a
-     * setting that does nothing.
+     * The field is meaningless with the module off, but stays visible when
+     * orders are not reported by default: an order rule with the Report
+     * action still sends orders from such a store view, and they are captured
+     * at this trigger.
      */
-    public function testAdminFieldIsHiddenWhenDisabledOrCalculationsOnly()
+    public function testAdminFieldIsHiddenOnlyWhenDisabled()
     {
         $systemXml = simplexml_load_file(__DIR__ . '/../../../../../etc/adminhtml/system.xml');
         $field = $systemXml->xpath('//section[@id="tax"]/group[@id="taxcloud"]/field[@id="capture_trigger"]');
@@ -71,7 +71,7 @@ class CaptureTriggerTest extends TestCase
             $depends[(string) $dependency['id']] = (string) $dependency;
         }
 
-        $this->assertSame(['enabled' => '1', 'calculations_only' => '0'], $depends);
+        $this->assertSame(['enabled' => '1'], $depends);
     }
 
     /**

@@ -32,6 +32,12 @@
       request, which is why they share this hook.
     -->
     <observer name="taxcloudVerifyTaxCollector" instance="Taxcloud\Magento2\Observer\Sales\VerifyTaxCollector"/>
+    <!--
+      The order's processing outcome, decided once from the order rules. The
+      order is numbered by now and not yet saved, so the outcome and its
+      comment are saved with it.
+    -->
+    <observer name="taxcloudRecordOrderOutcome" instance="Taxcloud\Magento2\Observer\Sales\RecordOrderOutcome"/>
   </event>
   <event name="sales_order_place_after">
     <observer name="afterOrder" instance="Taxcloud\Magento2\Observer\Sales\Complete"/>

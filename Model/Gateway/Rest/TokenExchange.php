@@ -17,7 +17,6 @@
 
 namespace Taxcloud\Magento2\Model\Gateway\Rest;
 
-use Magento\Framework\HTTP\Client\CurlFactory;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\UserAgent;
 use Throwable;
@@ -30,6 +29,9 @@ use Throwable;
  * ships; the host is config-overridable so a vendor-side move needs no
  * release. Request/response bodies are never logged — they carry the
  * credential pair and a live token.
+ *
+ * Sent like every other v3 request: through {@see FinalStatusCurl}, without
+ * `Expect: 100-continue` (see {@see RestClient}).
  */
 class TokenExchange
 {
@@ -39,7 +41,7 @@ class TokenExchange
     private const TOKEN_PATH = '/api/v3/auth/token';
 
     /**
-     * @var CurlFactory
+     * @var FinalStatusCurlFactory
      */
     private $curlFactory;
 
@@ -54,11 +56,11 @@ class TokenExchange
     private $userAgent;
 
     /**
-     * @param CurlFactory    $curlFactory
-     * @param TaxcloudConfig $config
-     * @param UserAgent      $userAgent
+     * @param FinalStatusCurlFactory $curlFactory
+     * @param TaxcloudConfig         $config
+     * @param UserAgent              $userAgent
      */
-    public function __construct(CurlFactory $curlFactory, TaxcloudConfig $config, UserAgent $userAgent)
+    public function __construct(FinalStatusCurlFactory $curlFactory, TaxcloudConfig $config, UserAgent $userAgent)
     {
         $this->curlFactory = $curlFactory;
         $this->config = $config;
@@ -86,6 +88,7 @@ class TokenExchange
         $curl->addHeader('Content-Type', 'application/json');
         $curl->addHeader('Accept', 'application/json');
         $curl->addHeader('User-Agent', $this->userAgent->get());
+        $curl->addHeader('Expect', '');
 
         try {
             $curl->post($url, json_encode(['apiLoginID' => $apiLoginId, 'apiKey' => $apiKey]));

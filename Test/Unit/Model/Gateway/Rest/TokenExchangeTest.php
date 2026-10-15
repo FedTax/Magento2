@@ -10,12 +10,12 @@
 namespace Taxcloud\Magento2\Test\Unit\Model\Gateway\Rest;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\HTTP\Client\Curl;
-use Magento\Framework\HTTP\Client\CurlFactory;
 use Magento\Store\Model\ScopeInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
+use Taxcloud\Magento2\Model\Gateway\Rest\FinalStatusCurl;
+use Taxcloud\Magento2\Model\Gateway\Rest\FinalStatusCurlFactory;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchange;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchangeException;
 use Taxcloud\Magento2\Test\Unit\BuildsUserAgent;
@@ -34,16 +34,21 @@ class TokenExchangeTest extends TestCase
     private const API_KEY = 'fb3e8a3a-057b-4628-a743-c89b4e37dfa8';
 
     /**
-     * @var Curl&\PHPUnit\Framework\MockObject\MockObject
+     * @var FinalStatusCurl&\PHPUnit\Framework\MockObject\MockObject
      */
     private $curl;
 
-    private function exchange(array $configMap = []): TokenExchange
+    /**
+     * @param array $configMap
+     * @param FinalStatusCurl|null $transport A scripted client to use instead of the mock
+     * @return TokenExchange
+     */
+    private function exchange(array $configMap = [], ?FinalStatusCurl $transport = null): TokenExchange
     {
-        $this->curl = $this->createMock(Curl::class);
+        $this->curl = $this->createMock(FinalStatusCurl::class);
 
-        $curlFactory = $this->createMock(CurlFactory::class);
-        $curlFactory->method('create')->willReturn($this->curl);
+        $curlFactory = $this->createMock(FinalStatusCurlFactory::class);
+        $curlFactory->method('create')->willReturn($transport ?? $this->curl);
 
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnMap($configMap);
@@ -192,5 +197,72 @@ class TokenExchangeTest extends TestCase
 
         $this->assertGreaterThan(time(), $token->getValidTo());
         $this->assertLessThanOrEqual(time() + 61, $token->getValidTo());
+    }
+
+    /**
+     * Same rule as every other v3 request: no `Expect: 100-continue`, so older
+     * libcurl never solicits an interim response for the exchange either.
+     */
+    public function testExchangeSuppressesExpectContinue()
+    {
+        $exchange = $this->exchange();
+
+        $headers = [];
+        $this->curl->method('addHeader')->willReturnCallback(static function ($n, $v) use (&$headers) {
+            $headers[$n] = $v;
+        });
+        $this->curl->method('getStatus')->willReturn(200);
+        $this->curl->method('getBody')->willReturn(json_encode([
+            'access_token' => 'jwt-abc',
+            'access_token_validTo' => gmdate('Y-m-d\TH:i:s\Z', time() + 86400),
+        ]));
+
+        $exchange->exchange(self::API_ID, self::API_KEY);
+
+        $this->assertArrayHasKey('Expect', $headers);
+        $this->assertSame('', $headers['Expect']);
+    }
+
+    /**
+     * An interim response before the token must not read as a failed
+     * exchange: the outcome is the final response's status. The client is a
+     * real FinalStatusCurl with only its socket faked.
+     */
+    public function testInterimResponseBeforeTheTokenIsASuccessfulExchange()
+    {
+        $body = (string) json_encode([
+            'access_token' => 'jwt-abc',
+            'access_token_validTo' => gmdate('Y-m-d\TH:i:s\Z', time() + 86400),
+        ]);
+        $transport = new class ($body) extends FinalStatusCurl {
+            /**
+             * @var string
+             */
+            private $scriptedBody;
+
+            /**
+             * @param string $body
+             */
+            public function __construct(string $body)
+            {
+                parent::__construct();
+                $this->scriptedBody = $body;
+            }
+
+            /**
+             * @inheritdoc
+             */
+            public function post($uri, $params)
+            {
+                foreach (["HTTP/1.1 100 Continue\r\n", "\r\n", "HTTP/1.1 200 OK\r\n", "\r\n"] as $line) {
+                    $this->parseHeaders(null, $line);
+                }
+                $this->_responseBody = $this->scriptedBody;
+            }
+        };
+
+        $token = $this->exchange([], $transport)->exchange(self::API_ID, self::API_KEY);
+
+        $this->assertSame('jwt-abc', $token->getToken());
     }
 }

@@ -103,7 +103,8 @@ states — see [Shipping and handling](shipping-and-handling.md).
 
 **Is fallback masking the problem?** With [fallback](settings.md#fallback-to-magento-tax-rates)
 on, a failed lookup silently produces Magento's own rate instead of TaxCloud's.
-The number looks plausible and is not TaxCloud's. Check the log.
+The number looks plausible and is not TaxCloud's. Check the log. (An exempt
+customer's order is the exception: a failed lookup charges it no tax.)
 
 ## Percentages differ slightly from TaxCloud's dashboard
 
@@ -134,7 +135,11 @@ extension does.
 **Which capture trigger?** With *On payment* or *On shipment*, orders that never
 reached that point were never reported. See [Capture](capture.md).
 
-**Calculations-only mode?** Then nothing is ever reported, by design.
+**Kept out on purpose?** Open the order and read its history. A comment
+starting *TaxCloud:* names the [order processing rule](order-processing-rules.md)
+that kept it out of TaxCloud. With no such comment, check whether the store
+view has [Report orders to TaxCloud](settings.md#report-orders-to-taxcloud) set
+to *No* — then nothing is reported unless a rule says so, by design.
 
 **Did capture fail?** Check [the log](logs.md) around the order.
 

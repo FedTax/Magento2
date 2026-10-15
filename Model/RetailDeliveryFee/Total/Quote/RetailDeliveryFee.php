@@ -24,6 +24,7 @@ use Magento\Quote\Api\Data\ShippingAssignmentInterface;
 use Magento\Quote\Model\Quote;
 use Magento\Quote\Model\Quote\Address\Total;
 use Magento\Quote\Model\Quote\Address\Total\AbstractTotal;
+use Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver;
 use Taxcloud\Magento2\Model\RetailDeliveryFee\FeeService;
 
 /**
@@ -57,13 +58,23 @@ class RetailDeliveryFee extends AbstractTotal
     private $priceCurrency;
 
     /**
+     * @var QuoteSkipResolver|null
+     */
+    private $skipResolver;
+
+    /**
      * @param FeeService $feeService
      * @param PriceCurrencyInterface $priceCurrency
+     * @param QuoteSkipResolver|null $skipResolver Bound in di.xml; null only under a stale compiled DI
      */
-    public function __construct(FeeService $feeService, PriceCurrencyInterface $priceCurrency)
-    {
+    public function __construct(
+        FeeService $feeService,
+        PriceCurrencyInterface $priceCurrency,
+        ?QuoteSkipResolver $skipResolver = null
+    ) {
         $this->feeService = $feeService;
         $this->priceCurrency = $priceCurrency;
+        $this->skipResolver = $skipResolver;
         $this->setCode(self::CODE);
     }
 
@@ -94,6 +105,12 @@ class RetailDeliveryFee extends AbstractTotal
         // The quote's store, never the ambient one: admin order creation and
         // API checkouts run under the default store view.
         $storeId = $quote->getStoreId();
+
+        // A quote an order rule takes away from TaxCloud gets nothing TaxCloud
+        // adds, the fee included.
+        if ($this->skipResolver && $this->skipResolver->resolve($quote)) {
+            return $this;
+        }
 
         if (!$this->feeService->isEligible($address, $storeId)) {
             return $this;

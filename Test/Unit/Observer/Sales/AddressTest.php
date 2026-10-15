@@ -234,14 +234,14 @@ class AddressTest extends TestCase
     }
 
     /**
-     * Address verification is a calculation-side call, so calculations-only mode
-     * must leave it running.
+     * Address verification is a calculation-side call, so a store that does not
+     * report orders ("Report orders to TaxCloud" = No) must leave it running.
      *
      * This is the assertion that gives the setting its meaning: gating the whole
      * module on it — rather than only the order-lifecycle writes — would still
      * pass every "does not call" test elsewhere, and fail here.
      */
-    public function testExecuteStillVerifiesAddressInCalculationsOnlyMode()
+    public function testExecuteStillVerifiesAddressOnANonReportingStore()
     {
         $destination = [
             'Address1' => '5th Ave',

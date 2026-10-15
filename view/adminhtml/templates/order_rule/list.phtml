@@ -1,0 +1,94 @@
+<?php
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2026 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+
+/** @var \Taxcloud\Magento2\Block\Adminhtml\OrderRule\RuleList $block */
+/** @var \Magento\Framework\Escaper $escaper */
+$rules = $block->getRules();
+?>
+<div class="taxcloud-order-rules"
+     data-mage-init='<?= $escaper->escapeHtmlAttr(json_encode([
+         'Taxcloud_Magento2/js/order-rule/sortable' => ['saveUrl' => $block->getSaveOrderUrl()],
+     ])) ?>'>
+    <p class="taxcloud-order-rules__intro">
+        <?= $escaper->escapeHtml(__(
+            'Rules are checked from the top down; the first active rule that matches an order decides '
+            . 'what happens to it. Drag a rule to change its position.'
+        )) ?>
+    </p>
+
+    <?php if (!$rules): ?>
+        <div class="message message-notice">
+            <?= $escaper->escapeHtml(__('There are no order rules yet. Every order follows its store view\'s setting.')) ?>
+        </div>
+    <?php else: ?>
+        <table class="data-grid taxcloud-order-rules__table">
+            <thead>
+            <tr>
+                <th class="data-grid-th" aria-label="<?= $escaper->escapeHtmlAttr(__('Position')) ?>"></th>
+                <th class="data-grid-th"><?= $escaper->escapeHtml(__('Name')) ?></th>
+                <th class="data-grid-th"><?= $escaper->escapeHtml(__('Matches')) ?></th>
+                <th class="data-grid-th"><?= $escaper->escapeHtml(__('Action')) ?></th>
+                <th class="data-grid-th"><?= $escaper->escapeHtml(__('Active')) ?></th>
+                <th class="data-grid-th"></th>
+            </tr>
+            </thead>
+            <tbody data-role="taxcloud-order-rules">
+            <?php foreach ($rules as $rule): ?>
+                <tr data-rule-id="<?= (int) $rule->getId() ?>"
+                    class="<?= $rule->isActive() ? '' : 'taxcloud-order-rules__inactive' ?>">
+                    <td class="taxcloud-order-rules__handle" data-role="drag-handle"
+                        title="<?= $escaper->escapeHtmlAttr(__('Drag to reorder')) ?>">&#8801;</td>
+                    <td>
+                        <a href="<?= $escaper->escapeUrl($block->getEditUrl($rule)) ?>">
+                            <?= $escaper->escapeHtml($rule->getName()) ?>
+                        </a>
+                    </td>
+                    <td><?= $escaper->escapeHtml(implode(' · ', $block->getSummary($rule))) ?></td>
+                    <td><?= $escaper->escapeHtml($block->getActionLabel($rule)) ?></td>
+                    <td><?= $escaper->escapeHtml($rule->isActive() ? __('Yes') : __('No')) ?></td>
+                    <td class="taxcloud-order-rules__actions">
+                        <a href="<?= $escaper->escapeUrl($block->getEditUrl($rule)) ?>">
+                            <?= $escaper->escapeHtml(__('Edit')) ?>
+                        </a>
+                        <form method="post" action="<?= $escaper->escapeUrl($block->getDeleteUrl($rule)) ?>"
+                              class="taxcloud-order-rules__delete"
+                              data-confirm="<?= $escaper->escapeHtmlAttr(__(
+                                  'Delete the rule "%1"? Orders it already decided keep their outcome.',
+                                  $rule->getName()
+                              )) ?>">
+                            <input type="hidden" name="form_key"
+                                   value="<?= $escaper->escapeHtmlAttr($block->getFormKey()) ?>"/>
+                            <button type="submit" class="action-link">
+                                <?= $escaper->escapeHtml(__('Delete')) ?>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <p class="taxcloud-order-rules__default">
+        <?= $escaper->escapeHtml(__(
+            'Orders that match no rule follow each store view\'s "Report orders to TaxCloud" setting.'
+        )) ?>
+        <a href="<?= $escaper->escapeUrl($block->getSettingsUrl()) ?>">
+            <?= $escaper->escapeHtml(__('Go to TaxCloud settings')) ?>
+        </a>
+    </p>
+</div>

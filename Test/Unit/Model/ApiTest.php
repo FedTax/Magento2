@@ -3357,11 +3357,129 @@ class ApiTest extends TestCase
     }
 
     /**
+     * Both SOAP failure branches, crossed with the store's fallback setting.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function failedSoapLookupProvider(): array
+    {
+        return [
+            'SOAP fault, fallback on' => ['fault', '1'],
+            'SOAP fault, fallback off' => ['fault', '0'],
+            'error response, fallback on' => ['error', '1'],
+            'error response, fallback off' => ['error', '0'],
+        ];
+    }
+
+    /**
+     * Magento's rates know nothing of certificates, so falling back would tax
+     * a customer TaxCloud was about to exempt (CXRE-232). A failed lookup for
+     * an exempt cart is answered with no tax, whatever the fallback setting —
+     * on SOAP exactly as on REST.
+     *
+     * @dataProvider failedSoapLookupProvider
+     */
+    #[DataProvider('failedSoapLookupProvider')]
+    public function testFailedLookupForAnExemptCartChargesNoTax(string $failure, string $fallbackEnabled)
+    {
+        $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        $this->configureBaseLookupScopeConfig('0', [
+            ['tax/taxcloud_settings/logging', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+            ['tax/taxcloud_settings/fallback_to_magento', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, $fallbackEnabled],
+        ]);
+        [$shippingAssignment, $quote, $itemsByType] = $this->buildBasicSingleItemLookupContext('NY', '10001', $certID);
+        $this->productTicService->method('getProductTic')->willReturn('00000');
+        $this->cacheType->method('load')->willReturn(false);
+        $this->setUpPassThroughDataObject();
+
+        // The customer's certificate covers the destination, so it is applied.
+        $this->mockSoapClient->method('GetExemptCertificates')
+            ->willReturn($this->buildGetExemptCertsResponse($certID, ['NY']));
+
+        $sentCertificate = null;
+        if ($failure === 'fault') {
+            $this->mockSoapClient->method('lookup')->willReturnCallback(
+                function ($params) use (&$sentCertificate) {
+                    $sentCertificate = $params['exemptCert']['CertificateID'] ?? null;
+                    throw new \SoapFault('SOAP-ERROR', 'Service unavailable');
+                }
+            );
+        } else {
+            $errorResponse = new \stdClass();
+            $errorResponse->LookupResult = new \stdClass();
+            $errorResponse->LookupResult->ResponseType = 'Error';
+            $errorResponse->LookupResult->CartItemsResponse = new \stdClass();
+            $errorResponse->LookupResult->CartItemsResponse->CartItemResponse = [];
+            $this->mockSoapClient->method('lookup')->willReturnCallback(
+                function ($params) use (&$sentCertificate, $errorResponse) {
+                    $sentCertificate = $params['exemptCert']['CertificateID'] ?? null;
+                    return $errorResponse;
+                }
+            );
+        }
+
+        $this->stubMagentoFallbackCollaborators(2.50);
+        $this->taxCalculationService->expects($this->never())->method('calculateTax');
+
+        $warnings = [];
+        $this->logger->method('log')->willReturnCallback(
+            function ($level, $message) use (&$warnings) {
+                if ($level === \Psr\Log\LogLevel::WARNING) {
+                    $warnings[] = (string) $message;
+                }
+            }
+        );
+
+        $result = $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertSame($certID, $sentCertificate, 'the failed request carried the certificate');
+        $this->assertSame([], $result[Api::ITEM_TYPE_PRODUCT] ?? null, 'No product tax should be charged');
+        $this->assertSame(0, $result[Api::ITEM_TYPE_SHIPPING] ?? null, 'No shipping tax should be charged');
+        $this->assertContains(
+            'TaxCloud lookup failed; certificate ' . $certID
+            . ' is applied, so charging no tax instead of Magento tax rates',
+            $warnings
+        );
+    }
+
+    /**
+     * A certificate that does not cover the destination exempts nothing, so
+     * the cart is an ordinary taxed cart and still falls back.
+     */
+    public function testFailedLookupWithANonCoveringCertificateStillFallsBack()
+    {
+        $certID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        $this->configureBaseLookupScopeConfig('0', [
+            ['tax/taxcloud_settings/fallback_to_magento', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, null, '1'],
+        ]);
+        [$shippingAssignment, $quote, $itemsByType] = $this->buildBasicSingleItemLookupContext('NY', '10001', $certID);
+        $this->productTicService->method('getProductTic')->willReturn('00000');
+        $this->cacheType->method('load')->willReturn(false);
+        $this->setUpPassThroughDataObject();
+
+        $this->mockSoapClient->method('GetExemptCertificates')
+            ->willReturn($this->buildGetExemptCertsResponse($certID, ['NJ']));
+        $this->mockSoapClient->method('lookup')->willThrowException(
+            new \SoapFault('SOAP-ERROR', 'Service unavailable')
+        );
+
+        $this->stubMagentoFallbackCollaborators(2.50);
+        $this->taxCalculationService->expects($this->once())->method('calculateTax');
+
+        $result = $this->api->lookupTaxes($itemsByType, $shippingAssignment, $quote);
+
+        $this->assertSame(2.50, $result[Api::ITEM_TYPE_PRODUCT]['item-1'] ?? null);
+    }
+
+    /**
      * Build the minimum lookupTaxes context with a single $10 product item.
      * Returns [$shippingAssignment, $quote, $itemsByType].
      */
-    private function buildBasicSingleItemLookupContext(string $stateCode, string $postcode): array
-    {
+    private function buildBasicSingleItemLookupContext(
+        string $stateCode,
+        string $postcode,
+        ?string $attachedCertificateId = null
+    ): array {
         $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
             ->onlyMethods(['load', 'getCode'])
@@ -3372,6 +3490,17 @@ class ApiTest extends TestCase
 
         $customer = $this->createMock(\Magento\Customer\Api\Data\CustomerInterface::class);
         $customer->method('getId')->willReturn(1);
+        $certAttr = null;
+        if ($attachedCertificateId !== null) {
+            $certAttr = $this->createMock(\Magento\Framework\Api\AttributeValue::class);
+            $certAttr->method('getValue')->willReturn($attachedCertificateId);
+        }
+        $customer->method('getCustomAttribute')
+            ->willReturnCallback(function ($attr) use ($certAttr) {
+                return $attr === \Taxcloud\Magento2\Model\Certificate\CertificateResolver::ATTACHED_ATTRIBUTE
+                    ? $certAttr
+                    : null;
+            });
         $quote = $this->createMock(\Magento\Quote\Model\Quote::class);
         $quote->method('getCustomer')->willReturn($customer);
         $quote->method('getStoreId')->willReturn(1);

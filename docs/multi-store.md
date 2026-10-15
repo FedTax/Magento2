@@ -64,9 +64,12 @@ orders, refunds and certificates go to its own account.
 
 ## Things that are not per store
 
-Two things are global, whatever the store view:
+Three things are global, whatever the store view:
 
 - **The TaxCloud cache type** — flushing it clears cached responses for all
   stores. See [Clearing the TaxCloud cache](clearing-the-cache.md).
+- **The list of [order processing rules](order-processing-rules.md)** — one
+  list for the whole installation. A rule applies to the store views selected
+  in its *Store views* filter, or to all of them when that filter is empty.
 - **The product TIC** — one value per product across every store. Use the
   [category TIC](assigning-tics.md) if you need it to differ by store view.

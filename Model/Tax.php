@@ -54,6 +54,14 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
     protected $tclogger;
 
     /**
+     * Decides whether an order processing rule takes this quote away from
+     * TaxCloud. Null only under a stale compiled DI, where rules are not applied.
+     *
+     * @var \Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver|null
+     */
+    private $skipResolver;
+
+    /**
      * Class constructor
      *
      * @param \Magento\Tax\Model\Config $taxConfig
@@ -68,6 +76,7 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
      * @param \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi
      * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      * @param \Magento\Framework\Serialize\Serializer\Json $serializer
+     * @param \Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver|null $skipResolver Bound in di.xml
      */
     public function __construct(
         \Magento\Tax\Model\Config $taxConfig,
@@ -81,9 +90,11 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         \Taxcloud\Magento2\Model\Config\TaxcloudConfig $taxcloudConfig,
         \Taxcloud\Magento2\Api\LookupGatewayInterface $tcapi,
         \Psr\Log\LoggerInterface $tclogger,
-        ?\Magento\Framework\Serialize\Serializer\Json $serializer = null
+        ?\Magento\Framework\Serialize\Serializer\Json $serializer = null,
+        ?\Taxcloud\Magento2\Model\OrderRule\QuoteSkipResolver $skipResolver = null
     ) {
         $this->taxcloudConfig = $taxcloudConfig;
+        $this->skipResolver = $skipResolver;
         $this->tcapi = $tcapi;
 
         $this->tclogger = $tclogger;
@@ -128,6 +139,19 @@ class Tax extends \Magento\Tax\Model\Sales\Total\Quote\Tax
         // in admin/API contexts (admin order creation, webhooks) the ambient
         // store is the default store view, not the store this cart belongs to.
         if (!$this->taxcloudConfig->isEnabled($quote->getStoreId())) {
+            return parent::collect($quote, $shippingAssignment, $total);
+        }
+
+        // An order processing rule with the Skip TaxCloud action: tax this
+        // quote exactly as if TaxCloud were off for its store. No Lookup means
+        // no address verification, exemption or Canadian tax either — all
+        // three only happen inside one.
+        $skip = $this->skipResolver ? $this->skipResolver->resolve($quote) : null;
+        if ($skip !== null) {
+            $this->tclogger->info(
+                'Skipping TaxCloud for quote ' . $quote->getId()
+                . ' (order rule "' . $skip->getRuleName() . '"); Magento tax rules apply'
+            );
             return parent::collect($quote, $shippingAssignment, $total);
         }
 

@@ -10,14 +10,14 @@
 namespace Taxcloud\Magento2\Test\Unit\Model\Gateway;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\HTTP\Client\Curl;
-use Magento\Framework\HTTP\Client\CurlFactory;
 use Magento\Framework\Webapi\Soap\ClientFactory;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\Rest\AuthProvider;
+use Taxcloud\Magento2\Model\Gateway\Rest\FinalStatusCurl;
+use Taxcloud\Magento2\Model\Gateway\Rest\FinalStatusCurlFactory;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestClient;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenCache;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenExchange;
@@ -48,8 +48,8 @@ class UserAgentTransportParityTest extends TestCase
      */
     private function restHeader(UserAgent $userAgent): ?string
     {
-        $curl = $this->createMock(Curl::class);
-        $curlFactory = $this->createMock(CurlFactory::class);
+        $curl = $this->createMock(FinalStatusCurl::class);
+        $curlFactory = $this->createMock(FinalStatusCurlFactory::class);
         $curlFactory->method('create')->willReturn($curl);
 
         $headers = [];
@@ -99,8 +99,8 @@ class UserAgentTransportParityTest extends TestCase
      */
     private function exchangeHeader(UserAgent $userAgent): ?string
     {
-        $curl = $this->createMock(Curl::class);
-        $curlFactory = $this->createMock(CurlFactory::class);
+        $curl = $this->createMock(FinalStatusCurl::class);
+        $curlFactory = $this->createMock(FinalStatusCurlFactory::class);
         $curlFactory->method('create')->willReturn($curl);
 
         $headers = [];

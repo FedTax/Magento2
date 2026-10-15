@@ -10,8 +10,6 @@
 namespace Taxcloud\Magento2\Test\Unit\Model\Gateway\Rest;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\HTTP\Client\Curl;
-use Magento\Framework\HTTP\Client\CurlFactory;
 use Magento\Store\Model\ScopeInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
@@ -19,6 +17,8 @@ use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\PingResult;
 use Taxcloud\Magento2\Model\Gateway\Rest\AuthProvider;
 use Taxcloud\Magento2\Model\Gateway\Rest\BearerToken;
+use Taxcloud\Magento2\Model\Gateway\Rest\FinalStatusCurl;
+use Taxcloud\Magento2\Model\Gateway\Rest\FinalStatusCurlFactory;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestClient;
 use Taxcloud\Magento2\Model\Gateway\Rest\RestConfigurationException;
 use Taxcloud\Magento2\Model\Gateway\Rest\TokenCache;
@@ -39,7 +39,7 @@ class RestClientScopePingTest extends TestCase
     private const CONN = '25eb9b97-5acb-492d-b720-c03e79cf715a';
 
     /**
-     * @var Curl&\PHPUnit\Framework\MockObject\MockObject
+     * @var FinalStatusCurl&\PHPUnit\Framework\MockObject\MockObject
      */
     private $curl;
 
@@ -55,8 +55,8 @@ class RestClientScopePingTest extends TestCase
 
     private function client(array $configMap): RestClient
     {
-        $this->curl = $this->createMock(Curl::class);
-        $curlFactory = $this->createMock(CurlFactory::class);
+        $this->curl = $this->createMock(FinalStatusCurl::class);
+        $curlFactory = $this->createMock(FinalStatusCurlFactory::class);
         $curlFactory->method('create')->willReturn($this->curl);
 
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);

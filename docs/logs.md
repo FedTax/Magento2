@@ -96,7 +96,13 @@ physical order showing the billing address is not.
 
 **Why was this customer not exempt?** Certificate resolution is logged — which
 identity was used, which certificates came back, whether one covered the
-destination state.
+destination state. A warning that a certificate was not recorded because the
+order carries tax means the customer's tax was calculated before the
+certificate applied.
+
+**Why was an order with a failed lookup not taxed?** If the customer's
+certificate applied, a warning names it: a failed lookup for an exempt order is
+charged no tax rather than Magento's own rates.
 
 **Is TaxCloud reachable?** Timeouts and connection failures appear as errors,
 usually in runs when there is a problem.

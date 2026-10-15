@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+/**
+ * Taxcloud_Magento2
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Open Software License (OSL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/osl-3.0.php
+ *
+ * @package    Taxcloud_Magento2
+ * @author     TaxCloud <service@taxcloud.net>
+ * @copyright  2026 The Federal Tax Authority, LLC d/b/a TaxCloud
+ * @license    http://opensource.org/licenses/osl-3.0.php Open Software License (OSL 3.0)
+ */
+-->
+<form xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="js_config" xsi:type="array">
+            <item name="provider" xsi:type="string">taxcloud_order_rule_form.taxcloud_order_rule_form_data_source</item>
+        </item>
+        <item name="label" xsi:type="string" translate="true">Order Rule</item>
+        <item name="template" xsi:type="string">templates/form/collapsible</item>
+    </argument>
+    <settings>
+        <buttons>
+            <button name="back" class="Taxcloud\Magento2\Block\Adminhtml\OrderRule\Edit\BackButton"/>
+            <button name="delete" class="Taxcloud\Magento2\Block\Adminhtml\OrderRule\Edit\DeleteButton"/>
+            <button name="save_and_continue" class="Taxcloud\Magento2\Block\Adminhtml\OrderRule\Edit\SaveAndContinueButton"/>
+            <button name="save" class="Taxcloud\Magento2\Block\Adminhtml\OrderRule\Edit\SaveButton"/>
+        </buttons>
+        <namespace>taxcloud_order_rule_form</namespace>
+        <dataScope>data</dataScope>
+        <deps>
+            <dep>taxcloud_order_rule_form.taxcloud_order_rule_form_data_source</dep>
+        </deps>
+    </settings>
+    <dataSource name="taxcloud_order_rule_form_data_source">
+        <argument name="data" xsi:type="array">
+            <item name="js_config" xsi:type="array">
+                <item name="component" xsi:type="string">Magento_Ui/js/form/provider</item>
+            </item>
+        </argument>
+        <settings>
+            <submitUrl path="taxcloud/orderrule/save"/>
+        </settings>
+        <dataProvider class="Taxcloud\Magento2\Model\OrderRule\Ui\FormDataProvider" name="taxcloud_order_rule_form_data_source">
+            <settings>
+                <requestFieldName>rule_id</requestFieldName>
+                <primaryFieldName>rule_id</primaryFieldName>
+            </settings>
+        </dataProvider>
+    </dataSource>
+
+    <fieldset name="general">
+        <settings>
+            <label translate="true">Rule</label>
+            <collapsible>false</collapsible>
+        </settings>
+        <field name="rule_id" formElement="input">
+            <settings>
+                <dataType>text</dataType>
+                <visible>false</visible>
+            </settings>
+        </field>
+        <field name="name" formElement="input" sortOrder="10">
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">Name</label>
+                <notice translate="true">For your reference; it is also quoted in the order comment when the rule applies.</notice>
+                <validation>
+                    <rule name="required-entry" xsi:type="boolean">true</rule>
+                </validation>
+            </settings>
+        </field>
+        <field name="is_active" formElement="checkbox" sortOrder="20">
+            <settings>
+                <dataType>boolean</dataType>
+                <label translate="true">Active</label>
+            </settings>
+            <formElements>
+                <checkbox>
+                    <settings>
+                        <valueMap>
+                            <map name="false" xsi:type="string">0</map>
+                            <map name="true" xsi:type="string">1</map>
+                        </valueMap>
+                        <prefer>toggle</prefer>
+                    </settings>
+                </checkbox>
+            </formElements>
+        </field>
+        <!--
+          The switcher keeps the form honest about Skip: the order number does
+          not exist at checkout, so the prefix field is disabled, and the
+          storefront warning is shown. The warning is an html component, which
+          has an observable `visible` but no show()/hide(), hence the params.
+          The server refuses Skip + prefix anyway.
+        -->
+        <field name="action" formElement="select" sortOrder="30">
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">Action</label>
+                <notice translate="true">Report: TaxCloud calculates and the order is reported. Calculate only: TaxCloud calculates, the order is never reported. Skip TaxCloud: Magento's own tax rules calculate the tax and nothing reaches TaxCloud.</notice>
+                <validation>
+                    <rule name="required-entry" xsi:type="boolean">true</rule>
+                </validation>
+                <switcherConfig>
+                    <rules>
+                        <rule name="0">
+                            <value>skip</value>
+                            <actions>
+                                <action name="0">
+                                    <target>taxcloud_order_rule_form.taxcloud_order_rule_form.filters.order_prefixes</target>
+                                    <callback>disable</callback>
+                                </action>
+                                <action name="1">
+                                    <target>taxcloud_order_rule_form.taxcloud_order_rule_form.filters.skip_warning</target>
+                                    <callback>visible</callback>
+                                    <params>
+                                        <param name="0" xsi:type="boolean">true</param>
+                                    </params>
+                                </action>
+                            </actions>
+                        </rule>
+                        <rule name="1">
+                            <value>calculate_only</value>
+                            <actions>
+                                <action name="0">
+                                    <target>taxcloud_order_rule_form.taxcloud_order_rule_form.filters.order_prefixes</target>
+                                    <callback>enable</callback>
+                                </action>
+                                <action name="1">
+                                    <target>taxcloud_order_rule_form.taxcloud_order_rule_form.filters.skip_warning</target>
+                                    <callback>visible</callback>
+                                    <params>
+                                        <param name="0" xsi:type="boolean">false</param>
+                                    </params>
+                                </action>
+                            </actions>
+                        </rule>
+                        <rule name="2">
+                            <value>report</value>
+                            <actions>
+                                <action name="0">
+                                    <target>taxcloud_order_rule_form.taxcloud_order_rule_form.filters.order_prefixes</target>
+                                    <callback>enable</callback>
+                                </action>
+                                <action name="1">
+                                    <target>taxcloud_order_rule_form.taxcloud_order_rule_form.filters.skip_warning</target>
+                                    <callback>visible</callback>
+                                    <params>
+                                        <param name="0" xsi:type="boolean">false</param>
+                                    </params>
+                                </action>
+                            </actions>
+                        </rule>
+                    </rules>
+                    <enabled>true</enabled>
+                </switcherConfig>
+            </settings>
+            <formElements>
+                <select>
+                    <settings>
+                        <options class="Taxcloud\Magento2\Model\Config\Source\OrderRuleAction"/>
+                    </settings>
+                </select>
+            </formElements>
+        </field>
+    </fieldset>
+
+    <fieldset name="filters">
+        <settings>
+            <label translate="true">Matching orders</label>
+            <collapsible>false</collapsible>
+        </settings>
+        <container name="filters_intro" sortOrder="0">
+            <argument name="data" xsi:type="array">
+                <item name="config" xsi:type="array">
+                    <item name="component" xsi:type="string">Magento_Ui/js/form/components/html</item>
+                    <item name="content" xsi:type="string" translate="true">Leave a filter empty to match every order. Several values in one filter match any of them; an order must match every filter you fill in.</item>
+                </item>
+            </argument>
+        </container>
+        <container name="skip_warning" sortOrder="5">
+            <argument name="data" xsi:type="array">
+                <item name="config" xsi:type="array">
+                    <item name="component" xsi:type="string">Magento_Ui/js/form/components/html</item>
+                    <item name="additionalClasses" xsi:type="string">message message-warning</item>
+                    <item name="visible" xsi:type="boolean">false</item>
+                    <item name="content" xsi:type="string" translate="true">Skip TaxCloud is decided at checkout, before the order has a number, so it cannot filter on the order number. If it filters on payment or shipping method, storefront customers can see the tax change when they choose that method: tax is shown before they pick one. Skip rules are best suited to orders imported from marketplaces.</item>
+                </item>
+            </argument>
+        </container>
+        <field name="store_ids" formElement="multiselect" sortOrder="10">
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">Store views</label>
+            </settings>
+            <formElements>
+                <multiselect>
+                    <settings>
+                        <options class="Magento\Store\Ui\Component\Listing\Column\Store\Options"/>
+                    </settings>
+                </multiselect>
+            </formElements>
+        </field>
+        <field name="customer_group_ids" formElement="multiselect" sortOrder="20">
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">Customer groups</label>
+            </settings>
+            <formElements>
+                <multiselect>
+                    <settings>
+                        <options class="Taxcloud\Magento2\Model\OrderRule\Source\CustomerGroups"/>
+                    </settings>
+                </multiselect>
+            </formElements>
+        </field>
+        <field name="payment_methods" formElement="multiselect" sortOrder="30">
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">Payment methods</label>
+                <notice translate="true">Includes methods that are not offered at checkout, such as those used by marketplace importers.</notice>
+            </settings>
+            <formElements>
+                <multiselect>
+                    <settings>
+                        <options class="Taxcloud\Magento2\Model\OrderRule\Source\PaymentMethods"/>
+                    </settings>
+                </multiselect>
+            </formElements>
+        </field>
+        <field name="shipping_methods" formElement="multiselect" sortOrder="40">
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">Shipping methods</label>
+            </settings>
+            <formElements>
+                <multiselect>
+                    <settings>
+                        <options class="Taxcloud\Magento2\Model\OrderRule\Source\ShippingMethods"/>
+                    </settings>
+                </multiselect>
+            </formElements>
+        </field>
+        <field name="order_prefixes" formElement="textarea" sortOrder="50">
+            <settings>
+                <dataType>text</dataType>
+                <label translate="true">Order number starts with</label>
+                <notice translate="true">One prefix per line, for example AMZ-. Letter case is ignored. Not available for Skip TaxCloud.</notice>
+            </settings>
+        </field>
+    </fieldset>
+</form>

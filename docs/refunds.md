@@ -66,10 +66,12 @@ it. TaxCloud keeps the full sale and you over-file.
 
 ## Orders that were never captured
 
-If an order was never reported to TaxCloud — because of
-[calculations-only mode](settings.md#only-do-tax-calculations-without-further-taxcloud-integration),
-a failed capture, or a capture trigger it never reached — there is nothing to
-reverse, and the reversal will not find it. Check whether the order is in your
+If an order was never reported to TaxCloud — because an
+[order processing rule](order-processing-rules.md) or the
+[Report orders to TaxCloud](settings.md#report-orders-to-taxcloud) setting kept
+it out, a failed capture, or a capture trigger it never reached — there is
+nothing to reverse. Orders kept out by a rule or the setting send no refund at
+all; for the others the reversal will not find the order. Check whether the order is in your
 TaxCloud dashboard at all before chasing a failed refund.
 
 ## Cancelling instead of refunding

@@ -22,6 +22,8 @@ use \Magento\Framework\Event\Observer;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Config\Source\CaptureTrigger;
 use Taxcloud\Magento2\Model\Logging\GatewayLogger;
+use Taxcloud\Magento2\Model\OrderRule\OutcomeRecorder;
+use Taxcloud\Magento2\Model\OrderRule\ReportingPolicy;
 
 class Complete implements ObserverInterface
 {
@@ -64,18 +66,37 @@ class Complete implements ObserverInterface
     protected $orderResource;
 
     /**
+     * @var ReportingPolicy
+     */
+    private $reportingPolicy;
+
+    /**
+     * Placement-time fallback for orders that did not go through quote
+     * submission. Null only under a stale compiled DI.
+     *
+     * @var OutcomeRecorder|null
+     */
+    private $outcomeRecorder;
+
+    /**
      * @param TaxcloudConfig $config
      * @param \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi
      * @param \Psr\Log\LoggerInterface $tclogger Config-gated proxy, bound in di.xml
      * @param \Magento\Sales\Model\ResourceModel\Order $orderResource
+     * @param ReportingPolicy|null $reportingPolicy Bound in di.xml
+     * @param OutcomeRecorder|null $outcomeRecorder Bound in di.xml
      */
     public function __construct(
         TaxcloudConfig $config,
         \Taxcloud\Magento2\Api\OrderGatewayInterface $tcapi,
         \Psr\Log\LoggerInterface $tclogger,
-        \Magento\Sales\Model\ResourceModel\Order $orderResource
+        \Magento\Sales\Model\ResourceModel\Order $orderResource,
+        ?ReportingPolicy $reportingPolicy = null,
+        ?OutcomeRecorder $outcomeRecorder = null
     ) {
         $this->config = $config;
+        $this->reportingPolicy = $reportingPolicy ?? new ReportingPolicy($config);
+        $this->outcomeRecorder = $outcomeRecorder;
         $this->tcapi = $tcapi;
         $this->orderResource = $orderResource;
 
@@ -123,6 +144,18 @@ class Complete implements ObserverInterface
             return;
         }
 
+        // Orders placed through quote submission already carry an outcome;
+        // this covers those created some other way (importers calling
+        // place() directly), and is a no-op otherwise. Before the trigger
+        // check, so every placed order gets one whatever the trigger.
+        if ($eventName === self::EVENT_ORDER_PLACE_AFTER && $this->outcomeRecorder) {
+            try {
+                $this->outcomeRecorder->record($order);
+            } catch (\Throwable $e) {
+                $this->tclogger->error('Could not record the TaxCloud order outcome: ' . $e->getMessage());
+            }
+        }
+
         $configuredTrigger = $this->config->getCaptureTrigger($storeId);
 
         $expectedEvent = isset(self::$triggerToEvent[$configuredTrigger])
@@ -133,15 +166,18 @@ class Complete implements ObserverInterface
             return;
         }
 
-        // Calculation-only stores never push the sale to TaxCloud — another
-        // system owns that side of the integration. Skipping here also leaves
-        // taxcloud_captured unset, which keeps the cancel flow a no-op for
-        // these orders. Gated after the trigger check, so it logs once per
-        // matching lifecycle event: an order fulfilled in parts logs once per
-        // document, which is the same shape as the retry path below.
-        if ($this->config->isCalculationsOnly($storeId)) {
+        // Orders the rules (or, for orders placed before rules existed, the
+        // store's "Report orders to TaxCloud") keep from TaxCloud are never
+        // pushed — another system owns that side, or TaxCloud was not used at
+        // all. Skipping here also leaves taxcloud_captured unset, which keeps
+        // the cancel flow a no-op for these orders. Gated after the trigger
+        // check, so it logs once per matching lifecycle event: an order
+        // fulfilled in parts logs once per document, which is the same shape
+        // as the retry path below.
+        if (!$this->reportingPolicy->isReported($order)) {
             $this->tclogger->info(
-                'Skipping authorizeCapture for order ' . $order->getIncrementId() . ' (calculations-only mode)'
+                'Skipping authorizeCapture for order ' . $order->getIncrementId()
+                . ' (' . $this->reportingPolicy->describe($order) . ')'
             );
             return;
         }
