@@ -325,6 +325,57 @@ class RefundDistributorTest extends TestCase
     }
 
     /**
+     * A dynamic-price bundle is filed under its selections, never its wrapper
+     * (lookup, v3 order and every other refund agree), so the distribution has
+     * to spread over the selections too — at their stored, already-absolute
+     * order quantities.
+     */
+    public function testDistributesADynamicBundleOverItsSelections()
+    {
+        $bundle = $this->createMock(Item::class);
+        $bundle->method('getSku')->willReturn('test-bundle-dynamic-test-product-test-virtual');
+        $bundle->method('getQtyOrdered')->willReturn(2.0);
+        $bundle->method('getPrice')->willReturn(30.0);
+        $bundle->method('isChildrenCalculated')->willReturn(true);
+
+        $childA = $this->makeItem('test-product', 2, 0, 10.0);
+        $childA->method('getParentItemId')->willReturn(54);
+        $childA->method('isChildrenCalculated')->willReturn(true);
+        $childB = $this->makeItem('test-virtual', 4, 0, 10.0);
+        $childB->method('getParentItemId')->willReturn(54);
+        $childB->method('isChildrenCalculated')->willReturn(true);
+
+        $bundle->method('getChildrenItems')->willReturn([$childA, $childB]);
+
+        $order = $this->makeOrder([$bundle, $childA, $childB], 0.0, 0.0, 0.0, 60.0);
+        $result = $this->distributor->distribute($this->makeCreditmemo($order, 6.0));
+
+        $this->assertSame(RefundDistributor::ACTION_DISTRIBUTE, $result['action']);
+        $this->assertSame(['test-product', 'test-virtual'], array_column($result['cartItems'], 'ItemID'));
+        // adjustmentPercent = 6 / 60 = 0.1 of each selection's stored qty.
+        $this->assertEqualsWithDelta(0.2, $result['cartItems'][0]['Qty'], 0.0001);
+        $this->assertEqualsWithDelta(0.4, $result['cartItems'][1]['Qty'], 0.0001);
+    }
+
+    public function testDistributesALongSkuUnderItsShortenedId()
+    {
+        $item = $this->makeItem(
+            'planner_bundle-clos-it-217000-850573-850634-217154-RR-217307-217116-RR-216294-RR-216287-RR',
+            1,
+            0,
+            500.0
+        );
+        $order = $this->makeOrder([$item], 0.0, 0.0, 0.0, 500.0);
+
+        $result = $this->distributor->distribute($this->makeCreditmemo($order, 50.0));
+
+        $this->assertSame(
+            ['planner_bundle-clos-it-217000-850573-85~601f5fa994'],
+            array_column($result['cartItems'], 'ItemID')
+        );
+    }
+
+    /**
      * Negative adjustment (restocking fee) reduces the net adjustment amount.
      */
     public function testAdjustmentNegativeReducesNetAdjustment()

@@ -20,6 +20,7 @@ namespace Taxcloud\Magento2\Model\Gateway\Rest;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\CompositeItemResolver;
+use Taxcloud\Magento2\Model\ItemIdResolver;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\RequestBuilder;
 use Taxcloud\Magento2\Model\ProductTicService;
@@ -210,7 +211,7 @@ class RestRequestBuilder
                 $discountPerUnit = $qty > 0 ? ((float) $item->getDiscountAmount()) / $qty : 0.0;
                 $lineItems[] = [
                     'index' => $index++,
-                    'itemId' => (string) $item->getSku(),
+                    'itemId' => ItemIdResolver::fromSku($item->getSku()),
                     'tic' => (int) $this->productTicService->getProductTic($item, 'authorizeCapture', $store),
                     'price' => (float) $item->getPrice() - $discountPerUnit,
                     'quantity' => $qty,

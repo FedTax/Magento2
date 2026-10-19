@@ -67,6 +67,28 @@ For each calculation, the extension sends:
 
 TaxCloud returns the tax for each line, and Magento shows the total.
 
+### SKUs longer than 50 characters
+
+TaxCloud identifies each line by an ID of at most 50 characters. A SKU that
+fits is sent as it is. Some SKUs are longer, usually because Magento built them:
+
+- A bundle set to **Dynamic SKU** adds the SKU of every item the customer
+  chose to its own.
+- A product with custom options adds the SKU of each chosen option.
+
+A longer SKU is sent as its first 39 characters, a `~`, and a 10-character code
+calculated from the full SKU. For example, the bundle SKU
+`planner_bundle-clos-it-217000-850573-850634-217154-RR-217307-217116-RR-216294-RR-216287-RR`
+appears in TaxCloud as `planner_bundle-clos-it-217000-850573-85~601f5fa994`.
+
+- **Every step uses the same ID.** The checkout, the capture, and every
+  refund, return and cancellation of that order all use it, so they match in
+  TaxCloud.
+- **Two SKUs that start the same way get different codes.** For example, two
+  shelf configurations with the same first 39 characters still appear as
+  separate items.
+- **Your SKUs in Magento do not change.**
+
 ## Digital and downloadable products
 
 Downloads, licences, virtual products and virtual gift cards are never
