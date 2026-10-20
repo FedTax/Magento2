@@ -1179,4 +1179,50 @@ class RequestBuilderTest extends TestCase
         $this->assertSame($destination, $params['destination']);
         $this->assertTrue($params['isExempt']);
     }
+
+    /**
+     * A fixed-price bundle with Dynamic SKU: the parent carries the price, so it
+     * is the cart line — under a SKU Magento built from every selection's.
+     */
+    private const LONG_SKU =
+        'planner_bundle-clos-it-217000-850573-850634-217154-RR-217307-217116-RR-216294-RR-216287-RR';
+
+    /** What TaxCloud is told instead (pinned in ItemIdResolverTest). */
+    private const LONG_SKU_ID = 'planner_bundle-clos-it-217000-850573-85~601f5fa994';
+
+    public function testBuildLookupCartItemsShortensALongSkuAndKeepsAShortOne()
+    {
+        $long = $this->lookupQuoteItem(self::LONG_SKU, 1.0, 500.0);
+        $short = $this->lookupQuoteItem('217000', 1.0, 10.0);
+
+        $built = $this->buildLookupFor(['long' => $long, 'short' => $short]);
+
+        $this->assertSame([self::LONG_SKU_ID, '217000'], array_column($built['cartItems'], 'ItemID'));
+    }
+
+    public function testBuildReturnCartItemsShortensALongSku()
+    {
+        $creditItem = $this->createMock(\Magento\Sales\Model\Order\Creditmemo\Item::class);
+        $creditItem->method('getQty')->willReturn(1.0);
+        $creditItem->method('getOrderItem')->willReturn($this->returnOrderItem(self::LONG_SKU, 1.0, 500.0));
+        $creditItem->method('getPrice')->willReturn(500.0);
+
+        $creditmemo = $this->createMock(\Magento\Sales\Model\Order\Creditmemo::class);
+        $creditmemo->method('getOrder')->willReturn($this->createMock(Order::class));
+        $creditmemo->method('getAllItems')->willReturn([$creditItem]);
+
+        $return = $this->builder->buildReturnCartItems($creditmemo);
+
+        $this->assertSame([self::LONG_SKU_ID], array_column($return['cartItems'], 'ItemID'));
+    }
+
+    public function testBuildCartItemsFromOrderShortensALongSku()
+    {
+        $order = $this->createMock(Order::class);
+        $order->method('getAllVisibleItems')->willReturn([$this->returnOrderItem(self::LONG_SKU, 1.0, 500.0)]);
+
+        $cartItems = $this->builder->buildCartItemsFromOrder($order);
+
+        $this->assertSame([self::LONG_SKU_ID], array_column($cartItems, 'ItemID'));
+    }
 }

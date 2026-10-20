@@ -255,18 +255,50 @@ class CanadaAccessOnSaveTest extends IntegrationTestCase
      *
      * The area code is deliberately left alone: only the config scope decides
      * which events.xml files are merged.
+     *
+     * Restoring the scope is not enough on its own. The event config merges
+     * every scope it loads into one array and never unloads it, so every
+     * adminhtml observer would keep firing for the rest of the run. On Adobe
+     * Commerce that includes PricePermissions, which disables any product a
+     * later test creates (there is no admin user to hold the permission). So
+     * the event config is put back exactly as it was, too.
      */
     private function inAdminEventScope(callable $callback): void
     {
         $scope = $this->get(\Magento\Framework\Config\ScopeInterface::class);
         $previous = $scope->getCurrentScope();
 
+        $eventConfig = $this->get(\Magento\Framework\Event\Config\Data::class);
+        $state = [];
+        foreach (['_data', '_loadedScopes', '_scopePriorityScheme'] as $property) {
+            $state[$property] = $this->readProperty($eventConfig, $property);
+        }
+
         $scope->setCurrentScope(Area::AREA_ADMINHTML);
         try {
             $callback();
         } finally {
             $scope->setCurrentScope($previous);
+            foreach ($state as $property => $value) {
+                $this->writeProperty($eventConfig, $property, $value);
+            }
         }
+    }
+
+    /**
+     * @return mixed
+     */
+    private function readProperty(object $object, string $property)
+    {
+        return (new \ReflectionProperty($object, $property))->getValue($object);
+    }
+
+    /**
+     * @param mixed $value
+     */
+    private function writeProperty(object $object, string $property, $value): void
+    {
+        (new \ReflectionProperty($object, $property))->setValue($object, $value);
     }
 
     private function assertMessage(string $type, string $contains, string $because): void

@@ -2,6 +2,26 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## 1.6.1
+
+A bugfix release for products whose SKU is longer than 50 characters, such as bundles with **Dynamic SKU**. Run `bin/magento setup:upgrade` after updating. There is no database change, and nothing changes for SKUs of 50 characters or fewer.
+
+### Fixed
+
+- **A cart holding a product with a SKU over 50 characters got no TaxCloud tax.**
+  - TaxCloud accepts item IDs of at most 50 characters and rejects the whole request when one line exceeds it. v1 answers "ItemID execeeds 50 characters", and v3 answers HTTP 422.
+  - Magento builds such SKUs on its own: a bundle with Dynamic SKU appends every selected item's SKU to its own, and custom options append theirs.
+  - The extension sent the SKU unchanged, so the lookup failed. The cart then fell back to Magento's rates or carried no tax, and the order could not be captured or refunded in TaxCloud.
+  - A SKU over 50 characters is now sent as its first 39 characters, `~`, and a 10-character code computed from the full SKU, for example `planner_bundle-clos-it-217000-850573-85~601f5fa994`.
+  - The ID is derived from the SKU alone, so the lookup, the capture, and every return, refund and cancellation name the line identically without storing anything.
+  - Two configurations that share a long prefix still get different IDs.
+  - SKUs of 50 characters or fewer are sent exactly as before, so orders placed earlier keep matching what TaxCloud recorded.
+- **An adjustment-only refund of a dynamic-price bundle named the bundle instead of its items.** A credit memo with only an adjustment refund spreads the amount over the order's remaining lines. For a dynamic-price bundle it used the bundle line, which no other TaxCloud request for the order names. It now uses the bundle's items, like the lookup, the capture and every other refund.
+- **Test coverage.**
+  - Unit tests for the item-ID rule: limits, a pinned format, distinct prefixes, characters outside the Basic Multilingual Plane, and SKUs past Magento's 255-character column.
+  - Unit tests for each of the five request builders that name product lines, and for the bundle distribution.
+  - An integration test placing real Dynamic SKU bundle orders and checking that the lookup, v3 order, returns, refunds and adjustment distribution agree.
+
 ## 1.6.0
 
 This release adds order processing rules: decide, order by order, whether

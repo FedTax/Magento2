@@ -285,6 +285,35 @@ class RestRequestBuilderTest extends TestCase
         $this->assertSame([2.0], array_column($payload['lineItems'], 'quantity'));
     }
 
+    /**
+     * v3 caps itemId at 50 and a refund must name the id the order was filed
+     * under, so the filed id is the shortened one the cart used.
+     */
+    public function testOrderPayloadFilesALongSkuUnderItsShortenedId(): void
+    {
+        $builder = $this->builder();
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->requestBuilder->method('buildDestinationFromOrder')->willReturn(self::V1_DESTINATION);
+        $this->ticService->method('getProductTic')->willReturn('20010');
+
+        $long = $this->orderItem(
+            'planner_bundle-clos-it-217000-850573-850634-217154-RR-217307-217116-RR-216294-RR-216287-RR',
+            1.0,
+            500.0,
+            0.0,
+            41.25,
+            8.25
+        );
+        $short = $this->orderItem('217000', 1.0, 10.0, 0.0, 0.83, 8.25);
+
+        $payload = $builder->buildOrderPayload($this->order([$long, $short]));
+
+        $this->assertSame(
+            ['planner_bundle-clos-it-217000-850573-85~601f5fa994', '217000'],
+            array_column($payload['lineItems'], 'itemId')
+        );
+    }
+
     private function orderItem(
         string $sku,
         float $qty,

@@ -161,12 +161,7 @@ class RefundDistributor
         $store = $order->getStoreId();
         $remaining = [];
 
-        foreach ($order->getAllItems() as $item) {
-            // Skip child rows of configurable/bundle items — qty is on the parent.
-            if (method_exists($item, 'getParentItem') && $item->getParentItem()) {
-                continue;
-            }
-
+        foreach ($this->basisItems($order) as $item) {
             $qtyOrdered = (float) $item->getQtyOrdered();
             $qtyRefunded = (float) $item->getQtyRefunded();
             $remainingQty = $qtyOrdered - $qtyRefunded;
@@ -185,7 +180,7 @@ class RefundDistributor
             }
 
             $remaining[] = [
-                'ItemID' => $item->getSku(),
+                'ItemID' => ItemIdResolver::fromSku($item->getSku()),
                 'TIC'    => $this->productTicService->getProductTic($item, 'returnOrderDistribute', $store),
                 'price'  => $effectivePrice,
                 'qty'    => $remainingQty,
@@ -205,6 +200,32 @@ class RefundDistributor
         }
 
         return $remaining;
+    }
+
+    /**
+     * The order lines that carry the taxable basis: each top-level item, or a
+     * dynamic-price bundle's selections in place of the bundle — the same
+     * lines the lookup reported and the filed order names, so a distributed
+     * refund never references the wrapper. Order-side quantities are already
+     * absolute, so the selections are used as stored.
+     *
+     * @param \Magento\Sales\Model\Order $order
+     * @return \Magento\Sales\Model\Order\Item[]
+     */
+    private function basisItems($order)
+    {
+        $items = [];
+        foreach ($order->getAllItems() as $item) {
+            // A child is reached through its parent below, or carries nothing.
+            if ($item->getParentItem() || $item->getParentItemId()) {
+                continue;
+            }
+            foreach (CompositeItemResolver::orderBasisItems($item) as $basisItem) {
+                $items[] = $basisItem;
+            }
+        }
+
+        return $items;
     }
 
     /**

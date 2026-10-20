@@ -24,6 +24,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Taxcloud\Magento2\Model\Address\TaxAddressResolver;
 use Taxcloud\Magento2\Model\CompositeItemResolver;
+use Taxcloud\Magento2\Model\ItemIdResolver;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\PostalCodeParser;
 use Taxcloud\Magento2\Model\ProductTicService;
@@ -285,7 +286,7 @@ class RequestBuilder
                 $discountPerUnit = $qty > 0 ? $item->getDiscountAmount() / $qty : 0;
 
                 $cartItems[] = [
-                    'ItemID' => $item->getSku(),
+                    'ItemID' => ItemIdResolver::fromSku($item->getSku()),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'lookupTaxes', $store),
                     'Price' => $item->getPrice() - $discountPerUnit,
@@ -411,7 +412,7 @@ class RequestBuilder
                 $price = $creditItem->getPrice();
                 $discountPerUnit = $qty > 0 ? $creditItem->getDiscountAmount() / $qty : 0;
                 $cartItems[] = [
-                    'ItemID' => $item->getSku(),
+                    'ItemID' => ItemIdResolver::fromSku($item->getSku()),
                     'Index' => $index,
                     'TIC' => $this->productTicService->getProductTic($item, 'returnOrder', $store),
                     'Price' => $price - $discountPerUnit,
@@ -494,7 +495,7 @@ class RequestBuilder
                     $discountAmount = (float) $item->getDiscountAmount();
                     $discountPerUnit = $qty > 0 ? $discountAmount / $qty : 0;
                     $cartItems[] = [
-                        'ItemID' => $item->getSku(),
+                        'ItemID' => ItemIdResolver::fromSku($item->getSku()),
                         'Index' => $index,
                         'TIC' => $this->productTicService->getProductTic($item, 'returnOrder', $store),
                         'Price' => $price - $discountPerUnit,
