@@ -1,0 +1,4 @@
+-r requirements.txt
+# The md2conf build taxcloud-workspace publishes with. Keep this pin identical
+# to FedTax/taxcloud-workspace docs/requirements.txt, and bump it when they do.
+markdown-to-confluence @ git+https://github.com/hunyadi/md2conf@cae8ceab161febc71c54ac306f5f156fef764f1d
