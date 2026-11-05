@@ -375,7 +375,11 @@ class BundleGeneratorTest extends TestCase
         $this->assertSame('masked', $manifest['redaction']['customer_details']);
         $this->assertSame('extended', $manifest['log_window']['name']);
         $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $manifest['generated_at_utc']);
-        $this->assertStringContainsString('-05:00', (string) $manifest['generated_at_store']);
+        // Derived from the same instant: Chicago's offset changes with daylight saving.
+        $expectedStoreTime = (new \DateTimeImmutable($manifest['generated_at_utc']))
+            ->setTimezone(new \DateTimeZone('America/Chicago'))
+            ->format('c');
+        $this->assertSame($expectedStoreTime, $manifest['generated_at_store']);
         $this->assertSame(['us_en', 'us_es'], array_column($manifest['scope']['stores'], 'code'));
 
         $listed = array_column($manifest['files'], 'bytes', 'path');
