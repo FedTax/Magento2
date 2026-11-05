@@ -132,7 +132,8 @@ On every release, these pages are copied into TaxCloud's internal knowledge
 base (the `taxcloud-workspace` repository, published to Confluence) by
 `scripts/workspace-docs/export.py`. The export copies content as written. It
 only prefixes titles with "Magento 2 — ", rewrites links, turns content tabs
-into sub-headings and escapes dollar signs. The Development section is not
+into sub-headings, escapes dollar signs and replaces commas in image
+descriptions with semicolons. The Development section is not
 copied; links into it point at this site instead.
 
 The `Workspace docs export` CI job runs the export and renders the result with

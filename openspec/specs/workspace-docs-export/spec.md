@@ -77,6 +77,7 @@ Page content SHALL be copied unchanged except for the conversions required to pu
 - rewritten links;
 - converting content tabs into sub-headings;
 - escaping dollar signs outside code, so they are not read as math.
+- replacing commas in image descriptions with semicolons, because Confluence rejects attachment comments that contain commas.
 
 Note, tip and warning callouts SHALL be kept as they are. Markup the publisher cannot render and the export does not convert SHALL fail the export rather than be dropped or passed through.
 
@@ -87,6 +88,10 @@ Note, tip and warning callouts SHALL be kept as they are. Markup the publisher c
 #### Scenario: Currency in prose
 - **WHEN** a page contains two dollar amounts in one sentence outside code
 - **THEN** the exported page escapes them and the publisher renders them as literal amounts
+
+#### Scenario: Image description with commas
+- **WHEN** an image's description contains commas
+- **THEN** the exported description uses semicolons instead, and text outside image descriptions keeps its commas
 
 #### Scenario: Unsupported markup
 - **WHEN** a page uses markup the export does not support (for example collapsible blocks or attribute lists)
