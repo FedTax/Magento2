@@ -2,7 +2,7 @@
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
         e2e-trace e2e-clean e2e-cleanup-certificates \
-        docs docs-build docs-clean docs-screenshots
+        docs docs-build docs-clean docs-screenshots docs-export docs-export-check
 
 # Defaults — override on the command line, e.g.:
 #   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
@@ -61,6 +61,9 @@ help:
 	@echo "  make docs-clean        - Remove the local venv and built site"
 	@echo "  make docs-screenshots  - Regenerate docs/images/*.png from the E2E store"
 	@echo "                           (needs make e2e-setup + make e2e-install first)"
+	@echo "  make docs-export OUT=<dir> - Export the docs in the taxcloud-workspace layout"
+	@echo "  make docs-export-check - Run the export tests, export, and render with md2conf"
+	@echo "                           offline (what the Workspace docs export CI job does)"
 	@echo ""
 	@echo "Lint:"
 	@echo "  make lint              - Run PHP CodeSniffer (Magento2 coding standard)"
@@ -282,7 +285,30 @@ docs-build: $(DOCS_MKDOCS)
 	$(DOCS_MKDOCS) build
 
 docs-clean:
-	rm -rf $(DOCS_VENV) site
+	rm -rf $(DOCS_VENV) $(EXPORT_VENV) site
+
+# Export the docs into the taxcloud-workspace (md2conf) layout. docs-sync-bot
+# runs the same script on every release tag; see scripts/workspace-docs/.
+EXPORT_VENV := .venv-docs-export
+EXPORT_PY := $(EXPORT_VENV)/bin/python
+
+$(EXPORT_PY): scripts/workspace-docs/requirements-check.txt
+	python3 -m venv $(EXPORT_VENV)
+	$(EXPORT_VENV)/bin/pip install --quiet --upgrade pip
+	$(EXPORT_VENV)/bin/pip install --quiet -r scripts/workspace-docs/requirements-check.txt
+	@touch $(EXPORT_PY)
+
+docs-export: $(EXPORT_PY)
+	@test -n "$(OUT)" || { echo "Usage: make docs-export OUT=<dir>"; exit 2; }
+	$(EXPORT_PY) scripts/workspace-docs/export.py --out "$(OUT)"
+
+docs-export-check: $(EXPORT_PY)
+	$(EXPORT_PY) -m unittest discover -s scripts/workspace-docs
+	@tmp=$$(mktemp -d) && \
+		$(EXPORT_PY) scripts/workspace-docs/export.py --out "$$tmp/merchant-guide" && \
+		$(EXPORT_VENV)/bin/md2conf --local --no-generated-by -d example.atlassian.net -s CHECK \
+			--loglevel warning "$$tmp/merchant-guide"; \
+		status=$$?; rm -rf "$$tmp"; exit $$status
 
 # Regenerate the documentation screenshots from the seeded E2E store.
 #

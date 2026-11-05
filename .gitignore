@@ -24,3 +24,7 @@ phpunit.integration.xml
 # MkDocs build output and local preview virtualenv (make docs)
 /site/
 /.venv-docs/
+
+# Workspace docs export check (make docs-export-check)
+/.venv-docs-export/
+__pycache__/

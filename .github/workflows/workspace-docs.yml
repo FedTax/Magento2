@@ -1,0 +1,51 @@
+# Checks that the docs still export to the taxcloud-workspace layout and that
+# the result renders with the md2conf build the workspace publishes with
+# (offline: --local never contacts Confluence). docs-sync-bot runs the same
+# export on every release tag, so a docs change that would break that publish
+# fails here instead. See scripts/workspace-docs/export.py.
+name: Workspace docs export
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'scripts/workspace-docs/**'
+      - '.github/workflows/workspace-docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'scripts/workspace-docs/**'
+      - '.github/workflows/workspace-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install export and md2conf
+        run: pip install -r scripts/workspace-docs/requirements-check.txt
+
+      - name: Unit tests
+        run: python -m unittest discover -s scripts/workspace-docs -v
+
+      - name: Export
+        run: python scripts/workspace-docs/export.py --out "$RUNNER_TEMP/workspace-docs/merchant-guide"
+
+      # Dummy domain and space: --local only needs them to build page URLs.
+      - name: Render with md2conf (offline)
+        run: >-
+          md2conf --local --no-generated-by
+          -d example.atlassian.net -s CHECK
+          "$RUNNER_TEMP/workspace-docs/merchant-guide"

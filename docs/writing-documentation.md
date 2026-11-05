@@ -95,11 +95,17 @@ Rules for the images themselves:
 
 ## Formatting conventions
 
-- Markdown, rendered by MkDocs Material. `admonition`, `attr_list`,
-  `pymdownx.details` and `pymdownx.superfences` are available.
+- Markdown, rendered by MkDocs Material. Admonitions (`!!! note`, `!!! tip`,
+  `!!! warning`), content tabs (`=== "Label"`), task lists and fenced code
+  are available. Do not use collapsible blocks (`???`), attribute lists
+  (`{: … }`), `markdown="1"` HTML blocks, snippets or reference-style links:
+  the [workspace export](#taxclouds-internal-knowledge-base) cannot convert
+  them, and its CI check fails.
 - Use `!!! warning` for compliance and money risks, `!!! note` for
   developer-required steps, `!!! tip` for recommendations.
-- One `#` H1 per page, matching the nav title.
+- One `#` H1 per page, matching the nav title. Treat the H1 as the page's
+  identity: Confluence matches pages by title, so renaming one leaves the old
+  page behind in TaxCloud's knowledge base.
 - Tables for reference material (settings, defaults, values); prose for
   explanations. Do not put a paragraph inside a table cell.
 - Add every new page to the `nav:` block in `mkdocs.yml`, or it will not be
@@ -119,3 +125,16 @@ memory:
 
 When a setting changes in any of those files, update
 [Settings reference](settings.md) in the same change.
+
+## TaxCloud's internal knowledge base
+
+On every release, these pages are copied into TaxCloud's internal knowledge
+base (the `taxcloud-workspace` repository, published to Confluence) by
+`scripts/workspace-docs/export.py`. The export copies content as written. It
+only prefixes titles with "Magento 2 — ", rewrites links, turns content tabs
+into sub-headings and escapes dollar signs. The Development section is not
+copied; links into it point at this site instead.
+
+The `Workspace docs export` CI job runs the export and renders the result with
+TaxCloud's Confluence converter on every docs change. Run the same check
+locally with `make docs-export-check`.

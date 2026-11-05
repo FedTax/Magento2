@@ -1,0 +1,3 @@
+# Runtime dependency of export.py (reading mkdocs.yml). md2conf already pulls
+# it in, so the taxcloud-workspace / docs-sync-bot environment has it.
+PyYAML>=5.4

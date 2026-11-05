@@ -114,6 +114,43 @@ The site is written for store owners and admins, not developers — read
 Merchant-facing behavior (settings, install steps, features) is documented
 there only; this README covers developer material.
 
+#### Export to taxcloud-workspace
+
+TaxCloud's internal knowledge base (`FedTax/taxcloud-workspace`, published to
+the PD Confluence space with md2conf) carries a copy of the merchant docs.
+`scripts/workspace-docs/export.py` converts them to that layout, and
+docs-sync-bot runs it on each release tag:
+
+```bash
+python3 scripts/workspace-docs/export.py --out <workspace>/docs/products/integrations/magento/merchant-guide
+```
+
+The contract the bot relies on:
+
+- The only dependency is PyYAML, from `scripts/workspace-docs/requirements.txt`.
+- There is no network access and no LLM step.
+- Output is byte-identical for unchanged docs.
+- Exit codes are `0` (exported), `1` (a page cannot be converted; file:line on
+  stderr) and `2` (usage error, or `--out` is a non-empty directory the export
+  did not write).
+- The output directory is replaced as a whole and marked with
+  `.magento-docs-export`. A failed run leaves it untouched.
+
+The export prefixes titles with "Magento 2 — ", numbers files in nav order,
+rewrites links, copies referenced images, turns content tabs into
+sub-headings, escapes `$`, and drops the Development section. Unsupported
+markup fails the export instead of being published wrong.
+
+`.github/workflows/workspace-docs.yml` runs the export's unit tests, the
+export itself, and an offline md2conf render on every docs change. md2conf is
+pinned in `scripts/workspace-docs/requirements-check.txt` to the same commit as
+the workspace's `docs/requirements.txt`; bump it when they do.
+
+```bash
+make docs-export OUT=/tmp/guide   # export locally
+make docs-export-check            # tests + export + md2conf --local, as in CI
+```
+
 ## Internals
 
 ### Tax collector detection
