@@ -13,8 +13,8 @@ directory without that marker is refused. Output is deterministic, so a release
 without doc changes produces no diff.
 
 Content is copied as-is apart from the conversions md2conf needs: titles get a
-"Magento 2 — " prefix, links are rewritten, content tabs become sub-headings and
-dollar signs are escaped. Markup md2conf cannot render fails the export instead
+"Magento 2 — " prefix, links are rewritten, content tabs become sub-headings,
+dollar signs are escaped and commas in image alt text become semicolons. Markup md2conf cannot render fails the export instead
 of being published wrong.
 
 Exit codes: 0 success, 1 conversion error, 2 usage error or refused directory.
@@ -297,8 +297,14 @@ class Converter:
         else:
             self.images.add(resolved)
             new = self.relative(page.out, self.asset_out(resolved))
+        text = match.group("text")
+        if match.group("bang"):
+            # md2conf uploads the alt text as the attachment comment, and
+            # Confluence rejects a comment with commas ("Must be same number of
+            # attachment files and comments").
+            text = text.replace(",", ";")
         title = match.group("title") or ""
-        return f"{match.group('bang')}[{match.group('text')}]({new}{title})"
+        return f"{match.group('bang')}[{text}]({new}{title})"
 
     @staticmethod
     def asset_out(source: str) -> str:

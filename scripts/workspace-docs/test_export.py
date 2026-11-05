@@ -226,6 +226,13 @@ class LinkTest(ExportTestCase):
         self.assertIn("![Screen](../images/install.png)", self.read("10-getting-started/20-installing.md"))
         self.assertFalse((self.out / "images" / "unused.png").exists())
 
+    def test_commas_in_image_alt_text_become_semicolons(self):
+        self.write_page("installing.md", "# Installing the extension\n\nA, b.\n\n![One, two](images/install.png) [Three, four](overview.md)\n")
+        self.run_export()
+        body = self.read("10-getting-started/20-installing.md")
+        self.assertIn("A, b.", body)
+        self.assertIn("![One; two](../images/install.png) [Three, four](10-overview.md)", body)
+
     def test_wrapped_links_are_rewritten(self):
         self.write_page("overview.md", "# Overview\n\nSee [the capture\npage](capture.md) now.\n")
         self.run_export()
