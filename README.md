@@ -138,7 +138,9 @@ The contract the bot relies on:
 
 The export prefixes titles with "Magento 2 — ", numbers files in nav order,
 rewrites links, copies referenced images, turns content tabs into
-sub-headings, escapes `$`, and drops the Development section. Unsupported
+sub-headings, escapes `$`, replaces commas in image alt text with semicolons
+(Confluence rejects them in attachment comments), and drops the Development
+section. Unsupported
 markup fails the export instead of being published wrong.
 
 `.github/workflows/workspace-docs.yml` runs the export's unit tests, the
