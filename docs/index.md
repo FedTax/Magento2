@@ -19,8 +19,9 @@ store owners and administrators.
 - **Orders and tax lifecycle** — what happens at checkout, capture, refunds,
   cancellations, and filing.
 - **Troubleshooting** — logs, caching, common problems, and testing your setup.
-- **Development** — extension points and the project's own test suites.
+- **Development** — extension points and the project's own test suites. <!-- workspace-export: skip-line -->
 
+<!-- workspace-export: skip -->
 ## Contributing to the docs
 
 Pages are plain Markdown files in the [`docs/` folder of the
@@ -30,3 +31,4 @@ rebuilds automatically when it merges.
 
 Before writing, read [Writing documentation](writing-documentation.md) — it
 defines who these pages are for and how to write for them.
+<!-- workspace-export: end -->

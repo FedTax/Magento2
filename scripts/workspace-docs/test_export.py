@@ -211,6 +211,54 @@ class ContentTest(ExportTestCase):
         self.assertEqual(self.run_export()[0], 0)
 
 
+class SkipMarkerTest(ExportTestCase):
+    def test_marked_blocks_and_lines_are_dropped(self):
+        self.write_page("overview.md", """\
+            # Overview
+
+            - Kept item
+            - Site only <!-- workspace-export: skip-line -->
+            - Also kept
+
+            <!-- workspace-export: skip -->
+            ## Contributing
+
+            Edit on GitHub.
+            <!-- workspace-export: end -->
+
+            After.
+        """)
+        self.assertEqual(self.run_export()[0], 0)
+        self.assertEqual(self.read("10-getting-started/10-overview.md"), textwrap.dedent("""\
+            # Magento 2 — Overview
+
+            - Kept item
+            - Also kept
+
+
+            After.
+        """))
+
+    def test_markers_inside_code_are_kept(self):
+        self.write_page("overview.md", "# Overview\n\n```\n<!-- workspace-export: skip -->\n```\n")
+        self.assertEqual(self.run_export()[0], 0)
+        self.assertIn("<!-- workspace-export: skip -->", self.read("10-getting-started/10-overview.md"))
+
+    def test_unbalanced_or_nested_markers_fail_with_location(self):
+        cases = {
+            "<!-- workspace-export: skip -->\nText\n": "docs/overview.md:3: skip marker without an end marker",
+            "Text\n<!-- workspace-export: end -->\n": "docs/overview.md:4: end marker without a skip marker",
+            "<!-- workspace-export: skip -->\n<!-- workspace-export: skip -->\n<!-- workspace-export: end -->\n":
+                "docs/overview.md:4: skip marker inside the skip opened on line 3",
+        }
+        for body, message in cases.items():
+            with self.subTest(body=body):
+                self.write_page("overview.md", "# Overview\n\n" + body)
+                code, err = self.run_export()
+                self.assertEqual(code, 1)
+                self.assertIn(message, err)
+
+
 class LinkTest(ExportTestCase):
     def test_links_between_exported_pages_keep_anchors(self):
         self.run_export()
@@ -257,6 +305,17 @@ class OutputDirectoryTest(ExportTestCase):
         self.assertEqual(self.run_export()[0], 0)
         self.assertFalse((self.out / "10-getting-started" / "20-installing.md").exists())
 
+    def test_adopt_takes_over_a_foreign_directory(self):
+        self.out.mkdir(parents=True)
+        (self.out / "theirs.md").write_text("# Theirs\n")
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+            code = export.main(["--source", str(self.source), "--out", str(self.out), "--adopt"])
+        self.assertEqual(code, 0, stderr.getvalue())
+        self.assertNotIn("theirs.md", self.files())
+        self.assertIn(".magento-docs-export", self.files())
+        self.assertEqual(self.run_export()[0], 0)  # marked now, no --adopt needed
+
     def test_refuses_a_foreign_directory(self):
         self.out.mkdir(parents=True)
         (self.out / "theirs.md").write_text("# Theirs\n")
@@ -298,6 +357,10 @@ class RealDocsTest(unittest.TestCase):
             for rel in files:
                 self.assertEqual((first / rel).read_bytes(), (second / rel).read_bytes(), str(rel))
             self.assertFalse(any("Development" in str(f) or "extending" in str(f) for f in files))
+            home = (first / "index.md").read_text(encoding="utf-8")
+            self.assertNotIn("Contributing to the docs", home)
+            self.assertNotIn("**Development**", home)
+            self.assertNotIn("workspace-export", home)
 
 
 if __name__ == "__main__":

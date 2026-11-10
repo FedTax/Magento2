@@ -2,7 +2,8 @@
         integration-test integration-shell integration-clean \
         e2e-setup e2e-install e2e-test e2e-test-ui e2e-test-headed \
         e2e-trace e2e-clean e2e-cleanup-certificates \
-        docs docs-build docs-clean docs-screenshots docs-export docs-export-check
+        docs docs-build docs-clean docs-screenshots docs-export docs-export-check \
+        docs-sync-workspace
 
 # Defaults — override on the command line, e.g.:
 #   make integration-test MAGENTO_EDITION=enterprise MAGENTO_VERSION=2.4.8-p5 PHP_VERSION=8.2
@@ -64,6 +65,9 @@ help:
 	@echo "  make docs-export OUT=<dir> - Export the docs in the taxcloud-workspace layout"
 	@echo "  make docs-export-check - Run the export tests, export, and render with md2conf"
 	@echo "                           offline (what the Workspace docs export CI job does)"
+	@echo "  make docs-sync-workspace TAG=v1.2.3 WORKSPACE=<clone> [ADOPT=1]"
+	@echo "                         - Replace the Magento folder in a taxcloud-workspace clone"
+	@echo "                           with the docs as of a release tag (run on each release)"
 	@echo ""
 	@echo "Lint:"
 	@echo "  make lint              - Run PHP CodeSniffer (Magento2 coding standard)"
@@ -287,8 +291,8 @@ docs-build: $(DOCS_MKDOCS)
 docs-clean:
 	rm -rf $(DOCS_VENV) $(EXPORT_VENV) site
 
-# Export the docs into the taxcloud-workspace (md2conf) layout. docs-sync-bot
-# runs the same script on every release tag; see scripts/workspace-docs/.
+# Export the docs into the taxcloud-workspace (md2conf) layout. The same script
+# copies each release's docs there (docs-sync-workspace); see scripts/workspace-docs/.
 EXPORT_VENV := .venv-docs-export
 EXPORT_PY := $(EXPORT_VENV)/bin/python
 
@@ -301,6 +305,27 @@ $(EXPORT_PY): scripts/workspace-docs/requirements-check.txt
 docs-export: $(EXPORT_PY)
 	@test -n "$(OUT)" || { echo "Usage: make docs-export OUT=<dir>"; exit 2; }
 	$(EXPORT_PY) scripts/workspace-docs/export.py --out "$(OUT)"
+
+# Copy the docs as they stood at a release tag into a taxcloud-workspace clone,
+# replacing docs/products/integrations/magento/. Run on every release (the
+# release reminder issue shows the command). Uses this checkout's export script
+# against a clean clone of the tag: `git archive` would skip docs/, which is
+# export-ignored. Leaves git in the workspace clone to you, since its PRs need a
+# ticket ID. ADOPT=1 is for the first run into a folder without the marker.
+WORKSPACE_MAGENTO_DIR := docs/products/integrations/magento
+
+docs-sync-workspace: $(EXPORT_PY)
+	@test -n "$(TAG)" -a -n "$(WORKSPACE)" || { echo "Usage: make docs-sync-workspace TAG=v1.2.3 WORKSPACE=<taxcloud-workspace clone> [ADOPT=1]"; exit 2; }
+	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "Tag $(TAG) not found locally; run: git fetch --tags"; exit 2; }
+	@test -d "$(WORKSPACE)/docs/products/integrations" || { echo "$(WORKSPACE) is not a taxcloud-workspace clone (no docs/products/integrations)"; exit 2; }
+	@tmp=$$(mktemp -d) && test -n "$$tmp" && \
+		git clone -q --depth 1 --branch "$(TAG)" "file://$(CURDIR)" "$$tmp/src" 2>/dev/null && \
+		$(EXPORT_PY) scripts/workspace-docs/export.py --source "$$tmp/src" \
+			--out "$(WORKSPACE)/$(WORKSPACE_MAGENTO_DIR)" $(if $(ADOPT),--adopt); \
+		status=$$?; test -n "$$tmp" && rm -rf "$$tmp/src" && rmdir "$$tmp"; \
+		if [ $$status -eq 0 ]; then \
+			echo "Next: check 'git -C $(WORKSPACE) status', commit on a branch, and open a PR titled '<ticket> Sync Magento docs for $(TAG)'"; \
+		fi; exit $$status
 
 docs-export-check: $(EXPORT_PY)
 	$(EXPORT_PY) -m unittest discover -s scripts/workspace-docs
