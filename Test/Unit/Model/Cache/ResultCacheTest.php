@@ -127,7 +127,7 @@ class ResultCacheTest extends TestCase
 
         $this->cacheType->expects($this->never())->method('save');
 
-        $this->cache()->saveLookup(['cartItems' => []], ['product' => []]);
+        $this->cache()->saveLookup(['cartItems' => []], ['product' => [], 'shipping' => 0], []);
     }
 
     public function testGetLookupKeysOnPayloadHash()
@@ -136,9 +136,109 @@ class ResultCacheTest extends TestCase
         $expectedKey = (new CacheKeyBuilder())->forLookup($params);
         $this->config->method('getCacheLifetime')->willReturn(3600);
         $this->cacheType->method('load')->with($expectedKey)->willReturn('serialized');
-        $this->serializer->method('unserialize')->willReturn(['product' => []]);
+        $this->serializer->method('unserialize')->willReturn(['lines' => [0 => 1.5], 'shipping' => 0.25]);
 
-        $this->assertSame(['product' => []], $this->cache()->getLookup($params));
+        $this->assertSame(
+            ['product' => ['sequence-1' => 1.5], 'shipping' => 0.25],
+            $this->cache()->getLookup($params, [0 => 'sequence-1'])
+        );
+    }
+
+    /**
+     * Wire load/save to an array and the serializer to JSON, so a save can be
+     * read back through the real code.
+     */
+    private function useInMemoryBackend(): void
+    {
+        $store = [];
+        $this->config->method('getCacheLifetime')->willReturn(3600);
+        $this->cacheType->method('load')->willReturnCallback(static function ($key) use (&$store) {
+            return $store[$key] ?? false;
+        });
+        $this->cacheType->method('save')->willReturnCallback(static function ($data, $key) use (&$store) {
+            $store[$key] = $data;
+            return true;
+        });
+        $this->serializer->method('serialize')->willReturnCallback('json_encode');
+        $this->serializer->method('unserialize')->willReturnCallback(static function ($raw) {
+            return json_decode($raw, true);
+        });
+    }
+
+    public function testLookupRoundTripsUnderTheSameCodes()
+    {
+        $this->useInMemoryBackend();
+        $params = ['cartItems' => [['ItemID' => 'a'], ['ItemID' => 'b']]];
+        $result = ['product' => ['sequence-1' => 1.5, 'sequence-2' => 0.75], 'shipping' => 0.25];
+        $map = [0 => 'sequence-1', 1 => 'sequence-2'];
+
+        $cache = $this->cache();
+        $cache->saveLookup($params, $result, $map);
+
+        $this->assertSame($result, $cache->getLookup($params, $map));
+    }
+
+    /**
+     * Ticket 66649. Magento's item codes restart with every request and are
+     * not part of the payload, so the reader's codes can differ from the
+     * writer's. Each line must keep the tax of its own position — not vanish
+     * (shipping-only tax) and not take a neighbour's amount.
+     */
+    public function testLookupHitIsRebuiltUnderTheReadersCodes()
+    {
+        $this->useInMemoryBackend();
+        $params = ['cartItems' => [['ItemID' => 'a'], ['ItemID' => 'b']]];
+
+        $cache = $this->cache();
+        $cache->saveLookup(
+            $params,
+            ['product' => ['sequence-2' => 1.5, 'sequence-3' => 0.75], 'shipping' => 0.25],
+            [0 => 'sequence-2', 1 => 'sequence-3']
+        );
+
+        $this->assertSame(
+            ['product' => ['sequence-1' => 1.5, 'sequence-2' => 0.75], 'shipping' => 0.25],
+            $cache->getLookup($params, [0 => 'sequence-1', 1 => 'sequence-2'])
+        );
+    }
+
+    public function testLookupLineWithoutACachedAmountStaysAbsent()
+    {
+        $this->useInMemoryBackend();
+        $params = ['cartItems' => [['ItemID' => 'a'], ['ItemID' => 'b']]];
+
+        $cache = $this->cache();
+        // The live result had no amount for the second line.
+        $cache->saveLookup($params, ['product' => ['x' => 1.5], 'shipping' => 0], [0 => 'x', 1 => 'y']);
+
+        $this->assertSame(
+            ['product' => ['p' => 1.5], 'shipping' => 0],
+            $cache->getLookup($params, [0 => 'p', 1 => 'q'])
+        );
+    }
+
+    /**
+     * @dataProvider unusableLookupEntryProvider
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unusableLookupEntryProvider')]
+    public function testLookupEntryThatCannotBeMappedIsAMiss($entry)
+    {
+        $this->config->method('getCacheLifetime')->willReturn(3600);
+        $this->cacheType->method('load')->willReturn('serialized');
+        $this->serializer->method('unserialize')->willReturn($entry);
+
+        $this->assertNull($this->cache()->getLookup(['cartItems' => []], [0 => 'sequence-1']));
+    }
+
+    public static function unusableLookupEntryProvider(): array
+    {
+        return [
+            'written before entries were positional' => [['product' => ['sequence-2' => 1.5], 'shipping' => 0.25]],
+            'not an array' => ['garbage'],
+            'lines is not an array' => [['lines' => 'x', 'shipping' => 0.25]],
+            'no shipping amount' => [['lines' => [0 => 1.5]]],
+            'shipping is not a number' => [['lines' => [0 => 1.5], 'shipping' => 'x']],
+        ];
     }
 
     public function testSaveLookupPersistsUnderRatesTag()
@@ -152,7 +252,7 @@ class ResultCacheTest extends TestCase
             ->method('save')
             ->with('blob', $expectedKey, ['taxcloud_rates'], 600);
 
-        $this->cache()->saveLookup($params, ['product' => []]);
+        $this->cache()->saveLookup($params, ['product' => [], 'shipping' => 0], []);
     }
 
     public function testSaveAddressPersistsUnderAddressTag()
@@ -192,7 +292,7 @@ class ResultCacheTest extends TestCase
                 )
             );
 
-        $this->cache()->saveLookup(['cartItems' => []], ['product' => []]);
+        $this->cache()->saveLookup(['cartItems' => []], ['product' => [], 'shipping' => 0], []);
     }
 
     public function testSaveLookupKeepsAShortConfiguredLifetime()
@@ -204,7 +304,7 @@ class ResultCacheTest extends TestCase
             ->method('save')
             ->with('blob', $this->anything(), ['taxcloud_rates'], 300);
 
-        $this->cache()->saveLookup(['cartItems' => []], ['product' => []]);
+        $this->cache()->saveLookup(['cartItems' => []], ['product' => [], 'shipping' => 0], []);
     }
 
     /**

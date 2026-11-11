@@ -245,6 +245,39 @@ class RestGatewayTest extends TestCase
         $this->restRequestBuilder->method('buildCartPayload')->willReturn(self::CART_PAYLOAD);
     }
 
+    /**
+     * A real ResultCache over an array, with caching enabled.
+     */
+    private function inMemoryResultCache(): ResultCache
+    {
+        $store = [];
+        $backend = $this->createStub(\Magento\Framework\Cache\FrontendInterface::class);
+        $backend->method('load')->willReturnCallback(static function ($key) use (&$store) {
+            return $store[$key] ?? false;
+        });
+        $backend->method('save')->willReturnCallback(static function ($data, $key) use (&$store) {
+            $store[$key] = $data;
+            return true;
+        });
+        $serializer = $this->createStub(\Magento\Framework\Serialize\SerializerInterface::class);
+        $serializer->method('serialize')->willReturnCallback('json_encode');
+        $serializer->method('unserialize')->willReturnCallback(static function ($raw) {
+            return json_decode($raw, true);
+        });
+        $config = $this->createStub(TaxcloudConfig::class);
+        $config->method('getCacheLifetime')->willReturn(3600);
+        $timezone = $this->createStub(\Magento\Framework\Stdlib\DateTime\TimezoneInterface::class);
+        $timezone->method('getConfigTimezone')->willReturn('America/New_York');
+
+        return new ResultCache(
+            $backend,
+            $serializer,
+            new \Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder(),
+            $config,
+            $timezone
+        );
+    }
+
     private function cartResponse(array $lineItems): RestResponse
     {
         return new RestResponse(200, (string) json_encode(['items' => [['cartId' => '77', 'lineItems' => $lineItems]]]));
@@ -439,9 +472,11 @@ class RestGatewayTest extends TestCase
         );
 
         $saved = null;
+        $savedMap = null;
         $this->resultCache->expects($this->once())->method('saveLookup')->willReturnCallback(
-            static function ($params, $data) use (&$saved) {
+            static function ($params, $data, $indexedItems) use (&$saved, &$savedMap) {
                 $saved = $data;
+                $savedMap = $indexedItems;
                 return true;
             }
         );
@@ -452,6 +487,8 @@ class RestGatewayTest extends TestCase
         $this->assertSame(['code-a' => 3.83], $result[Api::ITEM_TYPE_PRODUCT]);
         $this->assertSame(0.51, $result[Api::ITEM_TYPE_SHIPPING]);
         $this->assertSame($result, $saved);
+        // The line map travels with the result, so the cache can store by position.
+        $this->assertSame([0 => 'code-a'], $savedMap);
 
         // The call went to the v3 carts endpoint with the quote's store.
         $this->assertSame(['POST', '/carts', self::CART_PAYLOAD, self::STORE_ID, true], $requestArgs);
@@ -474,6 +511,70 @@ class RestGatewayTest extends TestCase
         $this->assertSame($cached, $result);
         // The before event still fired (cache key uses post-observer payload).
         $this->assertSame(['taxcloud_rest_lookup_before'], $this->dispatchedEvents);
+    }
+
+    /**
+     * Reproduction for ticket 66649 (tax charged on shipping only).
+     *
+     * Magento labels cart lines `sequence-N` from a counter that lives for one
+     * request, and the label is not part of the lookup payload. The same cart
+     * can therefore reach the gateway under different labels — within one
+     * request, when it is priced through two separately loaded copies (core
+     * does this when carts are merged at login), the second copy's lines are
+     * labelled after the first's. Both send the identical payload, so the
+     * second is a cache hit — and must still report the line's tax under the
+     * label the caller asked about.
+     */
+    public function testCachedLookupIsReturnedUnderTheCurrentItemCodes()
+    {
+        $gateway = $this->gateway();
+        $this->requestBuilder->method('buildLookupDestination')->willReturn(self::V1_DESTINATION);
+        $this->requestBuilder->method('buildOrigin')->willReturn(self::V1_ORIGIN);
+        $this->restRequestBuilder->method('buildCartPayload')->willReturn(self::CART_PAYLOAD);
+
+        // Same line items both times; only Magento's per-request label differs.
+        $codes = ['sequence-2', 'sequence-1'];
+        $call = 0;
+        $this->restRequestBuilder->method('buildCartLineItems')->willReturnCallback(
+            static function () use (&$call, $codes) {
+                return [
+                    'lineItems' => [['index' => 0], ['index' => 1, 'itemId' => 'shipping']],
+                    'indexedItems' => [0 => $codes[$call++]],
+                ];
+            }
+        );
+
+        // The real cache over an in-memory backend, so the test covers what
+        // is stored and how it is read back, not a double's idea of it.
+        $realCache = $this->inMemoryResultCache();
+        $this->resultCache->method('getLookup')->willReturnCallback(
+            static function (...$args) use ($realCache) {
+                return $realCache->getLookup(...$args);
+            }
+        );
+        $this->resultCache->method('saveLookup')->willReturnCallback(
+            static function (...$args) use ($realCache) {
+                $realCache->saveLookup(...$args);
+            }
+        );
+
+        $this->restClient->expects($this->once())->method('request')->willReturn($this->cartResponse([
+            ['index' => 0, 'itemId' => 'sku-b', 'tax' => ['amount' => 3.83]],
+            ['index' => 1, 'itemId' => 'shipping', 'tax' => ['amount' => 0.51]],
+        ]));
+
+        [$itemsByType, $assignment, $quote] = $this->lookupInputs();
+        $first = $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+        $second = $gateway->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertSame(['sequence-2' => 3.83], $first[Api::ITEM_TYPE_PRODUCT]);
+        $this->assertSame(0.51, $second[Api::ITEM_TYPE_SHIPPING]);
+        $this->assertSame(
+            ['sequence-1' => 3.83],
+            $second[Api::ITEM_TYPE_PRODUCT],
+            'A cache hit returned product tax under a previous request\'s item codes; '
+            . 'the collector finds no tax for the line and charges shipping tax only.'
+        );
     }
 
     public function testLookupBeforeEventMutationReachesTheApi()

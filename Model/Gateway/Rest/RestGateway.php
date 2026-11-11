@@ -306,7 +306,7 @@ class RestGateway implements GatewayInterface
         ]);
 
         // check cache (use post-observer payload so cache key matches what we send to TaxCloud)
-        $cacheResult = $this->resultCache->getLookup($payload, $storeId);
+        $cacheResult = $this->resultCache->getLookup($payload, $indexedItems, $storeId);
         if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
@@ -370,7 +370,7 @@ class RestGateway implements GatewayInterface
             'Caching lookupTaxes result for ' . $this->resultCache->getLookupLifetime($storeId)
             . 's (capped at the store\'s next local midnight)'
         );
-        $this->resultCache->saveLookup($payload, $result, $storeId);
+        $this->resultCache->saveLookup($payload, $result, $indexedItems, $storeId);
 
         return $result;
     }

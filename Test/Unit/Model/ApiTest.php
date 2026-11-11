@@ -1508,6 +1508,49 @@ class ApiTest extends TestCase
     }
 
     /**
+     * Ticket 66649: Magento's item codes (`sequence-N`) restart with every
+     * request and are not part of the lookup params, so the same cart can hit
+     * the cache under a different code than the one it was cached under. The
+     * cached tax must come back under the code this request uses — otherwise
+     * the collector finds no product tax and charges shipping tax only.
+     */
+    public function testLookupTaxesCacheHitIsReturnedUnderTheCurrentItemCode()
+    {
+        $this->configureBaseLookupScopeConfig('3600');
+        $this->productTicService->method('getProductTic')->willReturn('00000');
+        $this->setUpPassThroughDataObject();
+
+        // An in-memory cache backend, so the real ResultCache does the work.
+        $store = [];
+        $this->cacheType->method('load')->willReturnCallback(static function ($key) use (&$store) {
+            return $store[$key] ?? false;
+        });
+        $this->cacheType->method('save')->willReturnCallback(static function ($data, $key) use (&$store) {
+            $store[$key] = $data;
+            return true;
+        });
+        $this->serializer->method('serialize')->willReturnCallback('json_encode');
+        $this->serializer->method('unserialize')->willReturnCallback(static function ($raw) {
+            return json_decode($raw, true);
+        });
+
+        $fixture = json_decode(file_get_contents(__DIR__ . '/../fixtures/lookup_single_item_taxable.json'));
+        $this->mockSoapClient->expects($this->once())->method('lookup')->willReturn($fixture);
+        $this->useRealCartItemResponseHandler();
+
+        [$assignment, $quote, $itemsByType] =
+            $this->buildBasicSingleItemLookupContext('NY', '10001', null, 'sequence-2');
+        $live = $this->api->lookupTaxes($itemsByType, $assignment, $quote);
+
+        [$assignment, $quote, $itemsByType] =
+            $this->buildBasicSingleItemLookupContext('NY', '10001', null, 'sequence-1');
+        $cached = $this->api->lookupTaxes($itemsByType, $assignment, $quote);
+
+        $this->assertSame(['sequence-2' => 1.23], $live[Api::ITEM_TYPE_PRODUCT]);
+        $this->assertSame(['sequence-1' => 1.23], $cached[Api::ITEM_TYPE_PRODUCT]);
+    }
+
+    /**
      * Section 1.2: TaxCloud documents both "OK" and "Informational" as valid
      * success ResponseTypes — see Api::lookupTaxes() at the
      * `ResponseType == 'OK' || ResponseType == 'Informational'` guard. Only the
@@ -3478,7 +3521,8 @@ class ApiTest extends TestCase
     private function buildBasicSingleItemLookupContext(
         string $stateCode,
         string $postcode,
-        ?string $attachedCertificateId = null
+        ?string $attachedCertificateId = null,
+        string $itemCode = 'item-1'
     ): array {
         $region = $this->getMockBuilder(\Taxcloud\Magento2\Test\Unit\Double\RegionDouble::class)
             ->disableOriginalConstructor()
@@ -3533,7 +3577,7 @@ class ApiTest extends TestCase
             ->disableOriginalConstructor()
             ->onlyMethods(['getPrice', 'getProduct', 'getQty', 'getSku', 'getDiscountAmount', 'getTaxCalculationItemId'])
             ->getMock();
-        $quoteItem->method('getTaxCalculationItemId')->willReturn('item-1');
+        $quoteItem->method('getTaxCalculationItemId')->willReturn($itemCode);
         $quoteItem->method('getProduct')->willReturn($product);
         $quoteItem->method('getQty')->willReturn(1);
         $quoteItem->method('getPrice')->willReturn(10.00);
@@ -3552,7 +3596,7 @@ class ApiTest extends TestCase
 
         $itemsByType = [
             Api::ITEM_TYPE_PRODUCT => [
-                'item-1' => [Api::KEY_ITEM => $productTaxDetail],
+                $itemCode => [Api::KEY_ITEM => $productTaxDetail],
             ],
         ];
 
