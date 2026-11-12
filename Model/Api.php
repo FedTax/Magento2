@@ -406,7 +406,7 @@ class Api implements GatewayInterface
         ]);
 
         // check cache (use post-observer params so cache key matches what we send to TaxCloud)
-        $cacheResult = $this->resultCache->getLookup($params, $storeId);
+        $cacheResult = $this->resultCache->getLookup($params, $indexedItems, $storeId);
         if ($cacheResult) {
             $this->tclogger->info('Using Cache');
             return $cacheResult;
@@ -479,7 +479,7 @@ class Api implements GatewayInterface
                 'Caching lookupTaxes result for ' . $this->resultCache->getLookupLifetime($storeId)
                 . 's (capped at the store\'s next local midnight)'
             );
-            $this->resultCache->saveLookup($params, $result, $storeId);
+            $this->resultCache->saveLookup($params, $result, $indexedItems, $storeId);
 
             return $result;
         } else {

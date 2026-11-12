@@ -2,6 +2,34 @@
 
 All notable changes to the TaxCloud Magento 2 extension are documented here.
 
+## 1.6.2
+
+A bugfix release for orders charged tax on shipping but not on their products. Run `bin/magento setup:upgrade` after updating. There is no database change and no cache needs flushing.
+
+### Fixed
+
+- **An order could be charged tax on shipping only, although TaxCloud had calculated tax on the products.**
+  - The extension reuses a recent TaxCloud answer for an identical cart instead of asking again (see **Cache Lifetime**).
+  - The saved answer listed product tax under Magento's internal labels for cart lines. Those labels count up through a page request and are not part of what TaxCloud is asked, so the same cart can carry different labels from one pricing to the next.
+  - When they differed, the extension found no tax for the products in the saved answer and charged 0 on them. Shipping tax is not stored per line, so it was still charged.
+  - This happened when one page request priced the same cart twice through two separately loaded copies. Magento does this itself when a shopper with a guest cart logs in to an account that already has a cart, and other extensions can do it too. A cart with one product got tax on shipping only. A cart with several products could get a line's tax from another line, or none.
+  - The TaxCloud log showed only `Using Cache` for the affected pricing, and TaxCloud's own record of the cart showed the correct tax.
+  - A saved answer is now stored by line position and applied to whichever labels the current request uses, on both V1 SOAP and V3 REST.
+  - Answers saved before updating are ignored and looked up again, so the first lookup after updating is already correct.
+
+  Orders placed before this release keep the tax they were charged, and are not corrected by updating.
+
+### Changed
+
+- **`ResultCache::getLookup()` and `ResultCache::saveLookup()` take the request's line-to-item map** as a new argument before the store. Only custom code that calls these two methods directly needs updating.
+- **When downgrading to 1.6.1 or older, flush the TaxCloud cache** (`bin/magento cache:clean taxcloud`). Older versions cannot read answers saved by this one.
+
+### Tests
+
+- Unit tests for the saved answer: the same labels, different labels, several lines, a line with no amount, and answers saved in the old form.
+- Unit tests for a reused answer under different labels on both V1 SOAP and V3 REST.
+- An integration test that prices a real cart through two loaded copies in one process, the way Magento does when carts are merged at login, and places the order, checking both carry product and shipping tax.
+
 ## 1.6.1
 
 A bugfix release for products whose SKU is longer than 50 characters, such as bundles with **Dynamic SKU**. Run `bin/magento setup:upgrade` after updating. There is no database change, and nothing changes for SKUs of 50 characters or fewer.

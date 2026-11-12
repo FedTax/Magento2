@@ -21,6 +21,7 @@ use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\Serialize\SerializerInterface;
 use Magento\Framework\Stdlib\DateTime\TimezoneInterface;
 use Magento\Store\Model\ScopeInterface;
+use Taxcloud\Magento2\Model\Api;
 use Taxcloud\Magento2\Model\Config\TaxcloudConfig;
 use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
 
@@ -39,11 +40,21 @@ use Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder;
  * boundary in the jurisdiction, so a cached rate must never outlive one.
  * Address results carry no such boundary and keep the configured lifetime.
  *
+ * Lookup entries hold tax per request line position and are rebuilt under the
+ * caller's item codes on read; see {@see getLookup()}.
+ *
  * Callers supply the cache key (see
  * {@see \Taxcloud\Magento2\Model\Gateway\CacheKeyBuilder}) and the tags.
  */
 class ResultCache
 {
+    /**
+     * Keys of a cached Lookup entry: tax per request line index, and the
+     * shipping tax.
+     */
+    private const LOOKUP_LINES = 'lines';
+    private const LOOKUP_SHIPPING = 'shipping';
+
     /**
      * @var FrontendInterface
      */
@@ -91,30 +102,72 @@ class ResultCache
     }
 
     /**
-     * Cached Lookup (tax rate) response for a request payload, or null.
+     * Cached Lookup (tax rate) result for a request payload, or null.
+     *
+     * Entries are stored by request line position, not by Magento's item code
+     * (`sequence-N`): the code comes from a counter that restarts with every
+     * request and is not part of the payload, so the same cart can reach a
+     * lookup under different codes. The result is rebuilt here under the codes
+     * the CALLER uses, which is what the tax collector reads it by.
+     *
+     * An entry without the positional shape — one written before entries were
+     * positional, or anything unreadable — is a miss: the lookup runs live and
+     * its result replaces the entry.
      *
      * @param array $params Lookup request params (post-observer)
+     * @param array $indexedItems Request line index => item code, for this request
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store Store whose cache lifetime applies
-     * @return mixed|null
+     * @return array|null ['product' => [code => tax], 'shipping' => tax]
      */
-    public function getLookup(array $params, $store = null)
+    public function getLookup(array $params, array $indexedItems, $store = null)
     {
-        return $this->get($this->cacheKeyBuilder->forLookup($params), $store);
+        $entry = $this->get($this->cacheKeyBuilder->forLookup($params), $store);
+        if (!is_array($entry)
+            || !isset($entry[self::LOOKUP_LINES], $entry[self::LOOKUP_SHIPPING])
+            || !is_array($entry[self::LOOKUP_LINES])
+            || !is_numeric($entry[self::LOOKUP_SHIPPING])
+        ) {
+            return null;
+        }
+
+        $product = [];
+        foreach ($indexedItems as $index => $code) {
+            if (array_key_exists($index, $entry[self::LOOKUP_LINES])) {
+                $product[$code] = $entry[self::LOOKUP_LINES][$index];
+            }
+        }
+
+        return [
+            Api::ITEM_TYPE_PRODUCT => $product,
+            Api::ITEM_TYPE_SHIPPING => $entry[self::LOOKUP_SHIPPING],
+        ];
     }
 
     /**
-     * Persist a Lookup response keyed on its request payload.
+     * Persist a Lookup result keyed on its request payload, by line position.
      *
      * @param array $params
-     * @param mixed $data
+     * @param array $result ['product' => [code => tax], 'shipping' => tax]
+     * @param array $indexedItems Request line index => item code, as the result was built
      * @param int|string|\Magento\Store\Api\Data\StoreInterface|null $store
      * @return void
      */
-    public function saveLookup(array $params, $data, $store = null)
+    public function saveLookup(array $params, array $result, array $indexedItems, $store = null)
     {
+        $productTax = $result[Api::ITEM_TYPE_PRODUCT] ?? [];
+        $lines = [];
+        foreach ($indexedItems as $index => $code) {
+            if (array_key_exists($code, $productTax)) {
+                $lines[$index] = $productTax[$code];
+            }
+        }
+
         $this->save(
             $this->cacheKeyBuilder->forLookup($params),
-            $data,
+            [
+                self::LOOKUP_LINES => $lines,
+                self::LOOKUP_SHIPPING => $result[Api::ITEM_TYPE_SHIPPING] ?? 0,
+            ],
             ['taxcloud_rates'],
             $store,
             $this->getLookupLifetime($store)
