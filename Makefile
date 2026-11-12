@@ -318,10 +318,11 @@ docs-sync-workspace: $(EXPORT_PY)
 	@test -n "$(TAG)" -a -n "$(WORKSPACE)" || { echo "Usage: make docs-sync-workspace TAG=v1.2.3 WORKSPACE=<taxcloud-workspace clone> [ADOPT=1]"; exit 2; }
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "Tag $(TAG) not found locally; run: git fetch --tags"; exit 2; }
 	@test -d "$(WORKSPACE)/docs/products/integrations" || { echo "$(WORKSPACE) is not a taxcloud-workspace clone (no docs/products/integrations)"; exit 2; }
+	@case "$(strip $(ADOPT))" in ""|0|1) ;; *) echo "ADOPT must be 1 (adopt) or 0/unset (don't), got '$(ADOPT)'"; exit 2;; esac
 	@tmp=$$(mktemp -d) && test -n "$$tmp" && \
 		git clone -q --depth 1 --branch "$(TAG)" "file://$(CURDIR)" "$$tmp/src" 2>/dev/null && \
 		$(EXPORT_PY) scripts/workspace-docs/export.py --source "$$tmp/src" \
-			--out "$(WORKSPACE)/$(WORKSPACE_MAGENTO_DIR)" $(if $(ADOPT),--adopt); \
+			--out "$(WORKSPACE)/$(WORKSPACE_MAGENTO_DIR)" $(if $(filter 1,$(strip $(ADOPT))),--adopt); \
 		status=$$?; test -n "$$tmp" && rm -rf "$$tmp/src" && rmdir "$$tmp"; \
 		if [ $$status -eq 0 ]; then \
 			echo "Next: check 'git -C $(WORKSPACE) status', commit on a branch, and open a PR titled '<ticket> Sync Magento docs for $(TAG)'"; \
