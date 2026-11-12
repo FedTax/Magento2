@@ -1,0 +1,40 @@
+# Opens a reminder issue when a release is published: the docs for that release
+# need copying into TaxCloud's internal knowledge base (taxcloud-workspace,
+# published to the PD Confluence space). The sync itself is a person running
+# `make docs-sync-workspace` and opening the workspace PR; see README
+# "Export to taxcloud-workspace". Uses only this repository's own token.
+name: Workspace docs reminder
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  issues: write
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open the sync issue unless one is already open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          title="Sync docs for ${TAG} to taxcloud-workspace"
+          if gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"${title}\" in:title" \
+               --json title --jq '.[].title' | grep -Fxq "$title"; then
+            echo "Already open: $title"
+            exit 0
+          fi
+          {
+            echo "Release ${TAG} is published. Copy its docs into taxcloud-workspace so PD matches what merchants can install."
+            echo
+            echo '```bash'
+            echo 'git fetch --tags'
+            echo "make docs-sync-workspace TAG=${TAG} WORKSPACE=<path to your taxcloud-workspace clone>"
+            echo '```'
+            echo
+            echo "Then commit on a branch in the workspace clone, open a PR titled \`<ticket> Sync Magento docs for ${TAG}\`, and close this issue once it is merged. If the export changed nothing, close this issue."
+          } > body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md

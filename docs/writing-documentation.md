@@ -136,6 +136,14 @@ into sub-headings, escapes dollar signs and replaces commas in image
 descriptions with semicolons. The Development section is not
 copied; links into it point at this site instead.
 
+Content that only makes sense on this site, such as how to contribute, can be
+left out of that copy with HTML comments, which this site does not display:
+
+- `<!-- workspace-export: skip -->` and `<!-- workspace-export: end -->`, each
+  on its own line, around a block.
+- `<!-- workspace-export: skip-line -->` at the end of a single line, such as
+  a list item. A block marker between list items would split the list here.
+
 The `Workspace docs export` CI job runs the export and renders the result with
 TaxCloud's Confluence converter on every docs change. Run the same check
 locally with `make docs-export-check`.

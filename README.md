@@ -117,36 +117,53 @@ there only; this README covers developer material.
 #### Export to taxcloud-workspace
 
 TaxCloud's internal knowledge base (`FedTax/taxcloud-workspace`, published to
-the PD Confluence space with md2conf) carries a copy of the merchant docs.
-`scripts/workspace-docs/export.py` converts them to that layout, and
-docs-sync-bot runs it on each release tag:
+the PD Confluence space with md2conf) carries an exact copy of the merchant
+docs in `docs/products/integrations/magento/`. docs-sync-bot does not edit that
+folder: it is replaced from our docs on every release.
+
+**On each release:** publishing the GitHub release opens a "Sync docs for
+vX.Y.Z to taxcloud-workspace" issue (`.github/workflows/workspace-docs-reminder.yml`).
+Then:
 
 ```bash
-python3 scripts/workspace-docs/export.py --out <workspace>/docs/products/integrations/magento/merchant-guide
+git fetch --tags
+make docs-sync-workspace TAG=v1.2.3 WORKSPACE=<path to your taxcloud-workspace clone>
 ```
 
-The contract the bot relies on:
+This exports the docs as they stood at the tag into the workspace clone,
+replacing the Magento folder, and leaves git to you. Commit on a branch, open a
+PR titled `<ticket> Sync Magento docs for v1.2.3` (the workspace requires a
+ticket ID), and close the issue once it merges. `ADOPT=1` takes over a folder
+the export did not write, and is only needed once.
+
+`scripts/workspace-docs/export.py` does the conversion:
+
+```bash
+python3 scripts/workspace-docs/export.py --out <dir> [--source <checkout>] [--adopt]
+```
 
 - The only dependency is PyYAML, from `scripts/workspace-docs/requirements.txt`.
 - There is no network access and no LLM step.
 - Output is byte-identical for unchanged docs.
 - Exit codes are `0` (exported), `1` (a page cannot be converted; file:line on
   stderr) and `2` (usage error, or `--out` is a non-empty directory the export
-  did not write).
+  did not write, without `--adopt`).
 - The output directory is replaced as a whole and marked with
   `.magento-docs-export`. A failed run leaves it untouched.
 
 The export prefixes titles with "Magento 2 — ", numbers files in nav order,
 rewrites links, copies referenced images, turns content tabs into
 sub-headings, escapes `$`, replaces commas in image alt text with semicolons
-(Confluence rejects them in attachment comments), and drops the Development
-section. Unsupported
-markup fails the export instead of being published wrong.
+(Confluence rejects them in attachment comments), drops content marked as
+public-site-only, and drops the Development section. Unsupported markup fails
+the export instead of being published wrong.
 
 `.github/workflows/workspace-docs.yml` runs the export's unit tests, the
-export itself, and an offline md2conf render on every docs change. md2conf is
-pinned in `scripts/workspace-docs/requirements-check.txt` to the same commit as
-the workspace's `docs/requirements.txt`; bump it when they do.
+export itself, and an offline md2conf render on every docs change. The offline
+render cannot catch errors Confluence only raises on upload, such as the
+attachment-comment rule above. md2conf is pinned in
+`scripts/workspace-docs/requirements-check.txt` to the same commit as the
+workspace's `docs/requirements.txt`; bump it when they do.
 
 ```bash
 make docs-export OUT=/tmp/guide   # export locally
@@ -295,6 +312,7 @@ Each GitHub release automatically produces a Marketplace-ready zip named `taxclo
    ```
 4. **Create a GitHub release** from the tag at [Releases → Draft a new release](https://github.com/FedTax/Magento2/releases/new). Auto-generate release notes or write them manually.
 5. The `Build Marketplace Release Package` workflow runs automatically on publish and attaches `taxcloud_magento2-<version>.zip` to the release. (If it ever fails, you can re-run it manually from *Actions → Build Marketplace Release Package → Run workflow* and pass the tag.)
+   Publishing also opens a "Sync docs for vX.Y.Z to taxcloud-workspace" issue: follow it to copy the release's docs into TaxCloud's internal knowledge base (see [Export to taxcloud-workspace](#export-to-taxcloud-workspace)).
 6. Go to the [Marketplace extension page](https://commercedeveloper.adobe.com/extensions/versions/taxcloud-magento2) and start a new version submission.
 7. **Attach the zip** from the GitHub release under *Attach package*, and **paste the release notes** from the GitHub release body into the submission form.
 8. **Submit for review.** Once Adobe approves the submission, the new version is published to the Marketplace automatically.

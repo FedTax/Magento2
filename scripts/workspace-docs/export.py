@@ -2,20 +2,25 @@
 """Export the merchant docs into the taxcloud-workspace (md2conf) layout.
 
 TaxCloud's internal knowledge base, the `taxcloud-workspace` repo, publishes
-`docs/` to the PD Confluence space with md2conf. docs-sync-bot runs this script
-on every release tag to copy our docs there verbatim:
+`docs/` to the PD Confluence space with md2conf. On every release our docs are
+copied there verbatim (`make docs-sync-workspace` runs this script against the
+release tag):
 
-    python3 scripts/workspace-docs/export.py --out <dir>
+    python3 scripts/workspace-docs/export.py --out <dir> [--source <checkout>] [--adopt]
 
 The output directory is owned by the export: it is replaced as a whole (so
 removed pages disappear), marked with `.magento-docs-export`, and a non-empty
-directory without that marker is refused. Output is deterministic, so a release
-without doc changes produces no diff.
+directory without that marker is refused unless `--adopt` is given. Output is
+deterministic, so a release without doc changes produces no diff.
 
 Content is copied as-is apart from the conversions md2conf needs: titles get a
 "Magento 2 — " prefix, links are rewritten, content tabs become sub-headings,
-dollar signs are escaped and commas in image alt text become semicolons. Markup md2conf cannot render fails the export instead
-of being published wrong.
+dollar signs are escaped and commas in image alt text become semicolons.
+Content between `<!-- workspace-export: skip -->` and
+`<!-- workspace-export: end -->` lines, or a line ending in
+`<!-- workspace-export: skip-line -->`, belongs only on the public docs site and
+is dropped. Markup md2conf cannot render fails the export instead of being
+published wrong.
 
 Exit codes: 0 success, 1 conversion error, 2 usage error or refused directory.
 """
@@ -42,6 +47,10 @@ EXCLUDED_SECTIONS = {"Development"}
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 TAB_RE = re.compile(r'^=== "(.+)"\s*$')
+SKIP_RE = re.compile(r"^\s*<!--\s*workspace-export:\s*skip\s*-->\s*$")
+END_RE = re.compile(r"^\s*<!--\s*workspace-export:\s*end\s*-->\s*$")
+# Drops just the line it ends; a block marker inside a list would split it.
+SKIP_LINE_RE = re.compile(r"<!--\s*workspace-export:\s*skip-line\s*-->\s*$")
 INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1")
 # The same, but allowed to wrap onto following lines (not across a blank line).
 INLINE_SPAN_RE = re.compile(r"(`+)(?:(?!\n\s*\n)[\s\S])+?\1")
@@ -207,6 +216,8 @@ class Converter:
         # Output lines map 1:1 to source lines, so line numbers stay true.
         out: list[str] = []
         is_code: list[bool] = []
+        skipped: set[int] = set()  # indexes of lines dropped as public-site-only
+        skip_from = 0  # line number of the open skip marker, 0 when none
         in_fence = False
         tab_indent = False  # inside a content tab body (indented by 4)
         last_level = 1
@@ -214,6 +225,27 @@ class Converter:
             if tab_indent and line.strip() and not line.startswith("    "):
                 tab_indent = False
             body = line[4:] if tab_indent and line.startswith("    ") else line
+
+            # Skipped lines stay as placeholders until the end, so line
+            # numbers in errors stay true.
+            drop = bool(skip_from)
+            if not in_fence and SKIP_RE.match(body):
+                if skip_from:
+                    raise ExportError(f"skip marker inside the skip opened on line {skip_from}", path, lineno)
+                skip_from = lineno
+                drop = True
+            elif not in_fence and END_RE.match(body):
+                if not skip_from:
+                    raise ExportError("end marker without a skip marker", path, lineno)
+                skip_from = 0
+                drop = True
+            elif not in_fence and SKIP_LINE_RE.search(body):
+                drop = True
+            if drop:
+                skipped.add(len(out))
+                out.append(body)
+                is_code.append(True)
+                continue
 
             if FENCE_RE.match(body) or in_fence:
                 if FENCE_RE.match(body):
@@ -239,6 +271,8 @@ class Converter:
             out.append(body)
         if in_fence:
             raise ExportError("unclosed code fence", path, len(lines))
+        if skip_from:
+            raise ExportError("skip marker without an end marker", path, skip_from)
 
         # Pass 2, per run of prose lines: links and inline code may wrap
         # across lines, so rewrite whole runs rather than single lines.
@@ -253,7 +287,8 @@ class Converter:
                 chunk = self.rewrite(chunk, page, path, start + 1)
             result.append(chunk)
             start = end
-        return "\n".join(result).rstrip("\n") + "\n"
+        kept = [text for i, text in enumerate("\n".join(result).split("\n")) if i not in skipped]
+        return "\n".join(kept).rstrip("\n") + "\n"
 
     @staticmethod
     def guard(line: str, path: str, lineno: int) -> None:
@@ -360,12 +395,19 @@ def build(source: Path, dest: Path) -> None:
     )
 
 
-def export(source: Path, out: Path) -> None:
-    """Build into a sibling temp dir, then swap it in; `out` is untouched on failure."""
+def export(source: Path, out: Path, adopt: bool = False) -> None:
+    """Build into a sibling temp dir, then swap it in; `out` is untouched on failure.
+
+    `adopt` takes over a non-empty directory the export did not write (once,
+    for a folder that predates the marker); it is marked from then on.
+    """
     if out.exists() and not out.is_dir():
         raise UsageError(f"{out} exists and is not a directory")
-    if out.is_dir() and any(out.iterdir()) and not (out / MARKER).is_file():
-        raise UsageError(f"refusing to replace {out}: it is not empty and was not written by this export")
+    if out.is_dir() and any(out.iterdir()) and not (out / MARKER).is_file() and not adopt:
+        raise UsageError(
+            f"refusing to replace {out}: it is not empty and was not written by this export"
+            " (pass --adopt to take it over)"
+        )
     out.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{out.name}.", dir=out.parent))
     try:
@@ -389,9 +431,13 @@ def main(argv: list[str] | None = None) -> int:
         "--source", type=Path, default=Path(__file__).resolve().parents[2],
         help="repository root holding mkdocs.yml and docs/ (default: this checkout)",
     )
+    parser.add_argument(
+        "--adopt", action="store_true",
+        help="take over a non-empty --out directory this export did not write",
+    )
     args = parser.parse_args(argv)
     try:
-        export(args.source.resolve(), args.out.resolve())
+        export(args.source.resolve(), args.out.resolve(), adopt=args.adopt)
     except UsageError as error:
         print(f"export: {error}", file=sys.stderr)
         return 2
